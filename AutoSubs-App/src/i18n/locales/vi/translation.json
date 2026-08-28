@@ -1,0 +1,999 @@
+{
+  "settings": {
+    "title": "Cài đặt",
+    "description": "Tùy chỉnh các thiết lập và tùy chọn của AutoSubs.",
+    "sections": {
+      "transcription": "Phiên âm",
+      "language": "Ngôn ngữ",
+      "cli": "Dòng lệnh"
+    },
+    "gpu": {
+      "title": "Tăng tốc GPU",
+      "description": "Dùng GPU để phiên âm nhanh hơn"
+    },
+    "dtw": {
+      "title": "Tinh chỉnh từ Whisper",
+      "description": "Tăng độ chính xác thời gian của từng từ cho Whisper",
+      "supersededByAlignment": "Không dùng khi bật Căn thời gian từ"
+    },
+    "forcedAlignment": {
+      "title": "Căn thời gian từ",
+      "description": "Lượt căn thời gian bổ sung, 317MB, CC BY-NC (phi thương mại)",
+      "translationIncompatible": "Không dùng khi dịch, chữ sẽ không khớp âm thanh",
+      "summary": "Căn thời gian từ"
+    },
+    "uiLanguage": {
+      "title": "Ngôn ngữ ứng dụng",
+      "description": "Đổi ngôn ngữ menu và nút bấm"
+    },
+    "cli": {
+      "title": "Công cụ dòng lệnh",
+      "description": "Cài lệnh {{cmd}} để phiên âm tệp từ mọi cửa sổ dòng lệnh.",
+      "install": "Cài đặt",
+      "remove": "Gỡ bỏ",
+      "available": "Đã cài",
+      "notFound": "Chưa có",
+      "errorTitle": "Công cụ dòng lệnh"
+    },
+    "restartOnboarding": "Chạy lại hướng dẫn",
+    "openLogsFolder": "Mở thư mục nhật ký",
+    "reset": {
+      "button": "Đặt lại cài đặt",
+      "confirm": "Bạn có chắc muốn đặt lại toàn bộ cài đặt, kể cả cài đặt phiên âm? Thao tác này không thể hoàn tác.",
+      "confirmTitle": "Đặt lại cài đặt"
+    },
+    "support": {
+      "supportAutoSubs": "Ủng hộ AutoSubs",
+      "viewSource": "Đóng góp"
+    }
+  },
+  "common": {
+    "close": "Đóng",
+    "cancel": "Hủy",
+    "back": "Quay lại",
+    "next": "Tiếp",
+    "apply": "Áp dụng",
+    "add": "Thêm",
+    "done": "Xong",
+    "delete": "Xóa",
+    "generateSubtitles": "Tạo phụ đề",
+    "startNewTranscription": "Bắt đầu phiên âm mới",
+    "refresh": "Làm mới kết nối",
+    "edit": "Sửa",
+    "scrollDown": "Cuộn xuống"
+  },
+  "update": {
+    "restartResolveServer": {
+      "title": "Đã cài bản cập nhật",
+      "description": "AutoSubs đã khởi động lại và ngắt kết nối với Resolve. Trong DaVinci Resolve, hãy chạy lại Workspace -> Scripts -> AutoSubs để khởi động máy chủ Lua mới."
+    }
+  },
+  "importExport": {
+    "button": "Xuất / Nhập",
+    "importTab": "Nhập",
+    "exportTab": "Xuất",
+    "dropHere": "Thả tệp vào đây hoặc bấm để chọn",
+    "supportsSrt": "Hỗ trợ tệp .srt",
+    "selected": "Đã chọn:",
+    "importFile": "Nhập tệp",
+    "exportAsSrt": "Xuất ra SRT",
+    "fileDialog": {
+      "subtitleFiles": "Tệp phụ đề"
+    },
+    "exportFormats": {
+      "srt": {
+        "title": "Phụ đề (.srt)",
+        "description": "Phụ đề có thời gian cho trình phát và nền tảng video."
+      },
+      "txt": {
+        "title": "Bản chép lời (.txt)",
+        "description": "Văn bản thuần kèm nhãn người nói, dùng cho LLM."
+      }
+    }
+  },
+  "actionBar": {
+    "source": "Nguồn",
+    "options": "Tùy chọn",
+    "subtitleStyle": "Kiểu phụ đề",
+    "subtitleStyleDescription": "Phụ đề",
+    "model": "Mô hình",
+    "common": {
+      "auto": "Tự động",
+      "off": "Tắt"
+    },
+    "mode": {
+      "fileInput": "Tệp",
+      "timeline": "Dòng thời gian"
+    },
+    "format": {
+      "title": "Chữ",
+      "removePunctuationTitle": "Bỏ dấu câu",
+      "removePunctuationDescription": "Xóa dấu phẩy, dấu chấm, v.v.",
+      "textCaseTitle": "Kiểu chữ",
+      "textCaseDescription": "Đổi kiểu chữ của phụ đề",
+      "textCase": {
+        "normal": "Bình thường",
+        "lowercase": "chữ thường",
+        "uppercase": "CHỮ HOA",
+        "titleCase": "Viết Hoa Đầu Từ"
+      },
+      "lineCountTitle": "Số dòng",
+      "lineCountDescription": "Số dòng tối đa mỗi phụ đề",
+      "textDensityTitle": "Độ dài phụ đề",
+      "textDensityDescription": "Số chữ mỗi phụ đề",
+      "textDensity": {
+        "single": "Từng từ",
+        "less": "Ít",
+        "standard": "Chuẩn",
+        "more": "Nhiều",
+        "custom": "Tùy chỉnh"
+      },
+      "customCharsTitle": "Số ký tự tối đa",
+      "customCharsDescription": "Ký tự mỗi dòng",
+      "customPromptButton": "Gợi ý",
+      "customPromptTitle": "Từ vựng & ngữ cảnh",
+      "customPromptDescription": "Thêm thuật ngữ, tên riêng hoặc ngữ cảnh cho Whisper.",
+      "customPromptPlaceholder": "Ví dụ: OpenAI, DaVinci Resolve, hướng dẫn chỉnh sửa phụ đề.",
+      "customPromptFooter": "Chỉ dùng với mô hình Whisper. Hãy viết cùng ngôn ngữ với âm thanh."
+    },
+    "censor": {
+      "title": "Kiểm duyệt từ ngữ",
+      "wordCount": "{{count}} từ",
+      "dialogTitle": "Kiểm duyệt từ nhạy cảm",
+      "dialogDescription": "Bật danh sách từ hoặc thêm từ riêng để kiểm duyệt trong phụ đề.",
+      "inputPlaceholder": "Thêm từ cần kiểm duyệt",
+      "empty": "Chưa có từ nào bị kiểm duyệt.",
+      "lists": "Danh sách từ",
+      "listBuiltIn": "Có sẵn",
+      "noLists": "Không có danh sách từ nào.",
+      "customSection": "Từ tùy chỉnh",
+      "customSectionDescription": "Nhập từng từ cần kiểm duyệt.",
+      "listWordCount": "{{count}} từ"
+    },
+    "speakers": {
+      "title": "Nhãn người nói",
+      "description": "Nhận diện từng người nói",
+      "countTitle": "Số người nói",
+      "disabled": "Đã tắt"
+    },
+    "tracks": {
+      "exportRange": {
+        "entire": "Toàn dòng thời gian",
+        "inout": "Điểm In/Out"
+      },
+      "trackN": "Track {{n}}",
+      "countSelected": "Đã chọn {{count}} track",
+      "selectedLabel": "Đã chọn {{label}}",
+      "noneSelected": "Chưa chọn track nào",
+      "selectAll": "Chọn tất cả",
+      "clearAll": "Bỏ chọn hết",
+      "noneFound": "Không tìm thấy track âm thanh.",
+      "createTrack": "Không tìm thấy dòng thời gian",
+      "refresh": "Làm mới track"
+    },
+    "fileDrop": {
+      "aria": "Thả tệp âm thanh vào đây hoặc bấm để chọn",
+      "prompt": "Thả tệp hoặc bấm",
+      "supports": "Hỗ trợ hầu hết định dạng"
+    },
+    "fileDialog": {
+      "mediaFiles": "Tệp media (ffmpeg hỗ trợ)"
+    },
+    "language": {
+      "title": "Ngôn ngữ",
+      "source": "Nguồn",
+      "translate": "Dịch",
+      "searchSourcePlaceholder": "Tìm ngôn ngữ...",
+      "searchTargetPlaceholder": "Tìm ngôn ngữ đích...",
+      "noLanguageFound": "Không tìm thấy ngôn ngữ.",
+      "notListedHint": "Omni-ASR hỗ trợ hơn 1600 ngôn ngữ.",
+      "useOmniAsr": "Dùng Tự động với Omni-ASR",
+      "nativeTranslation": "Mô hình tự dịch",
+      "googleTranslation": "Google Dịch"
+    }
+  },
+  "speakerEditor": {
+    "title": "Sửa người nói",
+    "description": "Đây là những người nói được phát hiện trong âm thanh.",
+    "name": "Tên người nói",
+    "namePlaceholder": "Nhập tên người nói",
+    "outputTrack": "Track đầu ra",
+    "style": "Kiểu riêng",
+    "colors": {
+      "none": "Không",
+      "fill": "Nền",
+      "outline": "Viền"
+    }
+  },
+  "modelStatus": {
+    "cached": "Đã tải",
+    "storage": "Dung lượng:",
+    "ram": "RAM:",
+    "accuracy": "Độ chính xác",
+    "downloadProgress": "{{progress}}%",
+    "speed": "Tốc độ",
+    "ramShort": "{{size}} RAM",
+    "downloadShort": "tải {{size}}"
+  },
+  "models": {
+    "searchPlaceholder": "Tìm mô hình...",
+    "noResults": "Không tìm thấy mô hình.",
+    "filters": {
+      "accuracy": "Độ chính xác",
+      "recommended": "Đề xuất",
+      "search": "Tìm kiếm",
+      "speed": "Tốc độ"
+    },
+    "englishOnly": {
+      "title": "Mô hình chỉ tiếng Anh",
+      "description": "Hiện các mô hình chuyên tiếng Anh, chính xác hơn khi phiên âm."
+    },
+    "manage": {
+      "title": "Mô hình",
+      "description": "Xóa mô hình đã tải để giải phóng dung lượng.",
+      "empty": "Chưa tải mô hình nào",
+      "deleteModel": "Xóa mô hình",
+      "confirmTitle": "Bạn có chắc không?",
+      "confirmBody": "Thao tác này sẽ xóa mô hình {{model}} khỏi thiết bị. Nếu dùng lại sau này, bạn sẽ phải tải xuống lần nữa."
+    },
+    "diarize": {
+      "label": "Mô hình phân tách người nói",
+      "description": "Gói nhận diện người nói",
+      "details": "Dùng để phân tách và gán nhãn người nói.",
+      "badge": "Nhãn người nói"
+    },
+    "aligner": {
+      "label": "Mô hình căn chỉnh MMS",
+      "description": "Gói căn thời gian theo âm thanh",
+      "details": "Mô hình tùy chọn giúp căn các từ trong bản chép lời với giọng nói gốc.",
+      "badge": "Căn thời gian từ",
+      "licenseRestriction": "CC BY-NC 4.0 · Phi thương mại",
+      "attribution": "Mô hình Meta MMS · chuyển đổi bởi MahmoudAshraf · ONNX bởi onnx-community",
+      "repository": "Kho mô hình",
+      "licenseLink": "Giấy phép mô hình"
+    },
+    "tiny": {
+      "label": "Whisper Tiny",
+      "description": "Siêu nhanh",
+      "details": "Phiên âm nhanh nhất, tốn rất ít bộ nhớ. Hợp cho bản nháp nhanh.",
+      "badge": "Đa ngôn ngữ"
+    },
+    "tiny_en": {
+      "label": "Whisper Tiny",
+      "description": "Siêu nhanh",
+      "details": "Phiên âm tiếng Anh nhanh nhất, rất ít bộ nhớ. Hợp cho bản nháp.",
+      "badge": "Chỉ tiếng Anh"
+    },
+    "base": {
+      "label": "Whisper Base",
+      "description": "Nhanh",
+      "details": "Phiên âm ổn định, cần ít bộ nhớ. Rất hợp để dùng hằng ngày.",
+      "badge": "Đa ngôn ngữ"
+    },
+    "base_en": {
+      "label": "Whisper Base",
+      "description": "Nhanh",
+      "details": "Phiên âm tiếng Anh ổn định, ít bộ nhớ. Hợp dùng hằng ngày.",
+      "badge": "Chỉ tiếng Anh"
+    },
+    "small": {
+      "label": "Whisper Small",
+      "description": "Cân bằng",
+      "details": "Cân bằng tốc độ và độ chính xác, bộ nhớ vừa phải. Xử lý tốt nhiều giọng.",
+      "badge": "Đa ngôn ngữ"
+    },
+    "small_en": {
+      "label": "Whisper Small",
+      "description": "Cân bằng",
+      "details": "Cân bằng tốc độ và độ chính xác tiếng Anh, bộ nhớ vừa phải. Hợp nhiều giọng.",
+      "badge": "Chỉ tiếng Anh"
+    },
+    "medium": {
+      "label": "Whisper Medium",
+      "description": "Chính xác",
+      "details": "Phiên âm chính xác cao, tốc độ và bộ nhớ vừa phải. Tốt cho âm thanh khó.",
+      "badge": "Đa ngôn ngữ"
+    },
+    "medium_en": {
+      "label": "Whisper Medium",
+      "description": "Chính xác",
+      "details": "Phiên âm tiếng Anh chính xác cao, tốc độ vừa phải. Tốt cho âm thanh khó.",
+      "badge": "Chỉ tiếng Anh"
+    },
+    "large_v3_turbo": {
+      "label": "Whisper Large Turbo",
+      "description": "Nhanh & chính xác",
+      "details": "Độ chính xác rất tốt, nhanh hơn bản Large, bộ nhớ vừa phải.",
+      "badge": "Đa ngôn ngữ"
+    },
+    "large_v3": {
+      "label": "Whisper Large",
+      "description": "Chính xác nhất",
+      "details": "Chính xác nhất với âm thanh phức tạp, nhưng chậm và cần nhiều bộ nhớ.",
+      "badge": "Đa ngôn ngữ"
+    },
+    "parakeet": {
+      "label": "Parakeet",
+      "description": "Nhanh & chính xác",
+      "details": "Độ chính xác và tốc độ rất tốt với các ngôn ngữ châu Âu.",
+      "badge": "Châu Âu"
+    },
+    "moonshine_tiny": {
+      "label": "Moonshine Tiny",
+      "description": "Siêu nhanh",
+      "details": "Phiên âm tiếng Anh trên máy cực nhanh, rất ít tài nguyên. Hợp thời gian thực.",
+      "badge": "Chỉ tiếng Anh"
+    },
+    "moonshine_tiny_ar": {
+      "label": "Moonshine Tiny",
+      "description": "Siêu nhanh",
+      "details": "Phiên âm tiếng Ả Rập trên máy, rất ít tài nguyên.",
+      "badge": "Tiếng Ả Rập"
+    },
+    "moonshine_tiny_zh": {
+      "label": "Moonshine Tiny",
+      "description": "Siêu nhanh",
+      "details": "Phiên âm tiếng Trung trên máy, rất ít tài nguyên.",
+      "badge": "Tiếng Trung"
+    },
+    "moonshine_tiny_ja": {
+      "label": "Moonshine Tiny",
+      "description": "Siêu nhanh",
+      "details": "Phiên âm tiếng Nhật trên máy, rất ít tài nguyên.",
+      "badge": "Tiếng Nhật"
+    },
+    "moonshine_tiny_ko": {
+      "label": "Moonshine Tiny",
+      "description": "Siêu nhanh",
+      "details": "Phiên âm tiếng Hàn trên máy, rất ít tài nguyên.",
+      "badge": "Tiếng Hàn"
+    },
+    "moonshine_tiny_uk": {
+      "label": "Moonshine Tiny",
+      "description": "Siêu nhanh",
+      "details": "Phiên âm tiếng Ukraina trên máy, rất ít tài nguyên.",
+      "badge": "Tiếng Ukraina"
+    },
+    "moonshine_tiny_vi": {
+      "label": "Moonshine Tiny",
+      "description": "Siêu nhanh",
+      "details": "Phiên âm tiếng Việt trên máy, rất ít tài nguyên.",
+      "badge": "Tiếng Việt"
+    },
+    "moonshine_base": {
+      "label": "Moonshine Base",
+      "description": "Nhanh & chính xác",
+      "details": "Phiên âm tiếng Anh trên máy nhanh, chính xác hơn Moonshine Tiny.",
+      "badge": "Chỉ tiếng Anh"
+    },
+    "moonshine_base_es": {
+      "label": "Moonshine Base",
+      "description": "Nhanh & chính xác",
+      "details": "Phiên âm tiếng Tây Ban Nha trên máy, nhanh và khá chính xác.",
+      "badge": "Tiếng Tây Ban Nha"
+    },
+    "sense_voice": {
+      "label": "SenseVoice",
+      "description": "Đa ngôn ngữ (châu Á)",
+      "details": "Chính xác cao với tiếng Trung, Anh, Nhật, Hàn và Quảng Đông.",
+      "badge": "Đa ngôn ngữ"
+    },
+    "canary": {
+      "label": "Canary",
+      "description": "Đa ngôn ngữ (châu Âu)",
+      "details": "Hiểu ngữ cảnh và hỗ trợ dịch, 25 ngôn ngữ.",
+      "badge": "Châu Âu"
+    },
+    "cohere": {
+      "label": "Cohere",
+      "description": "Đa ngôn ngữ (cỡ lớn)",
+      "details": "Mô hình phiên âm đa ngôn ngữ cỡ lớn của Cohere.",
+      "badge": "Đa ngôn ngữ"
+    },
+    "gigaam_v3": {
+      "label": "GigaAM v3",
+      "description": "Tốt nhất cho tiếng Nga",
+      "details": "Học từ 700 nghìn giờ tiếng Nga, có dấu câu và chuẩn hóa văn bản. Lựa chọn chính xác nhất cho tiếng Nga.",
+      "badge": "Tiếng Nga"
+    },
+    "gigaam_multilingual": {
+      "label": "GigaAM Multilingual",
+      "description": "Trung Á & tiếng Nga",
+      "details": "Chất lượng mã nguồn mở tốt nhất cho tiếng Kazakh, Kyrgyz, Uzbek và mạnh với tiếng Nga. Kết quả là chữ thường, không dấu câu.",
+      "badge": "Đa ngôn ngữ"
+    },
+    "omni_asr_1b_ctc": {
+      "label": "Omni-ASR",
+      "description": "Đa ngôn ngữ trên máy",
+      "details": "Mô hình đa ngôn ngữ lớn và chính xác hơn, hỗ trợ hơn 1600 ngôn ngữ. Kết quả là chữ thường, không dấu câu hay viết hoa.",
+      "badge": "Đa ngôn ngữ"
+    },
+    "bestPick": "Lựa chọn tốt nhất",
+    "availableCount": "Có {{count}} mô hình"
+  },
+  "completion": {
+    "processingComplete": "Xử lý hoàn tất",
+    "subtitlesReady": "Phụ đề của bạn đã sẵn sàng!",
+    "noSpeechDetected": "Không phát hiện giọng nói. Tệp âm thanh có thể im lặng hoặc không có lời nói nhận dạng được.",
+    "viewSubtitles": "Xem phụ đề",
+    "exportToFile": "Xuất ra tệp",
+    "addToTimeline": "Gửi lên dòng thời gian"
+  },
+  "progressSteps": {
+    "processing": "Đang xử lý",
+    "stepCounter": "Bước {{current}}/{{total}}",
+    "complete": "Hoàn tất",
+    "transcriptReady": "Bản chép lời đã sẵn sàng",
+    "prepare": "Đang chuẩn bị âm thanh và mô hình",
+    "prepare.export": "Đang xuất âm thanh từ dòng thời gian",
+    "prepare.normalize": "Đang chuẩn hóa âm thanh",
+    "prepare.download": "Đang tải mô hình",
+    "prepare.asr": "Đang tải mô hình giọng nói",
+    "prepare.vad": "Đang tải bộ dò giọng nói",
+    "prepare.diarize": "Đang tải mô hình người nói",
+    "prepare.aligner": "Đang tải mô hình căn chỉnh",
+    "analyze": "Đang phân tích âm thanh",
+    "analyze.vad": "Đang tìm đoạn có tiếng nói",
+    "analyze.diarize": "Đang nhận diện người nói",
+    "analyze.loading": "Đang nạp mô hình vào bộ nhớ",
+    "speakersFound_one": "{{count}} người nói",
+    "speakersFound_other": "{{count}} người nói",
+    "transcribe": "Giọng nói thành chữ",
+    "refine": "Đang căn thời gian từng từ",
+    "finish": "Đang định dạng phụ đề",
+    "translate": "Đang dịch sang {{language}}"
+  },
+  "subtitles": {
+    "title": "Phụ đề",
+    "draftTitle": "Bản nháp chép lời",
+    "draftDescription": "Cải thiện dần sau mỗi bước",
+    "draftEmpty": "Đang lắng nghe giọng nói…",
+    "speakerLabel": "Người nói {{number}}",
+    "speakers": "Người nói",
+    "reformat": "Định dạng lại",
+    "waitingForSubtitles": "Đang chờ phụ đề...",
+    "searchPlaceholder": "Tìm trong phụ đề...",
+    "searchAria": "Tìm trong phụ đề",
+    "search": {
+      "caseMatch": "Khớp hoa/thường",
+      "wholeWord": "Nguyên từ",
+      "replaceAll": "Thay tất cả",
+      "replaceWithPlaceholder": "Thay bằng..."
+    },
+    "addToTimeline": "Gửi lên dòng thời gian",
+    "loading": "Đang tải phụ đề...",
+    "jumpToTimeline": "Nhảy tới vị trí trên dòng thời gian",
+    "unknownSpeaker": "Người nói chưa rõ",
+    "previousSubtitles": "Lịch sử phụ đề",
+    "empty": {
+      "noSubtitlesAvailable": "Phụ đề sẽ hiện ở đây khi phiên âm xong"
+    },
+    "status": {
+      "count_one": "{{count}} phụ đề",
+      "count_other": "{{count}} phụ đề",
+      "matches_one": "{{count}} kết quả",
+      "matches_other": "{{count}} kết quả"
+    }
+  },
+  "gettingStarted": {
+    "title": "Chào mừng đến với AutoSubs",
+    "description": "Chọn ngôn ngữ bạn nói. Ngôn ngữ này sẽ dùng cho giao diện (nếu có) và cho phiên âm.",
+    "selectLanguage": "Chọn ngôn ngữ",
+    "searchLanguage": "Tìm ngôn ngữ...",
+    "noLanguageFound": "Không tìm thấy ngôn ngữ.",
+    "resolveNote": {
+      "openResolve": "Mở DaVinci Resolve rồi vào:",
+      "workspace": "Workspace (menu trên cùng)",
+      "scripts": "Scripts",
+      "autosubs": "AutoSubs"
+    },
+    "continue": "Bắt đầu"
+  },
+  "tour": {
+    "connection": {
+      "title": "Trạng thái kết nối",
+      "description": "Cho biết AutoSubs đã kết nối với DaVinci Resolve hay chưa. Màu xanh nghĩa là đã kết nối và sẵn sàng truy cập dòng thời gian."
+    },
+    "modeSwitcher": {
+      "title": "Chế độ đầu vào",
+      "description": "Chuyển giữa phiên âm trực tiếp một tệp hoặc lấy âm thanh từ dòng thời gian DaVinci Resolve."
+    },
+    "modelPicker": {
+      "title": "Mô hình AI",
+      "description": "Chọn mô hình nhận dạng giọng nói. Một mô hình hỗ trợ ngôn ngữ của bạn đã được chọn sẵn. Mỗi mô hình cân bằng khác nhau giữa tốc độ và độ chính xác."
+    },
+    "audioInput": {
+      "title": "Nguồn âm thanh",
+      "description": "Chọn track âm thanh từ dòng thời gian Resolve, hoặc thả tệp media vào đây để phiên âm trực tiếp."
+    },
+    "controls": {
+      "title": "Điều khiển phiên âm",
+      "description": "Thiết lập ngôn ngữ, nhận diện người nói, định dạng chữ, rồi bấm Tạo phụ đề để bắt đầu."
+    },
+    "history": {
+      "title": "Lịch sử phụ đề",
+      "description": "Xem và tìm kiếm các tài liệu phụ đề đã lưu tại đây."
+    },
+    "skip": "Bỏ qua hướng dẫn",
+    "next": "Tiếp",
+    "finish": "Bắt đầu",
+    "open": "Mở gợi ý"
+  },
+  "titlebar": {
+    "subtitleHistory": {
+      "title": "Lịch sử phụ đề",
+      "searchPlaceholder": "Tìm trong lịch sử phụ đề...",
+      "loading": "Đang tải...",
+      "empty": "Không có tài liệu phụ đề nào.",
+      "no_results": "Không có kết quả",
+      "delete_title": "Xóa tài liệu phụ đề?",
+      "delete_description": "Thao tác này sẽ xóa vĩnh viễn tài liệu phụ đề khỏi lịch sử. Không thể hoàn tác."
+    },
+    "status": {
+      "disconnected": "Mất kết nối"
+    },
+    "update": {
+      "downloading": "Đang tải cập nhật",
+      "installing": "Đang cài cập nhật",
+      "restarting": "Đang khởi động lại AutoSubs",
+      "installUpdateNow": "Cài và khởi động lại",
+      "newVersionAvailable": "Có bản cập nhật"
+    },
+    "resolve": {
+      "productName": "DaVinci Resolve",
+      "description": "Tích hợp qua Workspace Scripts",
+      "tooltip": {
+        "connected": "Đã kết nối",
+        "canGetAudio": "Sẵn sàng thêm phụ đề.",
+        "cantConnect": "Không kết nối được dòng thời gian",
+        "openResolve": "Mở DaVinci Resolve rồi vào Workspace → Scripts → AutoSubs"
+      }
+    },
+    "premiere": {
+      "productName": "Premiere Pro",
+      "description": "Tích hợp qua extension Adobe",
+      "tooltip": {
+        "connected": "Đã kết nối",
+        "canGetAudio": "Sẵn sàng thêm phụ đề.",
+        "disconnected": "Extension đã ngắt kết nối",
+        "openPremiere": "Mở Premiere Pro để tự động kết nối."
+      }
+    },
+    "aftereffects": {
+      "productName": "After Effects",
+      "description": "Tích hợp qua extension Adobe",
+      "tooltip": {
+        "connected": "Đã kết nối",
+        "canGetAudio": "Sẵn sàng thêm phụ đề.",
+        "disconnected": "Extension đã ngắt kết nối",
+        "openAfterEffects": "Mở After Effects để tự động kết nối."
+      }
+    }
+  },
+  "theme": {
+    "toggle": "Đổi giao diện"
+  },
+  "shell": {
+    "tabs": {
+      "subtitles": "Phụ đề",
+      "scripts": "Scripts",
+      "autoEdit": "Auto Edit"
+    }
+  },
+  "addToTimeline": {
+    "steps": {
+      "outputTrack": {
+        "title": "Track"
+      },
+      "template": {
+        "title": "Kiểu",
+        "connectTo": "Kết nối {{integration}} để tùy chỉnh mẫu"
+      },
+      "speakers": {
+        "title": "Người nói"
+      }
+    },
+    "title": "Gửi lên dòng thời gian",
+    "ready": {
+      "title": "Phụ đề đã sẵn sàng",
+      "description": "Phụ đề đã được tạo xong và sẵn sàng gửi lên dòng thời gian."
+    },
+    "adding": "Đang gửi...",
+    "success": "Đã gửi lên dòng thời gian",
+    "mode": {
+      "regular": "Mẫu thường",
+      "animated": "Mẫu động"
+    },
+    "conflict": {
+      "hasConflicts": "Track này có clip trùng. Phụ đề có thể chồng lên nội dung sẵn có."
+    },
+    "preset": {
+      "new": "Mẫu mới",
+      "builtIn": "Có sẵn",
+      "custom": "Tùy chỉnh",
+      "preview": "Xem trước trong Resolve",
+      "duplicate": "Nhân bản",
+      "delete": "Xóa",
+      "export": "Xuất JSON",
+      "copyJson": "Sao chép JSON",
+      "copied": "Đã sao chép",
+      "import": "Nhập tệp",
+      "paste": "Dán JSON",
+      "phase": {
+        "launchingTitle": "Đang mở phụ đề trong Resolve…",
+        "launchingHint": "Chúng tôi sẽ đặt một phụ đề xem trước lên track tạm.",
+        "editingTitle": "Chuyển sang DaVinci Resolve",
+        "editingBody": "Một phụ đề đã được đặt trên track mới và mở ở trang Fusion. Hãy tùy chỉnh bằng inspector rồi quay lại đây.",
+        "capturingTitle": "Đang đọc thiết lập từ Resolve…",
+        "nameTitle": "Đặt tên cho mẫu",
+        "nameHint": "Hãy đặt tên ngắn gọn và dễ hiểu."
+      },
+      "action": {
+        "cancel": "Hủy",
+        "save": "Lưu mẫu",
+        "back": "Quay lại",
+        "captureSettings": "Lấy thiết lập"
+      },
+      "nameLabel": "Tên mẫu",
+      "namePlaceholder": "vd. Vàng đậm, Kiểu TikTok",
+      "descriptionLabel": "Mô tả",
+      "descriptionPlaceholder": "Ghi chú tùy chọn về mẫu này",
+      "confirmDeleteTitle": "Xóa mẫu?",
+      "confirmDelete": "Mẫu này sẽ bị xóa khỏi thư viện của bạn. Các mẫu có sẵn không bị ảnh hưởng.",
+      "confirmDeleteConfirm": "Xóa",
+      "importTitle": "Dán JSON của mẫu",
+      "importPlaceholder": "Dán nội dung tệp mẫu vào đây…",
+      "importSubmit": "Nhập mẫu",
+      "errors": {
+        "invalidJson": "Đây có vẻ không phải tệp mẫu hợp lệ.",
+        "captureFailed": "Không đọc được thiết lập phụ đề từ Resolve.",
+        "nameRequired": "Vui lòng nhập tên."
+      }
+    }
+  },
+  "replaceStrings": {
+    "title": "Tìm/Thay từ",
+    "find": "Tìm",
+    "findPlaceholder": "Văn bản cần tìm...",
+    "matchCase": "Khớp hoa/thường",
+    "replaceWith": "Thay bằng",
+    "replacePlaceholder": "Văn bản thay thế...",
+    "occurrencesFound": "Tìm thấy {{count}} kết quả",
+    "occurrencePosition": "{{current}}/{{total}}",
+    "noOccurrencesFound": "Không tìm thấy kết quả",
+    "replaceCurrent": "Thay mục này",
+    "replaceAll": "Thay tất cả ({{count}})"
+  },
+  "output": {
+    "track": {
+      "label": "Track đầu ra",
+      "placeholder": "Chọn một track",
+      "none": "Không có track"
+    },
+    "style": {
+      "label": "Kiểu phụ đề",
+      "loading": "Đang tải mẫu...",
+      "noTemplates": "Không tìm thấy mẫu.",
+      "groups": {
+        "resolve": "Mẫu của Resolve",
+        "autosubs": "Kiểu của AutoSubs"
+      }
+    },
+    "speakers": {
+      "label_one": "{{count}} người nói",
+      "label_other": "{{count}} người nói"
+    },
+    "speakerCount_one": "{{count}} người nói",
+    "speakerCount_other": "{{count}} người nói",
+    "notConnected": "Kết nối DaVinci Resolve để gửi phụ đề lên dòng thời gian.",
+    "noSubtitles": "Không có phụ đề để gửi",
+    "chooseTrack": "Chọn track đầu ra",
+    "reviewAndSend": "Xem lại & gửi",
+    "errors": {
+      "notConnected": "Chưa kết nối phần mềm dựng phim. Hãy kết nối DaVinci Resolve, Adobe Premiere Pro hoặc After Effects để tùy chỉnh mẫu.",
+      "timedOut": "Kết nối quá hạn. Hãy đảm bảo phần mềm dựng phim đang chạy rồi thử lại."
+    },
+    "sentAgain": "Đã gửi · Gửi lại",
+    "title": "Cài đặt đầu ra",
+    "language": {
+      "label": "Ngôn ngữ",
+      "translated": "Chỉ bản dịch",
+      "source": "Chỉ bản gốc",
+      "both": "Cả hai ngôn ngữ",
+      "bothHint": "Bản gốc sẽ nằm trên một track mới.",
+      "prompt": "Gửi cái gì?"
+    }
+  },
+  "errorDialog": {
+    "addToTimelineFailed": "Không thêm được phụ đề lên dòng thời gian"
+  },
+  "support": {
+    "title": "Ủng hộ AutoSubs",
+    "description": "Chọn cách bạn muốn ủng hộ việc phát triển AutoSubs.",
+    "coffee": {
+      "title": "Mời tôi một ly cà phê?",
+      "description": "Nếu AutoSubs giúp bạn tiết kiệm thời gian, mời tôi một ly cà phê để ủng hộ dự án nhé!",
+      "donate": "Ủng hộ"
+    }
+  },
+  "subSlate": {
+    "creator": "Từ tác giả của AutoSubs",
+    "tagline": "Kể câu chuyện của bạn, thật dễ dàng.",
+    "emailPlaceholder": "Nhập email của bạn",
+    "notifyMe": "Báo tôi biết",
+    "thanks": "Cảm ơn bạn! Chúng tôi sẽ báo tin sau.",
+    "milestone": "Hoàn thành 10 lần phiên âm"
+  },
+  "modePicker": {
+    "brand": "Auto Suite",
+    "title": "Chọn không gian làm việc",
+    "subtitle": "Chọn công cụ bạn muốn mở. Có thể chuyển đổi bất cứ lúc nào.",
+    "home": "Trang chủ",
+    "language": "Ngôn ngữ ứng dụng",
+    "autocut": {
+      "tab": "AutoCut",
+      "noTimeline": "Chưa thấy timeline nào. Hãy mở DaVinci Resolve, chạy Workspace → Scripts → AutoSubs, rồi mở một timeline có track video và track audio.",
+      "tracksTitle": "Track nguồn",
+      "padBefore": "Đệm trước",
+      "padAfter": "Đệm sau",
+      "review": {
+        "title": "Xem lại các đoạn cắt",
+        "count": "{{active}}/{{total}} đoạn",
+        "filler": "từ đệm"
+      },
+      "fillers": "Cắt từ đệm (ừm, à, uh)",
+      "fillersHint": "Phiên âm audio để tìm và bỏ các từ đệm. Chậm hơn.",
+      "keepCopy": "Giữ bản gốc (cắt ra timeline mới)",
+      "keepCopyHint": "Tắt: cắt thẳng timeline này (hoàn tác được). Bật: dựng bản cắt sang timeline mới, giữ nguyên timeline này.",
+      "analyze": "Phân tích khoảng lặng",
+      "applying": "Đang cắt...",
+      "apply": "Cắt trên timeline này",
+      "applyCopy": "Cắt ra timeline mới",
+      "reanalyze": "Phân tích lại",
+      "applied": "Đã bỏ {{seconds}}s khoảng lặng khỏi \"{{name}}\".",
+      "stats": {
+        "original": "Gốc",
+        "cut": "Đã bỏ",
+        "result": "Độ dài mới",
+        "reduction": "Ngắn đi"
+      },
+      "minKeep": "Độ dài lời nói tối thiểu",
+      "minKeepHint": "Đoạn tiếng ngắn hơn mức này bị coi là tạp âm (tiếng thở, tiếng click) và cũng bị cắt.",
+      "presets": {
+        "label": "Cấu hình sẵn",
+        "natural": "Tự nhiên",
+        "tight": "Cắt chặt",
+        "gentle": "Nhẹ tay"
+      },
+      "minSilenceHint": "Quãng nghỉ ngắn hơn mức này được giữ nguyên, để nhịp nghỉ tự nhiên giữa các câu không bị mất.",
+      "padBeforeHint": "Chừa thêm một chút tiếng trước mỗi câu, để lời nói không bật ra ngay khi vừa cắt.",
+      "padAfterHint": "Chừa thêm một chút tiếng sau mỗi câu, để chữ cuối không bị cụt.",
+      "target": {
+        "none": "Chưa chọn track nào",
+        "noneSelected": "Hãy chọn một track audio — khoảng lặng nằm trong tiếng, không có track này thì không có gì để phân tích.",
+        "videoHint": "Các track video sẽ bị cắt. Chúng đi theo track audio được chọn đầu tiên, vì hình không có tiếng của riêng nó để đo.",
+        "audioHint": "Các track audio sẽ bị cắt. Mỗi track được dò và cắt riêng, nên độ dài cuối cùng của chúng sẽ khác nhau."
+      },
+      "wave": {
+        "before": "Hiện tại",
+        "after": "Sau khi cắt",
+        "afterLength": "còn {{length}}"
+      }
+    },
+    "autoedit": {
+      "title": "AutoEdit",
+      "description": "Chạy script Python để tự động dựng trong DaVinci Resolve — cắt, sắp xếp và tự động hoá timeline.",
+      "badge": "Mới",
+      "tabs": {
+        "import": "Nhập script",
+        "mine": "Của tôi",
+        "builtin": "Có sẵn",
+        "mcp": "MCP",
+        "tutorial": "Hướng dẫn"
+      },
+      "myScripts": {
+        "title": "Script của tôi",
+        "description": "Nhập một file .py một lần, nó sẽ được lưu lại để chạy lại trên timeline đang mở.",
+        "import": "Nhập script",
+        "empty": "Chưa có script nào. Nhập một file .py để lưu lại dùng lần sau.",
+        "remove": "Xoá"
+      },
+      "import": {
+        "title": "Chạy script Python",
+        "description": "Chọn một file .py để chạy trên timeline DaVinci Resolve đang mở.",
+        "picker": "Chọn script…",
+        "picked": "Script đã chọn",
+        "clear": "Xoá",
+        "run": "Chạy script",
+        "running": "Đang chạy…",
+        "dropHint": "Hoặc kéo thả file .py vào đây",
+        "logTitle": "Kết quả",
+        "logEmpty": "stdout và stderr của script sẽ hiện ở đây.",
+        "clearLog": "Xoá log",
+        "exitCode": "Mã thoát {{code}}",
+        "exitOk": "Script hoàn tất.",
+        "exitFail": "Script thoát với mã {{code}}.",
+        "launchError": "Không chạy được script: {{message}}"
+      },
+      "builtin": {
+        "title": "Script có sẵn",
+        "description": "Các script được đóng gói kèm ứng dụng. Bấm Chạy để thử trên timeline Resolve đang mở.",
+        "empty": "Chưa có script nào. Thêm script vào thư viện để hiện ở đây.",
+        "resolveInfo": {
+          "name": "Thông tin Resolve",
+          "description": "Chỉ đọc. In thông tin dự án và timeline ra log."
+        },
+        "addMarker": {
+          "name": "Thêm marker tại đầu đọc",
+          "description": "Thêm marker xanh dương tại vị trí đầu đọc. Nhấn Ctrl/Cmd+Z trong Resolve để hoàn tác."
+        },
+        "chapters": {
+          "name": "Chapter YouTube",
+          "description": "Biến marker trên timeline thành danh sách chapter, dán thẳng vào phần mô tả video."
+        },
+        "markCuts": {
+          "name": "Đánh dấu mọi điểm cắt",
+          "description": "Đặt marker xanh lơ tại mỗi điểm nối clip trên track video 1, để duyệt lần lượt từng cắt."
+        },
+        "clearMarkers": {
+          "name": "Xoá toàn bộ marker",
+          "description": "Xoá mọi marker trên timeline. Hoàn tác bằng Ctrl/Cmd+Z trong Resolve."
+        },
+        "subtitleMarkers": {
+          "name": "Marker từ phụ đề",
+          "description": "Mỗi phụ đề thành một marker kèm nội dung — danh sách marker trở thành mục lục bấm được của lời thoại."
+        },
+        "speechGaps": {
+          "name": "Tìm quãng nghỉ dài",
+          "description": "Đánh dấu mọi khoảng lặng từ 2 giây trở lên giữa các phụ đề: chỗ cần cắt gọn, hoặc chỗ bắt đầu phần mới."
+        },
+        "timelineGaps": {
+          "name": "Kiểm tra khoảng trống",
+          "description": "Tìm chỗ hổng trên track video 1 sẽ hiện ra màn hình đen, đánh dấu đỏ từng chỗ."
+        },
+        "silenceCut": {
+          "name": "Tự động cắt khoảng lặng",
+          "description": "Phát hiện khoảng lặng trên track audio, nhân bản timeline rồi dựng lại không còn các quãng nghỉ.",
+          "toastStep": "AutoEdit: {{message}}"
+        },
+        "categories": {
+          "cut": "Cắt & dựng",
+          "markers": "Marker & chỉ mục",
+          "cleanup": "Dọn dẹp",
+          "info": "Thông tin"
+        },
+        "slideshow": {
+          "name": "Slideshow theo giọng đọc",
+          "description": "Đặt hàng loạt ảnh/clip lên timeline, mỗi cái khớp đúng câu tương ứng trong giọng đọc đã transcribe."
+        }
+      },
+      "mcp": {
+        "title": "Tích hợp MCP",
+        "description": "Biến Resolve thành MCP server để các agent như Claude hoặc Cursor có thể điều khiển timeline.",
+        "empty": "Sắp có."
+      },
+      "tutorial": {
+        "title": "Hướng dẫn",
+        "description": "Bài viết và ví dụ để bạn tự viết script AutoEdit.",
+        "empty": "Bài viết hướng dẫn sẽ được đặt ở đây."
+      },
+      "status": {
+        "readyForScripts": "Sẵn sàng chạy script trên timeline này."
+      },
+      "setup": {
+        "title": "Đang cài đặt AutoEdit",
+        "description": "Đang tải runtime Python mà AutoEdit dùng để giao tiếp với DaVinci Resolve. Chỉ chạy một lần duy nhất.",
+        "downloading": "Đang tải Python…",
+        "extracting": "Đang giải nén Python…",
+        "retry": "Thử lại",
+        "cancel": "Huỷ",
+        "failed": "Cài đặt thất bại: {{message}}"
+      },
+      "options": {
+        "videoTrack": "Track video",
+        "audioTrack": "Track audio",
+        "subtitleTrack": "Track phụ đề",
+        "minPause": "Quãng nghỉ tối thiểu (giây)",
+        "minPauseHint": "Chỉ đánh dấu khoảng lặng dài từ mức này trở lên. Đặt thấp thì tìm được nhiều, đặt cao thì chỉ ra các chỗ ngắt lớn.",
+        "minSilenceCut": "Khoảng lặng tối thiểu để cắt (giây)",
+        "minSilenceCutHint": "Khoảng lặng ngắn hơn sẽ được giữ. 0.5 đến 1.0 là mức bắt đầu tốt.",
+        "silencePadding": "Đệm quanh lời nói (giây)",
+        "silencePaddingHint": "Chừa thêm ít hơi thở ở hai đầu mỗi đoạn giữ lại, tránh cắt cụt từ.",
+        "noAudioTracks": "Không có track audio. Hãy mở DaVinci Resolve, chạy Workspace → Scripts → AutoSubs, rồi mở một timeline.",
+        "noVideoTracks": "Không có track video. Hãy mở DaVinci Resolve, chạy Workspace → Scripts → AutoSubs, rồi mở một timeline.",
+        "noSubtitleTracks": "Timeline này chưa có track phụ đề. Hãy tạo phụ đề bằng AutoSubs trước."
+      }
+    },
+    "autosub": {
+      "title": "AutoSubs",
+      "description": "Phiên âm audio trên timeline và tạo phụ đề có style bằng Whisper."
+    }
+  },
+  "slideshow": {
+    "title": "Slideshow theo giọng đọc",
+    "mediaTitle": "1. Media",
+    "addFiles": "Thêm file",
+    "moveUp": "Lên",
+    "moveDown": "Xuống",
+    "noSupportedMedia": "Không tìm thấy ảnh/video được hỗ trợ.",
+    "scriptTitle": "2. Kịch bản (tuỳ chọn)",
+    "importScript": "Nạp .txt",
+    "scriptLoaded": "Đã nạp {{n}} dòng từ kịch bản.",
+    "scriptError": "Không đọc được file kịch bản.",
+    "linePlaceholder": "Câu được nói khi ảnh này hiện…",
+    "voiceTitle": "3. Âm thanh (tuỳ chọn)",
+    "voiceReady": "Xong",
+    "words": "từ",
+    "targetTrack": "Đặt lên track video",
+    "connectResolve": "Kết nối timeline của trình biên tập để thêm.",
+    "approx": "ước lượng",
+    "lowMatch": "khớp thấp",
+    "builtPartial": "Chỉ đặt được {{a}}/{{b}}.",
+    "effect": "Chuyển động",
+    "intensity": "Độ mạnh %",
+    "effects": {
+      "none": "Không",
+      "punchIn": "Phóng (zoom)",
+      "punchPan": "Phóng + lia",
+      "diagonal": "Lệch chéo"
+    },
+    "optionsTitle": "4. Tuỳ chọn",
+    "transcribing": "Đang transcribe…",
+    "voiceDone": "Đã transcribe {{n}} từ.",
+    "voiceEmpty": "Không tìm thấy lời nói trong file.",
+    "secsPerImage": "Giây mỗi ảnh",
+    "newTrack": "Track mới",
+    "secsPerImageHint": "Dùng khi ghép không có giọng.",
+    "voiceFile": "File giọng",
+    "voiceFilePick": "Chọn một file audio hoặc video",
+    "voiceTrack": "Track audio trên timeline",
+    "voiceTrackConnect": "Kết nối trình biên tập để dùng track trên timeline",
+    "transcribe": "Nhận diện giọng",
+    "voiceNotYet": "Chưa nhận diện giọng",
+    "willSync": "Khớp theo giọng ({{n}})",
+    "willStitch": "Nối tiếp — mỗi ảnh {{s}}s",
+    "addFilesHint": "Ảnh hoặc clip",
+    "addFolder": "Thêm folder",
+    "addFolderHint": "Toàn bộ media bên trong",
+    "sortBy": "Sắp xếp",
+    "sortName": "Tên",
+    "sortCreated": "Ngày tạo",
+    "sortRandom": "Ngẫu nhiên",
+    "addAudio": "Thêm vào timeline",
+    "addedOk": "Đã thêm vào timeline.",
+    "addMedia": "Thêm vào timeline",
+    "cutSync": "Cắt ghép lên timeline",
+    "cutNeedsMedia": "Thêm media trước.",
+    "cutNeedsVoice": "Nhận diện giọng để cắt theo.",
+    "cutNeedsScript": "Viết câu dưới mỗi media.",
+    "addLink": "Thêm từ link",
+    "addLinkHint": "Tải về rồi đưa lên",
+    "link": {
+      "placeholder": "Mỗi dòng một link — thêm khoảng để cắt:\nhttps://…  0:30-1:20",
+      "trim": "Cắt ở đâu",
+      "trimTimeline": "Trên timeline (chính xác)",
+      "trimDownload": "Ngay khi tải (file nhẹ hơn)",
+      "trimTimelineHint": "Giữ nguyên file đầy đủ để sau còn chỉnh lại được.",
+      "trimDownloadHint": "Nhanh và nhẹ hơn, nhưng cắt theo keyframe nên điểm đầu có thể lệch.",
+      "download": "Tải về",
+      "noUrl": "Dán ít nhất một link.",
+      "toolsMissing": "Mở tab Download một lần để cài trình tải.",
+      "failed": "Không tải được {{url}}",
+      "done": "Đã thêm {{n}} clip vừa tải.",
+      "range": "Cắt đoạn (tuỳ chọn)",
+      "from": "Từ (vd 0:30)",
+      "to": "Đến (vd 1:20)",
+      "rangeHint": "Không điền = lấy nguyên clip.",
+      "downloadPlace": "Tải về + thêm lên timeline",
+      "dirNone": "Chưa chọn thư mục lưu",
+      "dirChange": "Đổi",
+      "dirPick": "Chọn thư mục"
+    }
+  },
+  "autoEdit": {
+    "tabs": {
+      "cut": "Cắt lặng",
+      "slideshow": "Slideshow"
+    }
+  }
+}

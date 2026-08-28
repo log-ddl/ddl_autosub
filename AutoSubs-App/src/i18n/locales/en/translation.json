@@ -1,0 +1,999 @@
+{
+  "settings": {
+    "title": "Settings",
+    "description": "Configure your AutoSubs preferences and options.",
+    "sections": {
+      "transcription": "Transcription",
+      "language": "Language",
+      "cli": "Command line"
+    },
+    "gpu": {
+      "title": "GPU Acceleration",
+      "description": "Utilise GPU for faster transcription"
+    },
+    "dtw": {
+      "title": "Whisper Word Refinement",
+      "description": "Improves word-level timing accuracy for Whisper models",
+      "supersededByAlignment": "Not used while Forced Alignment is on"
+    },
+    "forcedAlignment": {
+      "title": "Forced Alignment",
+      "description": "Extra timing pass, 317MB, CC BY-NC (noncommercial)",
+      "translationIncompatible": "Unavailable while translating, text will not match audio",
+      "summary": "Forced alignment"
+    },
+    "uiLanguage": {
+      "title": "App Language",
+      "description": "Updates menus and buttons"
+    },
+    "cli": {
+      "title": "Command-line tool",
+      "description": "Install the {{cmd}} command so you can transcribe files from any terminal.",
+      "install": "Install",
+      "remove": "Remove",
+      "available": "Available",
+      "notFound": "Not found",
+      "errorTitle": "Command-line tool"
+    },
+    "restartOnboarding": "Restart Onboarding",
+    "openLogsFolder": "Open Logs Folder",
+    "reset": {
+      "button": "Reset Settings",
+      "confirm": "Are you sure you want to reset all settings, including transcription settings? This action cannot be undone.",
+      "confirmTitle": "Reset Settings"
+    },
+    "support": {
+      "supportAutoSubs": "Support AutoSubs",
+      "viewSource": "Contribute"
+    }
+  },
+  "common": {
+    "close": "Close",
+    "cancel": "Cancel",
+    "back": "Back",
+    "next": "Next",
+    "apply": "Apply",
+    "add": "Add",
+    "done": "Done",
+    "delete": "Delete",
+    "generateSubtitles": "Generate",
+    "startNewTranscription": "Start new transcription",
+    "refresh": "Refresh connection",
+    "edit": "Edit",
+    "scrollDown": "Scroll down"
+  },
+  "update": {
+    "restartResolveServer": {
+      "title": "Update installed",
+      "description": "AutoSubs restarted and disconnected from Resolve. In DaVinci Resolve, run Workspace -> Scripts -> AutoSubs again to start the updated Lua server."
+    }
+  },
+  "importExport": {
+    "button": "Export / Import",
+    "importTab": "Import",
+    "exportTab": "Export",
+    "dropHere": "Drop file here or click to select",
+    "supportsSrt": "Supports .srt files",
+    "selected": "Selected:",
+    "importFile": "Import File",
+    "exportAsSrt": "Export as SRT",
+    "fileDialog": {
+      "subtitleFiles": "Subtitle Files"
+    },
+    "exportFormats": {
+      "srt": {
+        "title": "Subtitles (.srt)",
+        "description": "Timed subtitles for video players and platforms."
+      },
+      "txt": {
+        "title": "Transcript (.txt)",
+        "description": "Plain text transcript with speaker labels for LLMs."
+      }
+    }
+  },
+  "actionBar": {
+    "source": "Source",
+    "options": "Options",
+    "subtitleStyle": "Caption Style",
+    "subtitleStyleDescription": "Captions",
+    "model": "Model",
+    "common": {
+      "auto": "Auto",
+      "off": "Off"
+    },
+    "mode": {
+      "fileInput": "File",
+      "timeline": "Timeline"
+    },
+    "format": {
+      "title": "Text",
+      "removePunctuationTitle": "Remove Punctuation",
+      "removePunctuationDescription": "Removes commas, periods, etc.",
+      "textCaseTitle": "Text Case",
+      "textCaseDescription": "Modify subtitle case",
+      "textCase": {
+        "normal": "Normal",
+        "lowercase": "lowercase",
+        "uppercase": "UPPERCASE",
+        "titleCase": "Title Case"
+      },
+      "lineCountTitle": "Line Count",
+      "lineCountDescription": "Max lines per subtitle",
+      "textDensityTitle": "Subtitle Length",
+      "textDensityDescription": "Words per subtitle",
+      "textDensity": {
+        "single": "Single Word",
+        "less": "Less",
+        "standard": "Standard",
+        "more": "More",
+        "custom": "Custom"
+      },
+      "customCharsTitle": "Max Characters",
+      "customCharsDescription": "Characters per line",
+      "customPromptButton": "Prompt",
+      "customPromptTitle": "Vocabulary & Context",
+      "customPromptDescription": "Add terms, names, or context to guide Whisper.",
+      "customPromptPlaceholder": "E.g. OpenAI, DaVinci Resolve — tutorial about subtitle editing.",
+      "customPromptFooter": "Whisper models only. Write in the same language as your audio."
+    },
+    "censor": {
+      "title": "Censor Words",
+      "wordCount": "{{count}} words",
+      "dialogTitle": "Censor Sensitive Words",
+      "dialogDescription": "Toggle word lists or add custom words to censor in the subtitles.",
+      "inputPlaceholder": "Add word to censor",
+      "empty": "No censored words yet.",
+      "lists": "Word Lists",
+      "listBuiltIn": "Built-in",
+      "noLists": "No word lists available.",
+      "customSection": "Custom Words",
+      "customSectionDescription": "Enter individual words to censor.",
+      "listWordCount": "{{count}} words"
+    },
+    "speakers": {
+      "title": "Speaker Labels",
+      "description": "Identify different speakers",
+      "countTitle": "Number of Speakers",
+      "disabled": "Disabled"
+    },
+    "tracks": {
+      "exportRange": {
+        "entire": "Entire Timeline",
+        "inout": "In/Out Points"
+      },
+      "trackN": "Track {{n}}",
+      "countSelected": "{{count}} tracks selected",
+      "selectedLabel": "{{label}} selected",
+      "noneSelected": "No tracks selected",
+      "selectAll": "Select All",
+      "clearAll": "Clear All",
+      "noneFound": "No audio tracks found.",
+      "createTrack": "No timeline found",
+      "refresh": "Refresh tracks"
+    },
+    "fileDrop": {
+      "aria": "Drop audio file here or click to select",
+      "prompt": "Drop file or click",
+      "supports": "Supports most formats"
+    },
+    "fileDialog": {
+      "mediaFiles": "Media Files (ffmpeg-supported)"
+    },
+    "language": {
+      "title": "Language",
+      "source": "Source",
+      "translate": "Translate",
+      "searchSourcePlaceholder": "Search languages...",
+      "searchTargetPlaceholder": "Search target languages...",
+      "noLanguageFound": "No language found.",
+      "notListedHint": "Omni-ASR supports 1600+ languages.",
+      "useOmniAsr": "Use Auto with Omni-ASR",
+      "nativeTranslation": "Model native translation",
+      "googleTranslation": "Google Translate"
+    }
+  },
+  "speakerEditor": {
+    "title": "Edit Speakers",
+    "description": "These are the speakers detected in the audio.",
+    "name": "Speaker Name",
+    "namePlaceholder": "Enter speaker name",
+    "outputTrack": "Output Track",
+    "style": "Individual Style",
+    "colors": {
+      "none": "None",
+      "fill": "Fill",
+      "outline": "Outline"
+    }
+  },
+  "modelStatus": {
+    "cached": "Downloaded",
+    "storage": "Storage:",
+    "ram": "RAM:",
+    "accuracy": "Accuracy",
+    "downloadProgress": "{{progress}}%",
+    "speed": "Speed",
+    "ramShort": "{{size}} RAM",
+    "downloadShort": "{{size}} download"
+  },
+  "models": {
+    "searchPlaceholder": "Search models...",
+    "noResults": "No models found.",
+    "filters": {
+      "accuracy": "Accuracy",
+      "recommended": "Recommended",
+      "search": "Search",
+      "speed": "Speed"
+    },
+    "englishOnly": {
+      "title": "English-Only Models",
+      "description": "Show specialised English models with higher accuracy for English transcription."
+    },
+    "manage": {
+      "title": "Models",
+      "description": "Delete cached models to free up disk space.",
+      "empty": "No downloaded models found",
+      "deleteModel": "Delete Model",
+      "confirmTitle": "Are you sure?",
+      "confirmBody": "This will delete the {{model}} model from your device. If you use this model in future it will need to be downloaded again."
+    },
+    "diarize": {
+      "label": "Speaker Diarization Model",
+      "description": "Speaker labeling bundle",
+      "details": "Used for speaker diarization and labeling.",
+      "badge": "Speaker Labels"
+    },
+    "aligner": {
+      "label": "MMS Forced Alignment Model",
+      "description": "Acoustic word timing bundle",
+      "details": "Optional model that aligns transcript words to the original speech.",
+      "badge": "Word Timing",
+      "licenseRestriction": "CC BY-NC 4.0 · Noncommercial",
+      "attribution": "Meta MMS model · upstream conversion by MahmoudAshraf · ONNX conversion by onnx-community",
+      "repository": "Model repository",
+      "licenseLink": "Model license"
+    },
+    "tiny": {
+      "label": "Whisper Tiny",
+      "description": "Ultra-fast",
+      "details": "Fastest transcription with minimal memory. Ideal for quick drafts.",
+      "badge": "Multilingual"
+    },
+    "tiny_en": {
+      "label": "Whisper Tiny",
+      "description": "Ultra-fast",
+      "details": "Fastest English transcription with minimal memory. Ideal for quick drafts.",
+      "badge": "English Only"
+    },
+    "base": {
+      "label": "Whisper Base",
+      "description": "Fast",
+      "details": "Reliable transcription with low memory requirements. Great for everyday use.",
+      "badge": "Multilingual"
+    },
+    "base_en": {
+      "label": "Whisper Base",
+      "description": "Fast",
+      "details": "Reliable English transcription with low memory. Great for everyday use.",
+      "badge": "English Only"
+    },
+    "small": {
+      "label": "Whisper Small",
+      "description": "Balanced",
+      "details": "Balanced speed and accuracy with moderate memory. Handles varied accents well.",
+      "badge": "Multilingual"
+    },
+    "small_en": {
+      "label": "Whisper Small",
+      "description": "Balanced",
+      "details": "Balanced speed and English accuracy with moderate memory. Handles varied accents.",
+      "badge": "English Only"
+    },
+    "medium": {
+      "label": "Whisper Medium",
+      "description": "Accurate",
+      "details": "High accuracy transcription with moderate speed and memory. Good for challenging audio.",
+      "badge": "Multilingual"
+    },
+    "medium_en": {
+      "label": "Whisper Medium",
+      "description": "Accurate",
+      "details": "High accuracy English transcription with moderate speed. Good for challenging audio.",
+      "badge": "English Only"
+    },
+    "large_v3_turbo": {
+      "label": "Whisper Large Turbo",
+      "description": "Fast & Accurate",
+      "details": "Excellent accuracy with faster speed than Large model and moderate memory.",
+      "badge": "Multilingual"
+    },
+    "large_v3": {
+      "label": "Whisper Large",
+      "description": "Highest Accuracy",
+      "details": "Highest accuracy for complex audio, but slower and requires significant memory.",
+      "badge": "Multilingual"
+    },
+    "parakeet": {
+      "label": "Parakeet",
+      "description": "Fast & Accurate",
+      "details": "Excellent accuracy and speed for European languages.",
+      "badge": "European"
+    },
+    "moonshine_tiny": {
+      "label": "Moonshine Tiny",
+      "description": "Ultra-fast",
+      "details": "Extremely fast on-device English transcription with minimal resources. Ideal for real-time use.",
+      "badge": "English Only"
+    },
+    "moonshine_tiny_ar": {
+      "label": "Moonshine Tiny",
+      "description": "Ultra-fast",
+      "details": "Fast on-device Arabic transcription with minimal resources.",
+      "badge": "Arabic"
+    },
+    "moonshine_tiny_zh": {
+      "label": "Moonshine Tiny",
+      "description": "Ultra-fast",
+      "details": "Fast on-device Chinese transcription with minimal resources.",
+      "badge": "Chinese"
+    },
+    "moonshine_tiny_ja": {
+      "label": "Moonshine Tiny",
+      "description": "Ultra-fast",
+      "details": "Fast on-device Japanese transcription with minimal resources.",
+      "badge": "Japanese"
+    },
+    "moonshine_tiny_ko": {
+      "label": "Moonshine Tiny",
+      "description": "Ultra-fast",
+      "details": "Fast on-device Korean transcription with minimal resources.",
+      "badge": "Korean"
+    },
+    "moonshine_tiny_uk": {
+      "label": "Moonshine Tiny",
+      "description": "Ultra-fast",
+      "details": "Fast on-device Ukrainian transcription with minimal resources.",
+      "badge": "Ukrainian"
+    },
+    "moonshine_tiny_vi": {
+      "label": "Moonshine Tiny",
+      "description": "Ultra-fast",
+      "details": "Fast on-device Vietnamese transcription with minimal resources.",
+      "badge": "Vietnamese"
+    },
+    "moonshine_base": {
+      "label": "Moonshine Base",
+      "description": "Fast & Accurate",
+      "details": "Fast on-device English transcription with better accuracy than Moonshine Tiny.",
+      "badge": "English Only"
+    },
+    "moonshine_base_es": {
+      "label": "Moonshine Base",
+      "description": "Fast & Accurate",
+      "details": "Fast on-device Spanish transcription with good accuracy.",
+      "badge": "Spanish"
+    },
+    "sense_voice": {
+      "label": "SenseVoice",
+      "description": "Multilingual (Asian)",
+      "details": "Strong accuracy for Chinese, English, Japanese, Korean and Cantonese.",
+      "badge": "Multilingual"
+    },
+    "canary": {
+      "label": "Canary",
+      "description": "Multilingual (European)",
+      "details": "Understands context and supports translation, 25 languages.",
+      "badge": "European"
+    },
+    "cohere": {
+      "label": "Cohere",
+      "description": "Multilingual (Large)",
+      "details": "Large multilingual transcription model from Cohere.",
+      "badge": "Multilingual"
+    },
+    "gigaam_v3": {
+      "label": "GigaAM v3",
+      "description": "Best for Russian",
+      "details": "Trained on 700k hours of Russian speech, with punctuation and text normalization. The most accurate option for Russian.",
+      "badge": "Russian"
+    },
+    "gigaam_multilingual": {
+      "label": "GigaAM Multilingual",
+      "description": "Central Asian & Russian",
+      "details": "Best open quality for Kazakh, Kyrgyz and Uzbek, and strong on Russian. Outputs lowercase text without punctuation.",
+      "badge": "Multilingual"
+    },
+    "omni_asr_1b_ctc": {
+      "label": "Omni-ASR",
+      "description": "On-device Multilingual",
+      "details": "Larger and more accurate multilingual model for 1600+ languages. Outputs lowercase text without punctuation or capitalization.",
+      "badge": "Multilingual"
+    },
+    "bestPick": "Best pick",
+    "availableCount": "{{count}} models available"
+  },
+  "completion": {
+    "processingComplete": "Processing Complete",
+    "subtitlesReady": "Your subtitles are ready to use!",
+    "noSpeechDetected": "No speech detected. The audio file may be silent or contain no recognizable speech.",
+    "viewSubtitles": "View Subtitles",
+    "exportToFile": "Export to File",
+    "addToTimeline": "Send to Timeline"
+  },
+  "progressSteps": {
+    "processing": "Processing",
+    "stepCounter": "Step {{current}} of {{total}}",
+    "complete": "Complete",
+    "transcriptReady": "Transcript is ready",
+    "prepare": "Preparing audio and models",
+    "prepare.export": "Exporting audio from timeline",
+    "prepare.normalize": "Normalising audio",
+    "prepare.download": "Downloading models",
+    "prepare.asr": "Downloading speech model",
+    "prepare.vad": "Downloading voice detector",
+    "prepare.diarize": "Downloading speaker model",
+    "prepare.aligner": "Downloading aligner model",
+    "analyze": "Analysing audio",
+    "analyze.vad": "Finding speech regions",
+    "analyze.diarize": "Identifying speakers",
+    "analyze.loading": "Loading model into memory",
+    "speakersFound_one": "{{count}} speaker",
+    "speakersFound_other": "{{count}} speakers",
+    "transcribe": "Speech to text",
+    "refine": "Aligning word timings",
+    "finish": "Formatting subtitles",
+    "translate": "Translating to {{language}}"
+  },
+  "subtitles": {
+    "title": "Subtitles",
+    "draftTitle": "Draft transcript",
+    "draftDescription": "Improving as each step completes",
+    "draftEmpty": "Listening for speech…",
+    "speakerLabel": "Speaker {{number}}",
+    "speakers": "Speakers",
+    "reformat": "Reformat",
+    "waitingForSubtitles": "Waiting for subtitles...",
+    "searchPlaceholder": "Search subtitles...",
+    "searchAria": "Search subtitles",
+    "search": {
+      "caseMatch": "Case match",
+      "wholeWord": "Whole word",
+      "replaceAll": "Replace all",
+      "replaceWithPlaceholder": "Replace with..."
+    },
+    "addToTimeline": "Send to Timeline",
+    "loading": "Loading subtitles...",
+    "jumpToTimeline": "Jump to point on timeline",
+    "unknownSpeaker": "Unknown Speaker",
+    "previousSubtitles": "Subtitle History",
+    "empty": {
+      "noSubtitlesAvailable": "Your subtitles will appear here when finished transcribing"
+    },
+    "status": {
+      "count_one": "{{count}} subtitle",
+      "count_other": "{{count}} subtitles",
+      "matches_one": "{{count}} match",
+      "matches_other": "{{count}} matches"
+    }
+  },
+  "gettingStarted": {
+    "title": "Welcome to AutoSubs",
+    "description": "Select the language you speak. It will be used for the interface (if available) and transcription.",
+    "selectLanguage": "Select language",
+    "searchLanguage": "Search languages...",
+    "noLanguageFound": "No language found.",
+    "resolveNote": {
+      "openResolve": "Open DaVinci Resolve and go to:",
+      "workspace": "Workspace (top menu)",
+      "scripts": "Scripts",
+      "autosubs": "AutoSubs"
+    },
+    "continue": "Get Started"
+  },
+  "tour": {
+    "connection": {
+      "title": "Connection Status",
+      "description": "This shows whether AutoSubs is connected to DaVinci Resolve. Green means connected and ready to access your timeline."
+    },
+    "modeSwitcher": {
+      "title": "Input Mode",
+      "description": "Switch between transcribing a file directly, or extracting audio from a DaVinci Resolve timeline."
+    },
+    "modelPicker": {
+      "title": "AI Model",
+      "description": "Choose the speech recognition model. A model that supports your language has been automatically selected. Different models trade off between speed and accuracy."
+    },
+    "audioInput": {
+      "title": "Audio Source",
+      "description": "Select audio tracks from your Resolve timeline, or drop a media file here to transcribe it directly."
+    },
+    "controls": {
+      "title": "Transcription Controls",
+      "description": "Configure language, speaker identification, text formatting, then click Generate Subtitles to start."
+    },
+    "history": {
+      "title": "Subtitle History",
+      "description": "Access and search through your saved subtitle documents here."
+    },
+    "skip": "Skip tour",
+    "next": "Next",
+    "finish": "Get Started",
+    "open": "Open the tip"
+  },
+  "titlebar": {
+    "subtitleHistory": {
+      "title": "Subtitle History",
+      "searchPlaceholder": "Search subtitle history...",
+      "loading": "Loading...",
+      "empty": "No subtitle documents found.",
+      "no_results": "No results found",
+      "delete_title": "Delete subtitle document?",
+      "delete_description": "This will permanently remove the subtitle document from your history. This action cannot be undone."
+    },
+    "status": {
+      "disconnected": "Disconnected"
+    },
+    "update": {
+      "downloading": "Downloading Update",
+      "installing": "Installing Update",
+      "restarting": "Restarting AutoSubs",
+      "installUpdateNow": "Install and Restart",
+      "newVersionAvailable": "Update Available"
+    },
+    "resolve": {
+      "productName": "DaVinci Resolve",
+      "description": "Workspace Scripts integration",
+      "tooltip": {
+        "connected": "Connected",
+        "canGetAudio": "Ready to add subtitles.",
+        "cantConnect": "Can't connect to timeline",
+        "openResolve": "Open DaVinci Resolve and go to Workspace → Scripts → AutoSubs"
+      }
+    },
+    "premiere": {
+      "productName": "Premiere Pro",
+      "description": "Adobe extension integration",
+      "tooltip": {
+        "connected": "Connected",
+        "canGetAudio": "Ready to add subtitles.",
+        "disconnected": "Extension disconnected",
+        "openPremiere": "Open Premiere Pro to connect automatically."
+      }
+    },
+    "aftereffects": {
+      "productName": "After Effects",
+      "description": "Adobe extension integration",
+      "tooltip": {
+        "connected": "Connected",
+        "canGetAudio": "Ready to add subtitles.",
+        "disconnected": "Extension disconnected",
+        "openAfterEffects": "Open After Effects to connect automatically."
+      }
+    }
+  },
+  "theme": {
+    "toggle": "Toggle theme"
+  },
+  "shell": {
+    "tabs": {
+      "subtitles": "Subtitles",
+      "scripts": "Scripts",
+      "autoEdit": "Auto Edit"
+    }
+  },
+  "addToTimeline": {
+    "steps": {
+      "outputTrack": {
+        "title": "Track"
+      },
+      "template": {
+        "title": "Style",
+        "connectTo": "Connect to {{integration}} to customise templates"
+      },
+      "speakers": {
+        "title": "Speakers"
+      }
+    },
+    "title": "Send to Timeline",
+    "ready": {
+      "title": "Subtitles Ready",
+      "description": "Your subtitles have been generated and are ready to be sent to the timeline."
+    },
+    "adding": "Sending...",
+    "success": "Sent to timeline",
+    "mode": {
+      "regular": "Regular Template",
+      "animated": "Animated Template"
+    },
+    "conflict": {
+      "hasConflicts": "This track has conflicting clips. Subtitles may overlap with existing content."
+    },
+    "preset": {
+      "new": "New preset",
+      "builtIn": "Built-in",
+      "custom": "Custom",
+      "preview": "Preview in Resolve",
+      "duplicate": "Duplicate",
+      "delete": "Delete",
+      "export": "Export JSON",
+      "copyJson": "Copy JSON",
+      "copied": "Copied to clipboard",
+      "import": "Import file",
+      "paste": "Paste JSON",
+      "phase": {
+        "launchingTitle": "Opening caption in Resolve…",
+        "launchingHint": "We’ll drop a preview caption on a temporary track.",
+        "editingTitle": "Switch to DaVinci Resolve",
+        "editingBody": "A caption has been placed on a new track and opened in the Fusion page. Customise it using the inspector, then come back here.",
+        "capturingTitle": "Reading settings from Resolve…",
+        "nameTitle": "Name your preset",
+        "nameHint": "Give it something short and descriptive."
+      },
+      "action": {
+        "cancel": "Cancel",
+        "save": "Save preset",
+        "back": "Back",
+        "captureSettings": "Capture settings"
+      },
+      "nameLabel": "Preset name",
+      "namePlaceholder": "e.g. Bold Yellow, TikTok Style",
+      "descriptionLabel": "Description",
+      "descriptionPlaceholder": "Optional note about this preset",
+      "confirmDeleteTitle": "Delete preset?",
+      "confirmDelete": "This preset will be removed from your library. Built-in presets are not affected.",
+      "confirmDeleteConfirm": "Delete",
+      "importTitle": "Paste preset JSON",
+      "importPlaceholder": "Paste the contents of a preset file here…",
+      "importSubmit": "Import preset",
+      "errors": {
+        "invalidJson": "That doesn’t look like a valid preset file.",
+        "captureFailed": "Couldn’t read the caption settings from Resolve.",
+        "nameRequired": "Please enter a name."
+      }
+    }
+  },
+  "replaceStrings": {
+    "title": "Search/Replace Words",
+    "find": "Find",
+    "findPlaceholder": "Text to find...",
+    "matchCase": "Match Case",
+    "replaceWith": "Replace with",
+    "replacePlaceholder": "Replacement text...",
+    "occurrencesFound": "{{count}} occurrence found",
+    "occurrencePosition": "{{current}} of {{total}}",
+    "noOccurrencesFound": "No occurrences found",
+    "replaceCurrent": "Replace Current",
+    "replaceAll": "Replace All ({{count}})"
+  },
+  "output": {
+    "track": {
+      "label": "Output track",
+      "placeholder": "Choose a track",
+      "none": "No track"
+    },
+    "style": {
+      "label": "Caption style",
+      "loading": "Loading templates...",
+      "noTemplates": "No templates found.",
+      "groups": {
+        "resolve": "Resolve Templates",
+        "autosubs": "AutoSubs Styles"
+      }
+    },
+    "speakers": {
+      "label_one": "{{count}} speaker",
+      "label_other": "{{count}} speakers"
+    },
+    "speakerCount_one": "{{count}} speaker",
+    "speakerCount_other": "{{count}} speakers",
+    "notConnected": "Connect DaVinci Resolve to send subtitles to a timeline.",
+    "noSubtitles": "No subtitles to send",
+    "chooseTrack": "Choose an output track",
+    "reviewAndSend": "Review & Send",
+    "errors": {
+      "notConnected": "No editor connected. Connect to DaVinci Resolve, Adobe Premiere Pro, or After Effects to customise templates.",
+      "timedOut": "Connection timed out. Ensure your editing software is running and try again."
+    },
+    "sentAgain": "Sent · Send again",
+    "title": "Output settings",
+    "language": {
+      "label": "Language",
+      "translated": "Translation only",
+      "source": "Source only",
+      "both": "Both languages",
+      "bothHint": "The source language goes on a new track.",
+      "prompt": "What should be sent?"
+    }
+  },
+  "errorDialog": {
+    "addToTimelineFailed": "Couldn't add subtitles to timeline"
+  },
+  "support": {
+    "title": "Support AutoSubs",
+    "description": "Choose how you'd like to support AutoSubs development.",
+    "coffee": {
+      "title": "Buy me a coffee?",
+      "description": "If AutoSubs has saved you time, consider buying me a coffee to support the project!",
+      "donate": "Donate"
+    }
+  },
+  "subSlate": {
+    "creator": "From the creator of AutoSubs",
+    "tagline": "Craft your story, effortlessly.",
+    "emailPlaceholder": "Enter your email",
+    "notifyMe": "Notify Me",
+    "thanks": "Thanks! We'll keep you posted.",
+    "milestone": "10 transcriptions complete"
+  },
+  "modePicker": {
+    "brand": "Auto Suite",
+    "title": "Choose a workspace",
+    "subtitle": "Pick the tool you want to open. You can switch anytime.",
+    "home": "Home",
+    "language": "App language",
+    "autocut": {
+      "tab": "AutoCut",
+      "noTimeline": "No timeline detected. Open DaVinci Resolve, run Workspace → Scripts → AutoSubs, then open a timeline with a video and an audio track.",
+      "tracksTitle": "Source tracks",
+      "padBefore": "Padding before",
+      "padAfter": "Padding after",
+      "review": {
+        "title": "Review cuts",
+        "count": "{{active}} of {{total}} cuts",
+        "filler": "filler"
+      },
+      "fillers": "Cut filler words (um, uh, à, ừm)",
+      "fillersHint": "Transcribes the audio to find and remove filler words. Slower.",
+      "keepCopy": "Keep the original (cut onto a new timeline)",
+      "keepCopyHint": "Off: cut this timeline in place (undoable). On: build the cut onto a new timeline and leave this one alone.",
+      "analyze": "Analyze silences",
+      "applying": "Cutting...",
+      "apply": "Cut on this timeline",
+      "applyCopy": "Cut onto a new timeline",
+      "reanalyze": "Re-analyze",
+      "applied": "Removed {{seconds}}s of silence from \"{{name}}\".",
+      "stats": {
+        "original": "Original",
+        "cut": "Removed",
+        "result": "New length",
+        "reduction": "Shorter by"
+      },
+      "minKeep": "Minimum talk length",
+      "minKeepHint": "Speech shorter than this is treated as noise (a breath, a click) and cut too.",
+      "presets": {
+        "label": "Presets",
+        "natural": "Natural",
+        "tight": "Tight",
+        "gentle": "Gentle"
+      },
+      "minSilenceHint": "Pauses shorter than this are left alone, so natural beats between sentences survive.",
+      "padBeforeHint": "Extra audio kept before each phrase, so speech doesn't start the instant the cut lands.",
+      "padAfterHint": "Extra audio kept after each phrase, so the last word isn't clipped short.",
+      "target": {
+        "none": "No track selected",
+        "noneSelected": "Select an audio track — silences are found in the sound, so there is nothing to analyse without one.",
+        "videoHint": "Video tracks to cut. They follow the first selected audio track, since picture has no sound of its own to measure.",
+        "audioHint": "Audio tracks to cut. Each one is analysed and cut on its own, so their lengths will end up different."
+      },
+      "wave": {
+        "before": "Now",
+        "after": "After cut",
+        "afterLength": "{{length}} long"
+      }
+    },
+    "autoedit": {
+      "title": "AutoEdit",
+      "description": "Run Python-powered edit scripts inside DaVinci Resolve — cut, arrange, and automate your timeline.",
+      "badge": "New",
+      "tabs": {
+        "import": "Import Script",
+        "mine": "My scripts",
+        "builtin": "Built-in",
+        "mcp": "MCP",
+        "tutorial": "Tutorial"
+      },
+      "myScripts": {
+        "title": "My scripts",
+        "description": "Import a .py once and it stays here to run again on the open timeline.",
+        "import": "Import script",
+        "empty": "No scripts yet. Import a .py file to keep it here for next time.",
+        "remove": "Remove"
+      },
+      "import": {
+        "title": "Run a Python script",
+        "description": "Pick a .py file and run it against the currently open DaVinci Resolve timeline.",
+        "picker": "Choose script…",
+        "picked": "Selected script",
+        "clear": "Clear",
+        "run": "Run script",
+        "running": "Running…",
+        "dropHint": "Or drag and drop a .py file here",
+        "logTitle": "Output",
+        "logEmpty": "The script's stdout and stderr will appear here.",
+        "clearLog": "Clear log",
+        "exitCode": "Exit code {{code}}",
+        "exitOk": "Script finished successfully.",
+        "exitFail": "Script exited with code {{code}}.",
+        "launchError": "Failed to launch script: {{message}}"
+      },
+      "builtin": {
+        "title": "Built-in scripts",
+        "description": "Handcrafted scripts bundled with the app. Click Run to try one on the currently open Resolve timeline.",
+        "empty": "No built-in scripts yet. Add one to your library to see it here.",
+        "resolveInfo": {
+          "name": "Resolve info",
+          "description": "Read-only. Prints project and timeline stats to the log."
+        },
+        "addMarker": {
+          "name": "Add marker at playhead",
+          "description": "Adds a blue marker at the current playhead. Undo with Ctrl/Cmd+Z inside Resolve."
+        },
+        "chapters": {
+          "name": "YouTube chapters",
+          "description": "Turns your timeline markers into a chapter list you can paste straight into a video description."
+        },
+        "markCuts": {
+          "name": "Mark every clip cut",
+          "description": "Drops a cyan marker on each clip boundary of video track 1, so you can review cut to cut."
+        },
+        "clearMarkers": {
+          "name": "Clear all markers",
+          "description": "Removes every marker from the timeline. Undo with Ctrl/Cmd+Z inside Resolve."
+        },
+        "subtitleMarkers": {
+          "name": "Markers from subtitles",
+          "description": "One marker per subtitle, carrying its text — the marker list becomes a clickable transcript index."
+        },
+        "speechGaps": {
+          "name": "Find long pauses",
+          "description": "Marks every silence of 2s or more between subtitles: dead air to tighten, or where a new section starts."
+        },
+        "timelineGaps": {
+          "name": "Check for gaps",
+          "description": "Finds holes in video track 1 that would play as black, and marks each one red."
+        },
+        "silenceCut": {
+          "name": "Auto-cut silences",
+          "description": "Detects silences on the audio track, duplicates the timeline, and rebuilds it without the pauses.",
+          "toastStep": "AutoEdit: {{message}}"
+        },
+        "categories": {
+          "cut": "Cutting & editing",
+          "markers": "Markers & index",
+          "cleanup": "Cleanup",
+          "info": "Info"
+        },
+        "slideshow": {
+          "name": "Slideshow from voice",
+          "description": "Place a batch of images or clips onto the timeline, each timed to the sentence it belongs to in the transcribed voice-over."
+        }
+      },
+      "mcp": {
+        "title": "MCP integration",
+        "description": "Expose Resolve as an MCP server so agents like Claude or Cursor can drive your timeline.",
+        "empty": "Coming soon."
+      },
+      "tutorial": {
+        "title": "Tutorial",
+        "description": "Guides and walkthroughs for building your own AutoEdit scripts.",
+        "empty": "The tutorial article will live here."
+      },
+      "status": {
+        "readyForScripts": "Ready to run scripts on this timeline."
+      },
+      "setup": {
+        "title": "Setting up AutoEdit",
+        "description": "Downloading the Python runtime AutoEdit uses to talk to DaVinci Resolve. This only happens once.",
+        "downloading": "Downloading Python…",
+        "extracting": "Unpacking Python…",
+        "retry": "Try again",
+        "cancel": "Cancel",
+        "failed": "Setup failed: {{message}}"
+      },
+      "options": {
+        "videoTrack": "Video track",
+        "audioTrack": "Audio track",
+        "subtitleTrack": "Subtitle track",
+        "minPause": "Minimum pause (seconds)",
+        "minPauseHint": "Only silences at least this long are marked. Lower finds more, higher finds only the big breaks.",
+        "minSilenceCut": "Minimum silence to cut (seconds)",
+        "minSilenceCutHint": "Silences shorter than this stay. 0.5 to 1.0 is a good starting point.",
+        "silencePadding": "Padding around speech (seconds)",
+        "silencePaddingHint": "Extra breath kept on each side of a kept span, so words are not clipped.",
+        "noAudioTracks": "No audio tracks. Open DaVinci Resolve, run Workspace → Scripts → AutoSubs, then open a timeline.",
+        "noVideoTracks": "No video tracks. Open DaVinci Resolve, run Workspace → Scripts → AutoSubs, then open a timeline.",
+        "noSubtitleTracks": "No subtitle track on this timeline. Generate subtitles with AutoSubs first."
+      }
+    },
+    "autosub": {
+      "title": "AutoSubs",
+      "description": "Transcribe your timeline audio and generate styled captions with Whisper."
+    }
+  },
+  "slideshow": {
+    "title": "Slideshow from voice",
+    "mediaTitle": "1. Media",
+    "addFiles": "Add files",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "noSupportedMedia": "No supported images or videos found.",
+    "scriptTitle": "2. Script (optional)",
+    "importScript": "Load .txt",
+    "scriptLoaded": "Loaded {{n}} lines from the script.",
+    "scriptError": "Could not read the script file.",
+    "linePlaceholder": "Sentence spoken while this shows…",
+    "voiceTitle": "3. Audio (optional)",
+    "voiceReady": "Ready",
+    "words": "words",
+    "targetTrack": "Place on video track",
+    "connectResolve": "Connect an editor timeline to add.",
+    "approx": "estimated",
+    "lowMatch": "low match",
+    "builtPartial": "Only {{a}} of {{b}} were placed.",
+    "effect": "Motion",
+    "intensity": "Intensity %",
+    "effects": {
+      "none": "None",
+      "punchIn": "Punch-in (zoom)",
+      "punchPan": "Punch-in + pan",
+      "diagonal": "Diagonal drift"
+    },
+    "optionsTitle": "4. Options",
+    "transcribing": "Transcribing…",
+    "voiceDone": "Transcribed {{n}} words.",
+    "voiceEmpty": "No speech was found in that file.",
+    "secsPerImage": "Secs per image",
+    "newTrack": "New track",
+    "secsPerImageHint": "Used when stitching without voice.",
+    "voiceFile": "Voice file",
+    "voiceFilePick": "Choose an audio or video file",
+    "voiceTrack": "Timeline audio track",
+    "voiceTrackConnect": "Connect your editor to use a timeline track",
+    "transcribe": "Transcribe voice",
+    "voiceNotYet": "No voice transcribed yet",
+    "willSync": "Synced to voice ({{n}})",
+    "willStitch": "Sequential — {{s}}s each",
+    "addFilesHint": "Images or clips",
+    "addFolder": "Add folder",
+    "addFolderHint": "All media inside",
+    "sortBy": "Sort",
+    "sortName": "Name",
+    "sortCreated": "Date created",
+    "sortRandom": "Random",
+    "addAudio": "Add to timeline",
+    "addedOk": "Added to the timeline.",
+    "addMedia": "Add to timeline",
+    "cutSync": "Cut & sync to timeline",
+    "cutNeedsMedia": "Add media first.",
+    "cutNeedsVoice": "Transcribe a voice to cut against.",
+    "cutNeedsScript": "Write a sentence under each media.",
+    "addLink": "Add from link",
+    "addLinkHint": "Download, then place",
+    "link": {
+      "placeholder": "One link per line — add a range to cut it:\nhttps://…  0:30-1:20",
+      "trim": "Cut where",
+      "trimTimeline": "On the timeline (exact)",
+      "trimDownload": "While downloading (smaller file)",
+      "trimTimelineHint": "Keeps the whole file so you can re-trim later.",
+      "trimDownloadHint": "Faster and smaller, but cuts on keyframes so the start can drift.",
+      "download": "Download",
+      "noUrl": "Paste at least one link.",
+      "toolsMissing": "Open the Download tab once to install the downloader.",
+      "failed": "Could not download {{url}}",
+      "done": "Added {{n}} downloaded clips.",
+      "range": "Trim (optional)",
+      "from": "From (e.g. 0:30)",
+      "to": "To (e.g. 1:20)",
+      "rangeHint": "No range = the whole clip.",
+      "downloadPlace": "Download + place",
+      "dirNone": "No folder chosen yet",
+      "dirChange": "Change",
+      "dirPick": "Choose folder"
+    }
+  },
+  "autoEdit": {
+    "tabs": {
+      "cut": "Cut silences",
+      "slideshow": "Slideshow"
+    }
+  }
+}
