@@ -22,6 +22,11 @@ use tauri_plugin_cli::{CliExt, Matches};
 #[allow(unused_imports)]
 use std::process::Command;
 
+// Every Command here is behind a macOS or Windows cfg, so on Linux this import
+// has nothing to attach to — same reason the one above is allowed to be unused.
+#[allow(unused_imports)]
+use crate::process_ext::HiddenConsole;
+
 use crate::transcript_types::{Segment, Transcript};
 use crate::transcription_api::{FrontendTranscribeOptions, transcribe_audio};
 use transcription_engine::TextDensity;
@@ -735,6 +740,8 @@ fn run_admin_macos(shell_script: &str, prompt: &str) -> Result<(), String> {
     let out = Command::new("osascript")
         .arg("-e")
         .arg(apple)
+        // No-op on macOS, but keeps every Command in this crate uniform.
+        .hidden()
         .output()
         .map_err(|e| format!("failed to run osascript: {e}"))?;
     if out.status.success() {
@@ -764,6 +771,7 @@ fn windows_user_path() -> String {
             "-Command",
             "[Environment]::GetEnvironmentVariable('Path','User')",
         ])
+        .hidden()
         .output()
     {
         Ok(o) => String::from_utf8_lossy(&o.stdout).trim().to_string(),
@@ -790,6 +798,7 @@ fn run_powershell(script: &str) -> Result<(), String> {
             "-Command",
             script,
         ])
+        .hidden()
         .output()
         .map_err(|e| format!("failed to run PowerShell: {e}"))?;
     if out.status.success() {

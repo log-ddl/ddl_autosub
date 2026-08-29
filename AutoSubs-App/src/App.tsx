@@ -22,6 +22,7 @@ import {
   type SubtitleDocumentListItem,
 } from "@/utils/file-utils"
 import { WorkspaceShell } from "@/components/layout/workspace-shell"
+import { AppUpdateGate } from "@/components/dialogs/app-update-gate"
 import { ScriptsPanel } from "@/components/autoedit/autoedit-panel"
 import { AutoEditWorkspace } from "@/components/autoedit/auto-edit-workspace"
 import { AutoEditPythonSetup } from "@/components/autoedit/autoedit-python-setup"
@@ -376,7 +377,11 @@ function AppRouter() {
 function App() {
   return (
     <ThemeProvider defaultTheme="system" storageKey="vite-ui-theme">
-      <AppRouter />
+      {/* Outermost on purpose: an out-of-date build hits bugs already fixed, so
+          nothing else loads until the update is installed. */}
+      <AppUpdateGate>
+        <AppRouter />
+      </AppUpdateGate>
     </ThemeProvider>
   );
 }

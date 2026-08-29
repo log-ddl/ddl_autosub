@@ -34,7 +34,10 @@ mod autoedit_python;
 mod autoedit_silence;
 mod media_scan;
 mod media_download;
+mod process_ext;
 mod cli;
+
+use crate::process_ext::HiddenConsole; // keep above the cfg'd items below
 #[cfg(target_os = "macos")]
 
 // Include integration-like tests that need crate visibility
@@ -297,6 +300,10 @@ fn main() {
         .plugin(http_plugin())
         .plugin(fs_plugin())
         .plugin(process_plugin())
+        // Self-update. Signature verification against the pubkey in
+        // tauri.conf.json is what makes downloading and running an installer
+        // from the internet safe, so the key there is not optional.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(shell_plugin())
         .plugin(clipboard_plugin())
         .plugin(opener_plugin())
@@ -369,7 +376,7 @@ fn main() {
                                     let stderr = String::from_utf8_lossy(&out.stderr);
                                     tracing::warn!("ffmpeg sidecar -version exited non-zero. stderr: {}", stderr);
                                     // fallback to system
-                                    if let Ok(sys) = TokioCommand::new("ffmpeg").arg("-version").output().await {
+                                    if let Ok(sys) = TokioCommand::new("ffmpeg").arg("-version").hidden().output().await {
                                         ffmpeg_ok = sys.status.success();
                                         let stdout = String::from_utf8_lossy(&sys.stdout);
                                         ffmpeg_version = stdout.lines().next().unwrap_or("").to_string();
@@ -378,7 +385,7 @@ fn main() {
                                 }
                                 Err(e) => {
                                     tracing::warn!("ffmpeg sidecar execution failed: {:?}", e);
-                                    if let Ok(sys) = TokioCommand::new("ffmpeg").arg("-version").output().await {
+                                    if let Ok(sys) = TokioCommand::new("ffmpeg").arg("-version").hidden().output().await {
                                         ffmpeg_ok = sys.status.success();
                                         let stdout = String::from_utf8_lossy(&sys.stdout);
                                         ffmpeg_version = stdout.lines().next().unwrap_or("").to_string();
@@ -389,7 +396,7 @@ fn main() {
                         }
                         Err(e) => {
                             tracing::warn!("ffmpeg sidecar not found/failed to init: {:?}", e);
-                            if let Ok(sys) = TokioCommand::new("ffmpeg").arg("-version").output().await {
+                            if let Ok(sys) = TokioCommand::new("ffmpeg").arg("-version").hidden().output().await {
                                 ffmpeg_ok = sys.status.success();
                                 let stdout = String::from_utf8_lossy(&sys.stdout);
                                 ffmpeg_version = stdout.lines().next().unwrap_or("").to_string();
@@ -446,6 +453,8 @@ fn main() {
             media_scan::scan_media,
             media_download::media_download_status,
             media_download::media_download_install,
+            media_download::media_download_update,
+            media_download::media_download_version_check,
             media_download::media_download_analyze,
             media_download::media_download_start,
             media_download::media_download_cancel

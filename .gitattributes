@@ -1,0 +1,47 @@
+# Keep line endings consistent across the Mac and Windows checkouts. Without
+# this the repo depends on each machine's `core.autocrlf` being set correctly,
+# and one commit made with the wrong setting is enough to ship CRLF to macOS —
+# where `check-bridge.sh` then dies with `bad interpreter: /bin/bash^M`.
+
+# Let git normalise to LF in the repo and check out natively everywhere else.
+* text=auto
+
+# Files an interpreter reads directly: these must be LF in the working tree too,
+# on every platform.
+*.sh text eol=lf
+*.lua text eol=lf
+*.py text eol=lf
+
+# Source and config: LF in the repo, native on checkout is fine.
+*.ts text
+*.tsx text
+*.js text
+*.jsx text
+*.rs text
+*.toml text
+*.json text
+*.md text
+*.html text
+*.css text
+*.xml text
+
+# Never touch these.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.webp binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.zip binary
+*.zxp binary
+*.exe binary
+*.dll binary
+*.dylib binary
+*.so binary
+*.drfx binary
+*.setting binary

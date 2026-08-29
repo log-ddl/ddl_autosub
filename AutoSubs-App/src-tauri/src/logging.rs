@@ -307,24 +307,30 @@ pub fn open_log_dir<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
 
     #[cfg(target_os = "macos")]
     {
+        use crate::process_ext::HiddenConsole;
         std::process::Command::new("open")
             .arg(&path)
+            .hidden()
             .spawn()
             .map_err(|e| e.to_string())?;
     }
 
     #[cfg(target_os = "windows")]
     {
+        use crate::process_ext::HiddenConsole;
         std::process::Command::new("explorer")
             .arg(&path)
+            .hidden()
             .spawn()
             .map_err(|e| e.to_string())?;
     }
 
     #[cfg(target_os = "linux")]
     {
+        use crate::process_ext::HiddenConsole;
         std::process::Command::new("xdg-open")
             .arg(&path)
+            .hidden()
             .spawn()
             .map_err(|e| e.to_string())?;
     }

@@ -1,18 +1,14 @@
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 
-import de from "./locales/de/translation.json";
 import en from "./locales/en/translation.json";
-import es from "./locales/es/translation.json";
-import fr from "./locales/fr/translation.json";
-import ja from "./locales/ja/translation.json";
-import ko from "./locales/ko/translation.json";
-import ru from "./locales/ru/translation.json";
 import vi from "./locales/vi/translation.json";
-import zh from "./locales/zh/translation.json";
 
 export const DEFAULT_UI_LANGUAGE = "en";
-export const SUPPORTED_UI_LANGUAGES = ["en", "de", "es", "fr", "ja", "ko", "ru", "vi", "zh"] as const;
+// Only the locales that are actually maintained. `normalizeUiLanguage` folds
+// anything else — including a language saved back when more were shipped — into
+// the default, so a stale setting can't leave the UI half-translated.
+export const SUPPORTED_UI_LANGUAGES = ["en", "vi"] as const;
 export type SupportedUiLanguage = (typeof SUPPORTED_UI_LANGUAGES)[number];
 
 export function normalizeUiLanguage(lang: string | null | undefined): SupportedUiLanguage {
@@ -50,7 +46,7 @@ export function getPreferredUiLanguage(): SupportedUiLanguage {
   return DEFAULT_UI_LANGUAGE;
 }
 
-const BUNDLES = { de, en, es, fr, ja, ko, ru, vi, zh } as const;
+const BUNDLES = { en, vi } as const;
 
 export function initI18n(uiLanguage: string) {
   const normalized = normalizeUiLanguage(uiLanguage);

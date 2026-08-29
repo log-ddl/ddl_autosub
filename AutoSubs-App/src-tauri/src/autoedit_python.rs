@@ -20,6 +20,8 @@ use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
+use crate::process_ext::HiddenConsole;
+
 // Pinned python-build-standalone release. Bump these two together when we
 // want a newer Python. Keep the same tag/version on both this file and
 // scripts/download-python.mjs so dev pre-warms and prod runtime match.
@@ -227,6 +229,7 @@ async fn extract_tarball(archive: &std::path::Path, dest_dir: &std::path::Path) 
         .arg(archive)
         .arg("-C")
         .arg(dest_dir)
+        .hidden()
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .status()

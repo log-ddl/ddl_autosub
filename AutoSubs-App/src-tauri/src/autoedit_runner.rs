@@ -7,6 +7,8 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
+use crate::process_ext::HiddenConsole;
+
 // Emitted for every line the script prints on stdout or stderr.
 // The frontend appends these to the on-screen log.
 #[derive(Clone, Serialize)]
@@ -105,6 +107,7 @@ pub async fn run_python_script(app: AppHandle, script_path: String) -> Result<()
         // here), so a script printing anything non-Latin-1 would die with
         // UnicodeEncodeError. We read the pipes as UTF-8 on this end.
         .env("PYTHONIOENCODING", "utf-8")
+        .hidden()
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 

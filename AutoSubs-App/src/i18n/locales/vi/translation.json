@@ -60,7 +60,8 @@
     "startNewTranscription": "Bắt đầu phiên âm mới",
     "refresh": "Làm mới kết nối",
     "edit": "Sửa",
-    "scrollDown": "Cuộn xuống"
+    "scrollDown": "Cuộn xuống",
+    "remove": "Xóa"
   },
   "update": {
     "restartResolveServer": {
@@ -77,6 +78,7 @@
     "selected": "Đã chọn:",
     "importFile": "Nhập tệp",
     "exportAsSrt": "Xuất ra SRT",
+    "exportAsTxt": "Xuất ra TXT",
     "fileDialog": {
       "subtitleFiles": "Tệp phụ đề"
     },
@@ -577,7 +579,8 @@
     "tabs": {
       "subtitles": "Phụ đề",
       "scripts": "Scripts",
-      "autoEdit": "Auto Edit"
+      "autoEdit": "Auto Edit",
+      "download": "Tải video"
     }
   },
   "addToTimeline": {
@@ -911,7 +914,7 @@
   },
   "slideshow": {
     "title": "Slideshow theo giọng đọc",
-    "mediaTitle": "1. Media",
+    "mediaTitle": "1. Tệp media",
     "addFiles": "Thêm file",
     "moveUp": "Lên",
     "moveDown": "Xuống",
@@ -976,6 +979,7 @@
       "trimTimelineHint": "Giữ nguyên file đầy đủ để sau còn chỉnh lại được.",
       "trimDownloadHint": "Nhanh và nhẹ hơn, nhưng cắt theo keyframe nên điểm đầu có thể lệch.",
       "download": "Tải về",
+      "progress": "Đang tải {{n}} link cùng lúc",
       "noUrl": "Dán ít nhất một link.",
       "toolsMissing": "Mở tab Download một lần để cài trình tải.",
       "failed": "Không tải được {{url}}",
@@ -987,13 +991,71 @@
       "downloadPlace": "Tải về + thêm lên timeline",
       "dirNone": "Chưa chọn thư mục lưu",
       "dirChange": "Đổi",
-      "dirPick": "Chọn thư mục"
+      "dirPick": "Chọn thư mục",
+      "stopAll": "Dừng tất cả",
+      "stopping": "Đang dừng…",
+      "stopped": "Đã dừng. Giữ lại {{n}} clip đã tải xong."
     }
   },
   "autoEdit": {
     "tabs": {
       "cut": "Cắt lặng",
-      "slideshow": "Slideshow"
+      "slideshow": "Trình chiếu"
     }
+  },
+  "download": {
+    "title": "Tải video",
+    "subtitle": "Dán link video rồi lưu thành MP4.",
+    "urlLabel": "Link video",
+    "folder": "Lưu vào",
+    "chooseFolder": "Chọn thư mục…",
+    "trim": "Cắt đoạn (tuỳ chọn)",
+    "from": "Từ (vd 0:30)",
+    "to": "Đến (vd 1:20)",
+    "trimHint": "Để trống cả hai để tải nguyên video.",
+    "batch": "Tải hàng loạt (.txt, mỗi dòng một link)",
+    "pickBatch": "Chọn file .txt…",
+    "batchHint": "Mọi link trong file đều tải ở chất lượng tốt nhất. Link đơn và khoảng cắt ở trên sẽ bị bỏ qua.",
+    "start": "Tải về",
+    "cancel": "Hủy",
+    "canceled": "Đã hủy tải",
+    "done": "Tải xong",
+    "savedTo": "Đã lưu",
+    "showInFolder": "Mở thư mục",
+    "stage": {
+      "downloading": "Đang tải…",
+      "processing": "Đang ghép hình và tiếng…"
+    },
+    "error": {
+      "noUrl": "Dán link video trước đã",
+      "failed": "Tải thất bại"
+    },
+    "setup": {
+      "title": "Đang cài trình tải",
+      "subtitle": "Tải một lần yt-dlp và một runtime JavaScript nhỏ để video nào cũng tải được.",
+      "starting": "Đang bắt đầu…",
+      "retry": "Thử lại"
+    },
+    "update": {
+      "checking": "Đang kiểm tra bản mới của trình tải…",
+      "title": "Trình tải cần được cập nhật",
+      "body": "YouTube thay đổi cách phát video vài tháng một lần. Trình tải cũ sẽ ngừng hoạt động mà không báo lý do rõ ràng, nên hãy cập nhật trước khi tải.",
+      "installed": "Đang dùng",
+      "available": "Bản mới",
+      "action": "Cập nhật ngay",
+      "updating": "Đang cập nhật…",
+      "skip": "Bỏ qua, dùng bản cũ",
+      "current": "Trình tải đã là bản mới nhất ({{version}})"
+    }
+  },
+  "appUpdate": {
+    "checking": "Đang kiểm tra bản mới…",
+    "title": "Đã có phiên bản mới",
+    "body": "Bản cập nhật sẽ tự cài và khởi động lại AutoSubs. Chỉ mất một lát thôi.",
+    "downloading": "Đang tải…",
+    "installing": "Đang cài, ứng dụng sẽ khởi động lại…",
+    "action": "Cập nhật và khởi động lại",
+    "skip": "Tiếp tục dùng bản này",
+    "resolveNote": "Sau khi khởi động lại, vào DaVinci Resolve chạy lại Workspace → Scripts → AutoSubs để kết nối lại."
   }
 }

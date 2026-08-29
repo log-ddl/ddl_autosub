@@ -1,13 +1,9 @@
+// The app's interface languages. Keep in step with SUPPORTED_UI_LANGUAGES in
+// src/i18n/index.ts — a value listed here without a bundle there just falls
+// back to English.
 export const uiLanguages = [
   { label: "English", value: "en" },
-  { label: "Español", value: "es" },
-  { label: "Français", value: "fr" },
-  { label: "Deutsch", value: "de" },
-  { label: "日本語", value: "ja" },
-  { label: "한국어", value: "ko" },
-  { label: "Русский", value: "ru" },
   { label: "Tiếng Việt", value: "vi" },
-  { label: "中文", value: "zh" },
 ]
 
 export const languages = [

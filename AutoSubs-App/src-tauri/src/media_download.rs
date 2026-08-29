@@ -26,13 +26,34 @@ use tokio::fs;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 
+use crate::process_ext::HiddenConsole;
+
 const EVENT_SETUP_PROGRESS: &str = "media-download-setup-progress";
 const EVENT_SETUP_DONE: &str = "media-download-setup-done";
 const EVENT_PROGRESS: &str = "media-download-progress";
 
 // Marker prefix printed by yt-dlp's `--print after_move:` so we can capture the
 // final file path from the log stream regardless of the output template.
-const FILE_MARKER: &str = "__AUTOSUBS_FILE__";
+/// Picks the downloaded file out of yt-dlp's `--print-to-file` report. The hooks
+/// append one path per line; later lines win when several name a real file, and
+/// the first non-empty line is kept for the error message when none do.
+fn pick_reported_path(report: &str) -> (Option<String>, String) {
+    let mut best: Option<String> = None;
+    let mut first_seen = String::new();
+    for line in report.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if first_seen.is_empty() {
+            first_seen = line.to_string();
+        }
+        if Path::new(line).is_file() {
+            best = Some(line.to_string());
+        }
+    }
+    (best, first_seen)
+}
 
 // Running download jobs keyed by the caller-supplied job id, so `cancel` can
 // kill the child from a separate command invocation. The stdout/stderr handles
@@ -310,6 +331,7 @@ async fn extract_zip(archive: &Path, dest_dir: &Path) -> Result<(), String> {
         c
     };
     let output = cmd
+        .hidden()
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .output()
@@ -356,6 +378,192 @@ async fn install_deno(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+// ----------------------------------------------------------------------------
+// Keeping yt-dlp current
+//
+// YouTube changes how it serves video every few months and yt-dlp follows within
+// days, so a binary installed once and never touched will eventually stop being
+// able to download anything. That is a failure with no useful error message —
+// downloads just start failing — so the tool checks for its own update instead
+// of waiting for the user to work out what went wrong.
+//
+// yt-dlp knows how to replace itself (`-U`), which is safer than re-downloading
+// from GitHub: it verifies the release and swaps the file the way the platform
+// wants (Windows can't overwrite a running .exe directly).
+// ----------------------------------------------------------------------------
+
+/// How long a version check stays fresh. Long enough not to nag, short enough
+/// that a breaking YouTube change is picked up within a few days.
+const UPDATE_CHECK_DAYS: u64 = 3;
+
+fn update_stamp(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(tools_dir(app)?.join(".ytdlp-last-check"))
+}
+
+/// Whether the last check is older than `UPDATE_CHECK_DAYS` (or never happened).
+async fn update_due(app: &AppHandle) -> bool {
+    let Ok(stamp) = update_stamp(app) else {
+        return false;
+    };
+    let Ok(meta) = fs::metadata(&stamp).await else {
+        return true; // never checked
+    };
+    let Ok(modified) = meta.modified() else {
+        return true;
+    };
+    match modified.elapsed() {
+        Ok(age) => age.as_secs() > UPDATE_CHECK_DAYS * 24 * 60 * 60,
+        // A clock moved backwards leaves `elapsed()` in the future; treat that
+        // as "unknown" and check, rather than never checking again.
+        Err(_) => true,
+    }
+}
+
+async fn touch_update_stamp(app: &AppHandle) {
+    if let Ok(stamp) = update_stamp(app) {
+        let _ = fs::write(&stamp, b"").await;
+    }
+}
+
+/// Run yt-dlp's self-update. Returns the message it printed, which says whether
+/// it updated or was already current.
+async fn update_ytdlp(app: &AppHandle) -> Result<String, String> {
+    let binary = ytdlp_binary(app)?;
+    if !binary.exists() {
+        return Err("yt-dlp is not installed yet".to_string());
+    }
+    let output = Command::new(&binary)
+        .arg("-U")
+        .hidden()
+        .env("PYTHONIOENCODING", "utf-8")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run yt-dlp -U: {}", e))?;
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let summary = text.trim().to_string();
+    if !output.status.success() {
+        return Err(if summary.is_empty() {
+            "yt-dlp update failed".to_string()
+        } else {
+            summary
+        });
+    }
+    Ok(summary)
+}
+
+/// Update if the check is due and nothing is downloading. Never fails loudly:
+/// a version check that can't run (offline, say) must not block downloading with
+/// the binary already on disk.
+async fn update_ytdlp_if_due(app: &AppHandle) {
+    if !update_due(app).await {
+        return;
+    }
+    // Replacing the binary underneath a running download would break it.
+    if !JOBS.lock().unwrap().is_empty() {
+        return;
+    }
+    match update_ytdlp(app).await {
+        Ok(msg) => {
+            tracing::info!("yt-dlp update check: {}", msg);
+            touch_update_stamp(app).await;
+        }
+        // Don't stamp on failure, so the next run tries again rather than
+        // waiting out the full interval.
+        Err(e) => tracing::warn!("yt-dlp update check failed: {}", e),
+    }
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VersionCheck {
+    /// What is installed, e.g. "2026.08.19". Empty when it can't be read.
+    pub current: String,
+    /// Newest release tag on GitHub, or None when the check couldn't run.
+    pub latest: Option<String>,
+    pub update_available: bool,
+    /// Why the check couldn't run (offline, rate-limited). Not an error the
+    /// user has to act on — downloading still works with what's installed.
+    pub error: Option<String>,
+}
+
+/// The installed yt-dlp's version string.
+async fn ytdlp_version(app: &AppHandle) -> Result<String, String> {
+    let binary = ytdlp_binary(app)?;
+    if !binary.exists() {
+        return Err("yt-dlp is not installed yet".to_string());
+    }
+    let output = Command::new(&binary)
+        .arg("--version")
+        .hidden()
+        .env("PYTHONIOENCODING", "utf-8")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .map_err(|e| format!("Failed to read yt-dlp version: {}", e))?;
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+/// The newest release tag published by the yt-dlp project.
+async fn latest_ytdlp_tag() -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let value: serde_json::Value = client
+        .get("https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest")
+        // GitHub rejects requests without one.
+        .header("User-Agent", "AutoSubs")
+        .send()
+        .await
+        .map_err(|e| format!("Could not reach GitHub: {}", e))?
+        .json()
+        .await
+        .map_err(|e| format!("Unexpected reply from GitHub: {}", e))?;
+    value
+        .get("tag_name")
+        .and_then(|t| t.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "GitHub did not report a release tag".to_string())
+}
+
+/// Compare the installed yt-dlp against the newest release. Never errors out:
+/// a check that can't run reports `error` and leaves `update_available` false,
+/// so a flaky network can't block downloading.
+#[tauri::command]
+pub async fn media_download_version_check(app: AppHandle) -> VersionCheck {
+    let current = ytdlp_version(&app).await.unwrap_or_default();
+    match latest_ytdlp_tag().await {
+        Ok(latest) => {
+            // Tags are date-stamped ("2026.08.19"), so any difference means the
+            // installed copy is behind. An empty `current` means the version
+            // couldn't be read — don't call that an update.
+            let update_available = !current.is_empty() && current != latest;
+            VersionCheck { current, latest: Some(latest), update_available, error: None }
+        }
+        Err(e) => VersionCheck { current, latest: None, update_available: false, error: Some(e) },
+    }
+}
+
+/// Force an update now, ignoring the interval. Wired up for an explicit
+/// "update the downloader" action.
+#[tauri::command]
+pub async fn media_download_update(app: AppHandle) -> Result<String, String> {
+    if !JOBS.lock().unwrap().is_empty() {
+        return Err("A download is still running".to_string());
+    }
+    let msg = update_ytdlp(&app).await?;
+    touch_update_stamp(&app).await;
+    Ok(msg)
+}
+
 async fn do_install(app: &AppHandle) -> Result<(), String> {
     let dir = tools_dir(app)?;
     fs::create_dir_all(&dir)
@@ -370,6 +578,13 @@ async fn do_install(app: &AppHandle) -> Result<(), String> {
 pub async fn media_download_install(app: AppHandle) -> Result<(), String> {
     if is_installed(&app) {
         let _ = app.emit(EVENT_SETUP_DONE, SetupDone { ok: true, error: None });
+        // Already set up, so report ready straight away and fold the version
+        // check into the background. Downloading works with the binary on disk;
+        // this only decides whether it still will next month.
+        let bg = app.clone();
+        tauri::async_runtime::spawn(async move {
+            update_ytdlp_if_due(&bg).await;
+        });
         return Ok(());
     }
     {
@@ -385,7 +600,12 @@ pub async fn media_download_install(app: AppHandle) -> Result<(), String> {
         let result = do_install(&app_clone).await;
         *INSTALLING.lock().unwrap() = false;
         let done = match result {
-            Ok(()) => SetupDone { ok: true, error: None },
+            Ok(()) => {
+                // A fresh install already fetched the newest release, so start
+                // the clock now instead of checking again on the next launch.
+                touch_update_stamp(&app_clone).await;
+                SetupDone { ok: true, error: None }
+            }
             Err(e) => {
                 // Leave no half-written temp behind.
                 if let Ok(dir) = tools_dir(&app_clone) {
@@ -471,6 +691,7 @@ pub async fn media_download_analyze(
 
     let output = Command::new(&binary)
         .args(&args)
+        .hidden()
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
@@ -544,14 +765,37 @@ fn output_template(directory: &str) -> String {
         .to_string()
 }
 
-fn build_args(app: &AppHandle, req: &DownloadRequest) -> Vec<String> {
+fn build_args(app: &AppHandle, req: &DownloadRequest, report_file: &Path) -> Vec<String> {
+    let report = report_file.to_string_lossy().to_string();
     let mut args: Vec<String> = vec![
         "--no-playlist".into(),
         "--no-simulate".into(),
         "--newline".into(),
         "--progress".into(),
-        "--print".into(),
-        format!("after_move:{}%(filepath)s", FILE_MARKER),
+        // Keep filenames ASCII-only. The name is throwaway — the `[%(id)s]` in
+        // the template is what keeps clips distinct — while a Unicode path has
+        // to survive yt-dlp's stdout, a websocket, ExtendScript's ASCII-only
+        // parser and Premiere's own re-encoding of getMediaPath() before a clip
+        // can be placed. Trading a pretty name for a path that cannot be mangled
+        // anywhere in that chain is the better deal here.
+        "--restrict-filenames".into(),
+        // Report the output path through a FILE, not stdout. yt-dlp encodes its
+        // console output with the Windows code page (cp1252 here), which drops
+        // every character it can't represent — a Vietnamese title came back as
+        // "Nhng fact lmao nht v con ngi", naming a file that doesn't exist. Files
+        // are written as UTF-8 regardless of the console, so this side-steps the
+        // whole problem.
+        //
+        // Two hooks, appended to the same file in this order: `after_move` is
+        // authoritative but never fires when yt-dlp finds the file already
+        // downloaded and skips it; `after_video` runs last and fires either way,
+        // with `_filename` covering a `filepath` that was never populated.
+        "--print-to-file".into(),
+        "after_move:%(filepath)s".into(),
+        report.clone(),
+        "--print-to-file".into(),
+        "after_video:%(filepath,_filename)s".into(),
+        report,
         "-o".into(),
         output_template(&req.output_directory),
     ];
@@ -644,10 +888,18 @@ pub async fn media_download_start(
     }
     let job_id = request.job_id.clone();
     let directory = request.output_directory.clone();
-    let args = build_args(&app, &request);
+    // Where yt-dlp writes the output path. One file per job, removed below.
+    let report_file = std::env::temp_dir().join(format!("autosubs-dl-{}.txt", job_id));
+    let _ = fs::remove_file(&report_file).await; // stale file from a crashed run
+    let args = build_args(&app, &request, &report_file);
 
     let mut child = Command::new(&binary)
         .args(&args)
+        .hidden()
+        // yt-dlp is frozen Python: without this its stdout uses the OS code page,
+        // so progress lines carrying a non-Latin-1 title arrive as invalid UTF-8
+        // and kill the reader loop below. Same fix as autoedit_runner.rs.
+        .env("PYTHONIOENCODING", "utf-8")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -666,13 +918,13 @@ pub async fn media_download_start(
         buf
     });
 
-    let mut file_path = String::new();
-    let mut reader = BufReader::new(stdout).lines();
-    while let Ok(Some(line)) = reader.next_line().await {
-        if let Some(i) = line.find(FILE_MARKER) {
-            file_path = line[i + FILE_MARKER.len()..].trim().to_string();
-            continue;
-        }
+    // Read raw bytes rather than `lines()`: that yields Err on invalid UTF-8,
+    // and `while let Ok(..)` would end the loop silently mid-download — which is
+    // exactly what happened on titles the console encoding mangled. Progress
+    // text is cosmetic, so a lossy conversion is the right trade here.
+    let mut reader = BufReader::new(stdout).split(b'\n');
+    while let Ok(Some(chunk)) = reader.next_segment().await {
+        let line = String::from_utf8_lossy(&chunk).trim_end_matches('\r').to_string();
         let processing = line.contains("[Merger]")
             || line.contains("[VideoConvertor]")
             || line.contains("[Fixup");
@@ -691,6 +943,7 @@ pub async fn media_download_start(
     // already gone from the map, `cancel` removed and killed it.
     let child = JOBS.lock().unwrap().remove(&job_id);
     let Some(mut child) = child else {
+        let _ = fs::remove_file(&report_file).await;
         return Ok(DownloadResult {
             success: false,
             canceled: true,
@@ -715,6 +968,7 @@ pub async fn media_download_start(
                 message: msg.clone(),
             },
         );
+        let _ = fs::remove_file(&report_file).await;
         return Ok(DownloadResult {
             success: false,
             canceled: false,
@@ -722,6 +976,38 @@ pub async fn media_download_start(
             error: Some(if msg.is_empty() { "Download failed".into() } else { msg }),
         });
     }
+
+    // Resolve the output path from the report file. This used to fall back to
+    // the output *directory* when nothing was reported, which silently handed a
+    // folder to the caller: the editors then imported the whole folder as a bin
+    // and had nothing placeable, and every clip in a batch collapsed onto the
+    // same path. A download whose file we cannot name is a failed download.
+    let report = fs::read_to_string(&report_file).await.unwrap_or_default();
+    let (resolved, first_seen) = pick_reported_path(&report);
+    let _ = fs::remove_file(&report_file).await;
+
+    let Some(resolved) = resolved else {
+        let msg = if first_seen.is_empty() {
+            format!("yt-dlp did not report an output file in {}", directory)
+        } else {
+            format!("yt-dlp reported a path that is not a file: {}", first_seen)
+        };
+        let _ = app.emit(
+            EVENT_PROGRESS,
+            DownloadProgress {
+                job_id: job_id.clone(),
+                stage: "error".into(),
+                percent: None,
+                message: msg.clone(),
+            },
+        );
+        return Ok(DownloadResult {
+            success: false,
+            canceled: false,
+            file_path: None,
+            error: Some(msg),
+        });
+    };
 
     let _ = app.emit(
         EVENT_PROGRESS,
@@ -736,7 +1022,7 @@ pub async fn media_download_start(
     Ok(DownloadResult {
         success: true,
         canceled: false,
-        file_path: Some(if file_path.is_empty() { directory } else { file_path }),
+        file_path: Some(resolved),
         error: None,
     })
 }

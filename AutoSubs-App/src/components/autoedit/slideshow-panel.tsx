@@ -57,6 +57,13 @@ const VIDEO_EXTS = new Set([
 // Shared with the Download workspace so both remember the same folder.
 const DOWNLOAD_DIR_KEY = "autosubs.download.lastDir"
 
+/**
+ * How many links download at once. Kept small on purpose: YouTube throttles
+ * parallel connections, and every yt-dlp spawns an ffmpeg to merge streams, so
+ * a wide window costs CPU without buying much wall time.
+ */
+const DOWNLOAD_CONCURRENCY = 2
+
 // Returned by the Rust `scan_media` command (folder listing / file stat).
 interface MediaFileInfo {
   path: string
@@ -129,6 +136,20 @@ interface BuildItem {
   /** Section within the source; see MediaEntry.srcIn/srcOut. */
   srcIn?: number
   srcOut?: number
+}
+
+/** One link being downloaded right now, as shown in the progress list. */
+interface DownloadRow {
+  jobId: string
+  label: string
+  percent: number | null
+}
+
+/** One pasted link, resolved against the default range boxes. */
+interface DownloadJob {
+  url: string
+  from?: number
+  to?: number
 }
 
 /** "90", "1:30" or "1:02:03" -> seconds. Returns null when unparseable. */
@@ -265,10 +286,23 @@ export function SlideshowPanel() {
   const [downloading, setDownloading] = React.useState(false)
   const [dlDone, setDlDone] = React.useState(0)
   const [dlTotal, setDlTotal] = React.useState(0)
-  const [dlPercent, setDlPercent] = React.useState<number | null>(null)
-  const [dlLabel, setDlLabel] = React.useState("")
-  const dlJobRef = React.useRef<string>("")
+  // The links currently in flight, in paste order — one progress row each.
+  const [dlActive, setDlActive] = React.useState<DownloadRow[]>([])
+  // Every job id still running, so Cancel can kill the whole batch and not just
+  // whichever one happened to start last.
+  const dlJobsRef = React.useRef<Set<string>>(new Set())
   const dlCancelRef = React.useRef(false)
+  // Set the moment Cancel is pressed. yt-dlp takes a beat to die and a placement
+  // already in flight has to finish, so the button reports "stopping" rather
+  // than looking like it did nothing.
+  const [dlCanceling, setDlCanceling] = React.useState(false)
+
+  // Paths already in the list. Mirrors `media`, but readable synchronously so a
+  // batch of downloads can dedupe itself without waiting for a re-render.
+  const knownPathsRef = React.useRef<Set<string>>(new Set())
+  React.useEffect(() => {
+    knownPathsRef.current = new Set(media.map((m) => m.path))
+  }, [media])
 
   const audioTracks = timelineInfo.inputTracks ?? []
 
@@ -375,9 +409,10 @@ export function SlideshowPanel() {
     addInfos(infos)
   }
 
-  // Append one downloaded file, keeping the caller's order (downloads run one
-  // at a time so the list matches the order the links were pasted in).
-  const appendDownloaded = React.useCallback(
+  // Turn a downloaded file into a media entry. Deliberately free of state
+  // updates: downloads finish out of order, so the caller collects a whole
+  // batch and commits it in the pasted order instead.
+  const makeDownloadedEntry = React.useCallback(
     async (filePath: string, range?: { srcIn?: number; srcOut?: number }) => {
       let info: MediaFileInfo | undefined
       try {
@@ -400,23 +435,38 @@ export function SlideshowPanel() {
         srcIn: range?.srcIn,
         srcOut: range?.srcOut,
       }
-      setMedia((prev) =>
-        prev.some((m) => m.path === entry.path) ? prev : [...prev, entry],
-      )
+      return entry
+    },
+    [],
+  )
+
+  // Commit a batch of downloaded entries, already in pasted order. Returns the
+  // ones that were actually new, so the caller places exactly what it added.
+  const commitDownloaded = React.useCallback((entries: MediaEntry[]): MediaEntry[] => {
+    if (entries.length === 0) return []
+    // Dedupe against the list and within the batch itself. A dropped entry
+    // takes its timeline slot with it, exactly like a failed link does.
+    // `knownPaths` is a ref rather than `media` so two chunks committed before
+    // the next render still see each other.
+    const fresh: MediaEntry[] = []
+    for (const entry of entries) {
+      if (knownPathsRef.current.has(entry.path)) continue
+      knownPathsRef.current.add(entry.path)
+      fresh.push(entry)
+    }
+    if (fresh.length === 0) return []
+    setMedia((prev) => [...prev, ...fresh])
+    for (const entry of fresh) {
       void probeMediaInfo(entry).then((updated) => {
         if (!updated.info) return
         setMedia((prev) =>
           prev.map((m) => (m.path === updated.path ? { ...m, info: updated.info } : m)),
         )
       })
-      return entry
-    },
-    [],
-  )
+    }
+    return fresh
+  }, [])
 
-  // Download each pasted link, then add the resulting files as media. Sequential
-  // on purpose: it keeps the list in the order the user pasted, and yt-dlp is
-  // bandwidth-bound anyway so running them in parallel buys little.
   // Ask for the download folder and remember it. Returns "" if cancelled.
   const pickDownloadDir = async (): Promise<string> => {
     const picked = await openDialog({ directory: true, multiple: false })
@@ -426,6 +476,61 @@ export function SlideshowPanel() {
     return picked
   }
 
+  // Download one link. Never rejects: a dead link resolves to null so it can't
+  // take the rest of its chunk down with it.
+  const runDownloadJob = async (
+    job: DownloadJob,
+    jobId: string,
+    dir: string,
+  ): Promise<MediaEntry | null> => {
+    dlJobsRef.current.add(jobId)
+    const unlisten = await onDownloadProgress(jobId, (p) => {
+      setDlActive((rows) =>
+        rows.map((r) => (r.jobId === jobId ? { ...r, percent: p.percent } : r)),
+      )
+    })
+    try {
+      const hasRange = job.from != null || job.to != null
+      // Cutting at download hands yt-dlp the section; cutting on the timeline
+      // pulls the whole clip and carries the range through to the editor
+      // instead.
+      const cutAtDownload = linkTrim === "download" && hasRange
+      const res = await downloadOne(jobId, job.url, dir, {
+        startTime: cutAtDownload ? String(job.from ?? 0) : null,
+        endTime: cutAtDownload && job.to != null ? String(job.to) : null,
+      })
+      if (res.canceled) return null
+      if (!res.success || !res.filePath) {
+        toast.error(t("slideshow.link.failed", "Could not download {{url}}", { url: job.url }), {
+          description: res.error ?? undefined,
+        })
+        return null
+      }
+      return await makeDownloadedEntry(
+        res.filePath,
+        // yt-dlp already cut it, so the file *is* the section.
+        !cutAtDownload && hasRange ? { srcIn: job.from, srcOut: job.to } : undefined,
+      )
+    } catch (err) {
+      toast.error(t("slideshow.link.failed", "Could not download {{url}}", { url: job.url }), {
+        description: err instanceof Error ? err.message : String(err),
+      })
+      return null
+    } finally {
+      unlisten()
+      dlJobsRef.current.delete(jobId)
+      setDlDone((n) => n + 1)
+    }
+  }
+
+  /**
+   * Download the pasted links `DOWNLOAD_CONCURRENCY` at a time, committing each
+   * chunk before starting the next. Order is safe because a chunk is only
+   * committed once every link in it has settled — `Promise.all` hands the
+   * results back in the pasted order regardless of who finished first — and a
+   * link that fails simply gives up its slot, so the next clip butts straight
+   * against the previous one instead of leaving a hole.
+   */
   const handleDownloadLinks = async (autoPlace = false) => {
     if (downloading) return
     // Each line is "url" or "url start-end"; the boxes above supply the range
@@ -436,7 +541,7 @@ export function SlideshowPanel() {
       .split("\n")
       .map(parseLinkLine)
       .filter((j): j is { url: string; from?: number; to?: number } => j !== null)
-      .map((j) => ({
+      .map<DownloadJob>((j) => ({
         url: j.url,
         from: j.from ?? defFrom,
         to: j.to ?? defTo,
@@ -455,85 +560,79 @@ export function SlideshowPanel() {
     const dir = linkDir || (await pickDownloadDir())
     if (!dir) return
 
+    let canPlace = autoPlace
+    if (autoPlace && !isConnected) {
+      toast.error(t("slideshow.connectResolve", "Connect an editor timeline to add."))
+      canPlace = false
+    }
+
     dlCancelRef.current = false
+    dlJobsRef.current.clear()
+    setDlCanceling(false)
     setDownloading(true)
     setDlTotal(jobs.length)
     setDlDone(0)
+    setDlActive([])
     let ok = 0
-    const added: MediaEntry[] = []
+    let placedAny = false
+    // Where the next chunk starts, so chunk 2 lands after chunk 1 instead of
+    // back at the top of the timeline.
+    let placeCursor = 0
     try {
-      for (let i = 0; i < jobs.length; i++) {
+      for (let i = 0; i < jobs.length; i += DOWNLOAD_CONCURRENCY) {
         if (dlCancelRef.current) break
-        const job = jobs[i]
-        const jobId = crypto.randomUUID()
-        dlJobRef.current = jobId
-        setDlDone(i)
-        setDlPercent(null)
-        setDlLabel(job.url)
-        const unlisten = await onDownloadProgress(jobId, (p) => {
-          setDlPercent(p.percent)
-        })
-        try {
-          const hasRange = job.from != null || job.to != null
-          // Cutting at download hands yt-dlp the section; cutting on the
-          // timeline pulls the whole clip and carries the range through to the
-          // editor instead.
-          const cutAtDownload = linkTrim === "download" && hasRange
-          const res = await downloadOne(jobId, job.url, dir, {
-            startTime: cutAtDownload ? String(job.from ?? 0) : null,
-            endTime: cutAtDownload && job.to != null ? String(job.to) : null,
+        const chunk = jobs
+          .slice(i, i + DOWNLOAD_CONCURRENCY)
+          .map((job) => ({ job, jobId: crypto.randomUUID() }))
+        setDlActive(chunk.map(({ job, jobId }) => ({ jobId, label: job.url, percent: null })))
+        const results = await Promise.all(
+          chunk.map(({ job, jobId }) => runDownloadJob(job, jobId, dir)),
+        )
+        const fresh = commitDownloaded(results.filter((e): e is MediaEntry => e !== null))
+        ok += fresh.length
+        // Cancelling stops new placements but keeps the files already fetched:
+        // they stay in the list for the user to place by hand.
+        if (canPlace && fresh.length > 0 && !dlCancelRef.current) {
+          const items = sequentialItems(fresh, placeCursor)
+          placeCursor = items[items.length - 1]?.end ?? placeCursor
+          await runBuild({
+            items,
+            setBusy: setAddingMedia,
+            onSuccess: () => {
+              placedAny = true
+            },
+            // One summary toast for the whole run, not one per chunk.
+            quiet: true,
           })
-          if (res.canceled) break
-          if (res.success && res.filePath) {
-            added.push(
-              await appendDownloaded(
-                res.filePath,
-                // yt-dlp already cut it, so the file *is* the section.
-                !cutAtDownload && hasRange
-                  ? { srcIn: job.from, srcOut: job.to }
-                  : undefined,
-              ),
-            )
-            ok++
-          } else {
-            toast.error(t("slideshow.link.failed", "Could not download {{url}}", { url: job.url }), {
-              description: res.error ?? undefined,
-            })
-          }
-        } finally {
-          unlisten()
         }
       }
-      if (ok > 0) {
+      if (placedAny) setMediaAddCount((c) => c + 1)
+      if (dlCancelRef.current) {
+        toast.info(
+          t("slideshow.link.stopped", "Stopped. Kept {{n}} clips already downloaded.", { n: ok }),
+        )
+      } else if (ok > 0) {
         setLinkUrls("")
         toast.success(t("slideshow.link.done", "Added {{n}} downloaded clips.", { n: ok }))
-        // One-click flow: place exactly what was just downloaded, so a second
-        // run doesn't re-place the clips already on the timeline.
-        if (autoPlace && added.length > 0) {
-          if (!isConnected) {
-            toast.error(t("slideshow.connectResolve", "Connect an editor timeline to add."))
-          } else {
-            runBuild({
-              items: sequentialItems(added),
-              setBusy: setAddingMedia,
-              onSuccess: () => setMediaAddCount((c) => c + 1),
-            })
-          }
-        }
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
     } finally {
       setDownloading(false)
-      setDlPercent(null)
-      setDlLabel("")
-      dlJobRef.current = ""
+      setDlCanceling(false)
+      setDlActive([])
+      dlJobsRef.current.clear()
     }
   }
 
+  // Stop the whole run: kill every link currently downloading, and stop the
+  // chunk loop so nothing further is downloaded or placed. Files already
+  // finished stay in the list — they're on disk either way.
   const handleCancelDownload = async () => {
+    if (dlCancelRef.current) return
     dlCancelRef.current = true
-    if (dlJobRef.current) await cancelDownload(dlJobRef.current)
+    setDlCanceling(true)
+    await Promise.all([...dlJobsRef.current].map((id) => cancelDownload(id)))
   }
 
   const applySort = (mode: SortMode) => {
@@ -655,14 +754,19 @@ export function SlideshowPanel() {
   // Shared timeline push used by both the Media and Audio buttons. Media and
   // audio are added independently so each can be re-run on its own; a success
   // bumps the caller's counter (shown as "(n)" on the button).
+  // Returns a promise so a caller placing several batches in a row can wait for
+  // one to land before sending the next — the host APIs don't take concurrent
+  // edits. Callers that fire and forget can ignore it.
   const runBuild = (opts: {
     items: BuildItem[]
     audioPath?: string
     setBusy: (b: boolean) => void
     onSuccess: () => void
-  }) => {
+    /** Skip the success toast — for batched pushes that report once at the end. */
+    quiet?: boolean
+  }): Promise<void> => {
     opts.setBusy(true)
-    void (async () => {
+    return (async () => {
       try {
         const res = await buildStoryboard({
           targetVideoTrack: Number(videoTargetVal) || Number(defaultTargetVal) || 1,
@@ -684,7 +788,7 @@ export function SlideshowPanel() {
           toast.warning(res.lines[0] ?? "Nothing was placed on the timeline.")
         } else {
           opts.onSuccess()
-          toast.success(t("slideshow.addedOk", "Added to the timeline."))
+          if (!opts.quiet) toast.success(t("slideshow.addedOk", "Added to the timeline."))
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
@@ -698,9 +802,11 @@ export function SlideshowPanel() {
   }
 
   // Media laid out back-to-back, `secsPerImage` each. No voice involved.
-  const sequentialItems = (entries: MediaEntry[] = media): BuildItem[] => {
+  // `startAt` lets a caller append after what it already placed, which is how
+  // the chunked link download keeps its later batches off the earlier ones.
+  const sequentialItems = (entries: MediaEntry[] = media, startAt = 0): BuildItem[] => {
     // Clips with a source range take that long, so the slots aren't uniform.
-    let cursor = 0
+    let cursor = startAt
     return entries.map((m) => {
       const ranged =
         m.srcIn != null && m.srcOut != null ? m.srcOut - m.srcIn : undefined
@@ -890,7 +996,10 @@ export function SlideshowPanel() {
                     </Button>
                   </div>
 
-                  <div className="flex flex-wrap items-end gap-3">
+                  {/* Two settings on one row, actions on their own below. The
+                      buttons used to share this row and squeezed the select down
+                      to its arrow once the labels were translated. */}
+                  <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-1.5">
                       <Label htmlFor="ss-link-from" className="text-xs">
                         {t("slideshow.link.range", "Trim (optional)")}
@@ -902,20 +1011,20 @@ export function SlideshowPanel() {
                           disabled={downloading}
                           onChange={(e) => setLinkFrom(e.target.value)}
                           placeholder={t("slideshow.link.from", "From (e.g. 0:30)")}
-                          className="h-8 w-32"
+                          className="h-8 min-w-0 flex-1"
                         />
-                        <span className="text-xs text-muted-foreground">→</span>
+                        <span className="shrink-0 text-xs text-muted-foreground">→</span>
                         <Input
                           id="ss-link-to"
                           value={linkTo}
                           disabled={downloading}
                           onChange={(e) => setLinkTo(e.target.value)}
                           placeholder={t("slideshow.link.to", "To (e.g. 1:20)")}
-                          className="h-8 w-32"
+                          className="h-8 min-w-0 flex-1"
                         />
                       </div>
                     </div>
-                    <div className="min-w-0 flex-1 space-y-1.5">
+                    <div className="min-w-0 space-y-1.5">
                       <Label htmlFor="ss-link-trim" className="text-xs">
                         {t("slideshow.link.trim", "Cut where")}
                       </Label>
@@ -934,21 +1043,34 @@ export function SlideshowPanel() {
                         </option>
                       </select>
                     </div>
+                  </div>
+                  <p className="text-[11px] leading-relaxed text-muted-foreground">
+                    {t("slideshow.link.rangeHint", "No range = the whole clip.")}{" "}
+                    {linkTrim === "timeline"
+                      ? t("slideshow.link.trimTimelineHint", "Keeps the whole file so you can re-trim later.")
+                      : t("slideshow.link.trimDownloadHint", "Faster and smaller, but cuts on keyframes so the start can drift.")}
+                  </p>
+                  <div className="flex flex-wrap items-center justify-end gap-2">
                     {downloading ? (
                       <Button
                         onClick={handleCancelDownload}
-                        variant="outline"
-                        className="shrink-0 gap-1.5"
+                        disabled={dlCanceling}
+                        variant="destructive"
+                        size="sm"
+                        className="gap-1.5"
                       >
                         <X className="size-4" />
-                        {t("common.cancel", "Cancel")}
+                        {dlCanceling
+                          ? t("slideshow.link.stopping", "Stopping…")
+                          : t("slideshow.link.stopAll", "Stop everything")}
                       </Button>
                     ) : (
                       <>
                         <Button
                           onClick={() => handleDownloadLinks(false)}
                           variant="outline"
-                          className="shrink-0 gap-1.5"
+                          size="sm"
+                          className="gap-1.5"
                         >
                           <Download className="size-4" />
                           {t("slideshow.link.download", "Download")}
@@ -956,12 +1078,13 @@ export function SlideshowPanel() {
                         <Button
                           onClick={() => handleDownloadLinks(true)}
                           disabled={!isConnected}
+                          size="sm"
                           title={
                             isConnected
                               ? undefined
                               : t("slideshow.connectResolve", "Connect an editor timeline to add.")
                           }
-                          className="shrink-0 gap-1.5"
+                          className="gap-1.5"
                         >
                           <Play className="size-4" />
                           {t("slideshow.link.downloadPlace", "Download + place")}
@@ -969,22 +1092,31 @@ export function SlideshowPanel() {
                       </>
                     )}
                   </div>
-                  <p className="text-[11px] text-muted-foreground">
-                    {t("slideshow.link.rangeHint", "No range = the whole clip.")}{" "}
-                    {linkTrim === "timeline"
-                      ? t("slideshow.link.trimTimelineHint", "Keeps the whole file so you can re-trim later.")
-                      : t("slideshow.link.trimDownloadHint", "Faster and smaller, but cuts on keyframes so the start can drift.")}
-                  </p>
+                  {/* One row per link in flight — up to DOWNLOAD_CONCURRENCY of
+                      them, listed in the order they were pasted. */}
                   {downloading && (
-                    <div className="space-y-1.5">
-                      <Progress value={dlPercent ?? undefined} />
+                    <div className="space-y-2">
                       <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-                        <span className="min-w-0 truncate">{dlLabel}</span>
+                        <span>
+                          {t("slideshow.link.progress", "Downloading {{n}} at a time", {
+                            n: DOWNLOAD_CONCURRENCY,
+                          })}
+                        </span>
                         <span className="shrink-0 tabular-nums">
-                          {dlDone + 1}/{dlTotal}
-                          {dlPercent != null ? ` · ${Math.round(dlPercent)}%` : ""}
+                          {dlDone}/{dlTotal}
                         </span>
                       </div>
+                      {dlActive.map((row) => (
+                        <div key={row.jobId} className="space-y-1">
+                          <Progress value={row.percent ?? undefined} />
+                          <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                            <span className="min-w-0 truncate">{row.label}</span>
+                            <span className="shrink-0 tabular-nums">
+                              {row.percent != null ? `${Math.round(row.percent)}%` : "…"}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>

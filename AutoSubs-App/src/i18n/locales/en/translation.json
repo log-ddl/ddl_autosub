@@ -60,7 +60,8 @@
     "startNewTranscription": "Start new transcription",
     "refresh": "Refresh connection",
     "edit": "Edit",
-    "scrollDown": "Scroll down"
+    "scrollDown": "Scroll down",
+    "remove": "Remove"
   },
   "update": {
     "restartResolveServer": {
@@ -77,6 +78,7 @@
     "selected": "Selected:",
     "importFile": "Import File",
     "exportAsSrt": "Export as SRT",
+    "exportAsTxt": "Export as TXT",
     "fileDialog": {
       "subtitleFiles": "Subtitle Files"
     },
@@ -577,7 +579,8 @@
     "tabs": {
       "subtitles": "Subtitles",
       "scripts": "Scripts",
-      "autoEdit": "Auto Edit"
+      "autoEdit": "Auto Edit",
+      "download": "Download"
     }
   },
   "addToTimeline": {
@@ -976,6 +979,7 @@
       "trimTimelineHint": "Keeps the whole file so you can re-trim later.",
       "trimDownloadHint": "Faster and smaller, but cuts on keyframes so the start can drift.",
       "download": "Download",
+      "progress": "Downloading {{n}} at a time",
       "noUrl": "Paste at least one link.",
       "toolsMissing": "Open the Download tab once to install the downloader.",
       "failed": "Could not download {{url}}",
@@ -987,7 +991,10 @@
       "downloadPlace": "Download + place",
       "dirNone": "No folder chosen yet",
       "dirChange": "Change",
-      "dirPick": "Choose folder"
+      "dirPick": "Choose folder",
+      "stopAll": "Stop everything",
+      "stopping": "Stopping…",
+      "stopped": "Stopped. Kept {{n}} clips already downloaded."
     }
   },
   "autoEdit": {
@@ -995,5 +1002,60 @@
       "cut": "Cut silences",
       "slideshow": "Slideshow"
     }
+  },
+  "download": {
+    "title": "Download video",
+    "subtitle": "Paste a video link and save an MP4.",
+    "urlLabel": "Video URL",
+    "folder": "Save to",
+    "chooseFolder": "Choose a folder…",
+    "trim": "Trim (optional)",
+    "from": "From (e.g. 0:30)",
+    "to": "To (e.g. 1:20)",
+    "trimHint": "Leave both empty to download the whole video.",
+    "batch": "Batch download (.txt, one URL per line)",
+    "pickBatch": "Choose a .txt file…",
+    "batchHint": "Every link in the file downloads at best quality. The single URL and trim above are ignored.",
+    "start": "Download",
+    "cancel": "Cancel",
+    "canceled": "Download canceled",
+    "done": "Download complete",
+    "savedTo": "Saved",
+    "showInFolder": "Show in folder",
+    "stage": {
+      "downloading": "Downloading…",
+      "processing": "Merging video and audio…"
+    },
+    "error": {
+      "noUrl": "Paste a video link first",
+      "failed": "Download failed"
+    },
+    "setup": {
+      "title": "Setting up the downloader",
+      "subtitle": "A one-time download of yt-dlp and a small JavaScript runtime so every video can be fetched.",
+      "starting": "Starting…",
+      "retry": "Try again"
+    },
+    "update": {
+      "checking": "Checking the downloader for updates…",
+      "title": "The downloader needs updating",
+      "body": "YouTube changes how it serves video every few months. An out-of-date downloader stops working without a clear reason, so update it before downloading.",
+      "installed": "Installed",
+      "available": "New",
+      "action": "Update now",
+      "updating": "Updating…",
+      "skip": "Continue without updating",
+      "current": "Downloader is up to date ({{version}})"
+    }
+  },
+  "appUpdate": {
+    "checking": "Checking for updates…",
+    "title": "A new version is available",
+    "body": "This update installs itself and restarts AutoSubs. It only takes a moment.",
+    "downloading": "Downloading…",
+    "installing": "Installing, the app will restart…",
+    "action": "Update and restart",
+    "skip": "Continue on this version",
+    "resolveNote": "After the restart, run Workspace → Scripts → AutoSubs again in DaVinci Resolve to reconnect."
   }
 }

@@ -5,6 +5,8 @@ use tauri::{AppHandle, Runtime};
 use tauri_plugin_shell::ShellExt;
 use tokio::process::Command as TokioCommand;
 
+use crate::process_ext::HiddenConsole;
+
 /// Extract audio peaks efficiently using ffmpeg without full decoding.
 /// Uses ffmpeg to decode audio at a very low sample rate and streams raw PCM to stdout,
 /// then computes peak values for waveform visualization. No temporary files needed.
@@ -206,7 +208,7 @@ pub async fn run_ffmpeg<R: Runtime>(
                 let stderr_str = String::from_utf8_lossy(&o.stderr);
                 if !o.status.success() && stderr_str.contains("shim file") {
                     tracing::warn!("ffmpeg sidecar shim error, falling back to system ffmpeg");
-                    let sys = TokioCommand::new("ffmpeg").args(args).output().await?;
+                    let sys = TokioCommand::new("ffmpeg").args(args).hidden().output().await?;
                     (sys.status.success(), sys.status.code(), sys.stdout, sys.stderr)
                 } else {
                     (o.status.success(), o.status.code(), o.stdout, o.stderr)
@@ -214,13 +216,13 @@ pub async fn run_ffmpeg<R: Runtime>(
             }
             Err(_) => {
                 tracing::warn!("ffmpeg sidecar unavailable, falling back to system ffmpeg");
-                let sys = TokioCommand::new("ffmpeg").args(args).output().await?;
+                let sys = TokioCommand::new("ffmpeg").args(args).hidden().output().await?;
                 (sys.status.success(), sys.status.code(), sys.stdout, sys.stderr)
             }
         },
         Err(e) => {
             tracing::warn!("ffmpeg sidecar init error: {}. Falling back to system ffmpeg", e);
-            let sys = TokioCommand::new("ffmpeg").args(args).output().await?;
+            let sys = TokioCommand::new("ffmpeg").args(args).hidden().output().await?;
             (sys.status.success(), sys.status.code(), sys.stdout, sys.stderr)
         }
     };

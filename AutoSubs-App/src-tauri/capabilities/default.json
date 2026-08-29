@@ -154,28 +154,51 @@
     {
       "identifier": "opener:allow-open-path",
       "allow": [
-        { "path": "$APPLOG/**" },
-        { "path": "$APPDATA/**" },
-        { "path": "$APPCACHE/**" },
-        { "path": "$APPLOCALDATA/**" }
+        {
+          "path": "$APPLOG/**"
+        },
+        {
+          "path": "$APPDATA/**"
+        },
+        {
+          "path": "$APPCACHE/**"
+        },
+        {
+          "path": "$APPLOCALDATA/**"
+        }
       ]
     },
     {
       "identifier": "opener:allow-open-url",
       "allow": [
-        { "url": "https://github.com/tmoroney/auto-subs" },
-        { "url": "https://github.com/tmoroney/auto-subs/*" }
+        {
+          "url": "https://github.com/tmoroney/auto-subs"
+        },
+        {
+          "url": "https://github.com/tmoroney/auto-subs/*"
+        }
       ]
     },
     {
       "identifier": "opener:allow-reveal-item-in-dir",
       "allow": [
-        { "path": "$HOME/**" },
-        { "path": "$DOWNLOAD/**" },
-        { "path": "$DESKTOP/**" },
-        { "path": "$DOCUMENT/**" },
-        { "path": "$VIDEO/**" }
+        {
+          "path": "$HOME/**"
+        },
+        {
+          "path": "$DOWNLOAD/**"
+        },
+        {
+          "path": "$DESKTOP/**"
+        },
+        {
+          "path": "$DOCUMENT/**"
+        },
+        {
+          "path": "$VIDEO/**"
+        }
       ]
-    }
+    },
+    "updater:default"
   ]
 }
