@@ -772,6 +772,23 @@ fn build_args(app: &AppHandle, req: &DownloadRequest, report_file: &Path) -> Vec
         "--no-simulate".into(),
         "--newline".into(),
         "--progress".into(),
+        // Pace the requests. Downloading a pasted batch back-to-back at full
+        // speed is what gets an IP throttled or served a "confirm you're not a
+        // bot" page, and a 429 fails every remaining link in the run. yt-dlp
+        // waits a random 1-5s before each video and backs off on its own when a
+        // fragment or extraction gets rejected.
+        "--sleep-interval".into(),
+        "1".into(),
+        "--max-sleep-interval".into(),
+        "5".into(),
+        "--sleep-requests".into(),
+        "1".into(),
+        "--retries".into(),
+        "5".into(),
+        "--fragment-retries".into(),
+        "10".into(),
+        "--retry-sleep".into(),
+        "exp=2:60".into(),
         // Keep filenames ASCII-only. The name is throwaway — the `[%(id)s]` in
         // the template is what keeps clips distinct — while a Unicode path has
         // to survive yt-dlp's stdout, a websocket, ExtendScript's ASCII-only

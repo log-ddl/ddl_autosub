@@ -64,6 +64,16 @@ const DOWNLOAD_DIR_KEY = "autosubs.download.lastDir"
  */
 const DOWNLOAD_CONCURRENCY = 2
 
+/**
+ * Idle gap between download chunks, in ms. Randomised so a long paste doesn't
+ * hit the site on a fixed rhythm; yt-dlp adds its own per-video sleep on top.
+ */
+const CHUNK_DELAY_MIN_MS = 2000
+const CHUNK_DELAY_MAX_MS = 6000
+
+const randomChunkDelayMs = () =>
+  CHUNK_DELAY_MIN_MS + Math.random() * (CHUNK_DELAY_MAX_MS - CHUNK_DELAY_MIN_MS)
+
 // Returned by the Rust `scan_media` command (folder listing / file stat).
 interface MediaFileInfo {
   path: string
@@ -467,6 +477,22 @@ export function SlideshowPanel() {
     return fresh
   }, [])
 
+  // Wait `ms`, but wake early when the user cancels so Stop stays responsive
+  // during the gap. Returns false when the wait was cut short by a cancel.
+  const sleepUnlessCancelled = (ms: number): Promise<boolean> =>
+    new Promise((resolve) => {
+      const started = Date.now()
+      const tick = window.setInterval(() => {
+        if (dlCancelRef.current) {
+          window.clearInterval(tick)
+          resolve(false)
+        } else if (Date.now() - started >= ms) {
+          window.clearInterval(tick)
+          resolve(true)
+        }
+      }, 100)
+    })
+
   // Ask for the download folder and remember it. Returns "" if cancelled.
   const pickDownloadDir = async (): Promise<string> => {
     const picked = await openDialog({ directory: true, multiple: false })
@@ -581,6 +607,10 @@ export function SlideshowPanel() {
     try {
       for (let i = 0; i < jobs.length; i += DOWNLOAD_CONCURRENCY) {
         if (dlCancelRef.current) break
+        // Breathe between chunks. yt-dlp already staggers the videos inside a
+        // chunk; this keeps a long paste from looking like one continuous
+        // machine-gun burst to the site.
+        if (i > 0 && !(await sleepUnlessCancelled(randomChunkDelayMs()))) break
         const chunk = jobs
           .slice(i, i + DOWNLOAD_CONCURRENCY)
           .map((job) => ({ job, jobId: crypto.randomUUID() }))
