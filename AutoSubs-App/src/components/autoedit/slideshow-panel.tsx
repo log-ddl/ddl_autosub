@@ -140,12 +140,36 @@ type VoiceSource =
 
 // One media clip in its build form: just where it sits on the timeline.
 interface BuildItem {
+  /** The row this came from. Local bookkeeping only — never sent to the host. */
+  id: string
   path: string
   start: number
   end: number
   /** Section within the source; see MediaEntry.srcIn/srcOut. */
   srcIn?: number
   srcOut?: number
+}
+
+/**
+ * Identity of a clip as it lands on the timeline: the ROW it came from plus the
+ * section taken from it. Deliberately not the file path — one video listed
+ * twice for two different sections is two clips, and even two rows of the same
+ * whole file are two clips if the user asked for them that way. The range is in
+ * the key so re-cutting a row makes it something new to place again.
+ */
+function placedKey(m: { id: string; srcIn?: number; srcOut?: number }): string {
+  return `${m.id}|${m.srcIn ?? ""}|${m.srcOut ?? ""}`
+}
+
+/**
+ * Identity of a clip as an entry in the list: the file plus the section taken
+ * from it. This is what stops a re-picked file or a re-pasted link from
+ * doubling the list, and it is deliberately not the path alone — the same video
+ * cut to a different section (or added whole alongside a cut of itself) is a
+ * different clip, so it belongs in the list too.
+ */
+function entryKey(m: { path: string; srcIn?: number; srcOut?: number }): string {
+  return `${m.path}|${m.srcIn ?? ""}|${m.srcOut ?? ""}`
 }
 
 /** One link being downloaded right now, as shown in the progress list. */
@@ -157,9 +181,40 @@ interface DownloadRow {
 
 /** One pasted link, resolved against the default range boxes. */
 interface DownloadJob {
+  /** Position in the pasted text, so grouping by URL doesn't reshuffle clips. */
+  index: number
   url: string
   from?: number
   to?: number
+}
+
+/**
+ * One URL to fetch, with every pasted line that wants a piece of it. Lines are
+ * grouped this way so three sections of one video cost one download instead of
+ * three, and each section still becomes its own clip.
+ */
+interface DownloadTask {
+  url: string
+  jobs: DownloadJob[]
+}
+
+/**
+ * Group pasted lines by URL, keeping first-appearance order for the URLs and
+ * pasted order for the sections inside each one. An exact repeat (same URL,
+ * same range) is dropped — that is the same clip twice, not two sections.
+ */
+function groupDownloadJobs(jobs: DownloadJob[]): DownloadTask[] {
+  const byUrl = new Map<string, DownloadTask>()
+  const seen = new Set<string>()
+  for (const job of jobs) {
+    const key = `${job.url}|${job.from ?? ""}|${job.to ?? ""}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    const task = byUrl.get(job.url)
+    if (task) task.jobs.push(job)
+    else byUrl.set(job.url, { url: job.url, jobs: [job] })
+  }
+  return [...byUrl.values()]
 }
 
 /** "90", "1:30" or "1:02:03" -> seconds. Returns null when unparseable. */
@@ -232,10 +287,23 @@ function formatClock(s: number): string {
   return `${h > 0 ? `${h}:` : ""}${mm}:${String(sec).padStart(2, "0")}`
 }
 
-/** The "0:30-1:45" label for a media entry, or null when it plays whole. */
-function rangeLabel(m: { srcIn?: number; srcOut?: number }): string | null {
-  if (m.srcIn == null && m.srcOut == null) return null
-  return `${formatClock(m.srcIn ?? 0)}-${m.srcOut != null ? formatClock(m.srcOut) : "…"}`
+/**
+ * Why a typed trim can't be used, or null when it can. Only covers the cases
+ * that would otherwise do nothing at all: without a word the box just sits
+ * there looking accepted while the clip goes in whole.
+ */
+function trimHint(
+  draft: { from: string; to: string },
+  durationSecs?: number,
+): "badTime" | "order" | "pastEnd" | null {
+  const fromRaw = draft.from.trim()
+  const toRaw = draft.to.trim()
+  const from = fromRaw === "" ? null : parseTimecode(fromRaw)
+  const to = toRaw === "" ? null : parseTimecode(toRaw)
+  if ((fromRaw !== "" && from == null) || (toRaw !== "" && to == null)) return "badTime"
+  if (from != null && to != null && to <= from) return "order"
+  if (durationSecs != null && from != null && from >= durationSecs) return "pastEnd"
+  return null
 }
 
 function formatSecs(s: number): string {
@@ -307,12 +375,20 @@ export function SlideshowPanel() {
   // than looking like it did nothing.
   const [dlCanceling, setDlCanceling] = React.useState(false)
 
-  // Paths already in the list. Mirrors `media`, but readable synchronously so a
-  // batch of downloads can dedupe itself without waiting for a re-render.
-  const knownPathsRef = React.useRef<Set<string>>(new Set())
+  // Clips already in the list, by `entryKey`. Mirrors `media`, but readable
+  // synchronously so a batch of downloads can dedupe itself without waiting for
+  // a re-render.
+  const knownKeysRef = React.useRef<Set<string>>(new Set())
   React.useEffect(() => {
-    knownPathsRef.current = new Set(media.map((m) => m.path))
+    knownKeysRef.current = new Set(media.map(entryKey))
   }, [media])
+
+  // What this session has already pushed to the timeline, by `placedKey`. The
+  // host has no way to tell "the clip the user just added" from "the clip that
+  // was already placed" — both are the same file with the same range — so
+  // pressing Add again would lay the whole list down a second time. Tracking it
+  // here means a repeat press only sends what is genuinely new.
+  const placedKeysRef = React.useRef<Set<string>>(new Set())
 
   const audioTracks = timelineInfo.inputTracks ?? []
 
@@ -363,11 +439,14 @@ export function SlideshowPanel() {
       }
       const ordered = sortEntries(infos, sortBy)
       setMedia((prev) => {
-        const seen = new Set(prev.map((m) => m.path))
+        // A picked file always comes in whole, so it only repeats an entry that
+        // is also whole. The same file already in the list as a cut section
+        // doesn't block it — that's the user asking for the rest of the video.
+        const seen = new Set(prev.map(entryKey))
         return [
           ...prev,
           ...ordered
-            .filter((x) => !seen.has(x.path))
+            .filter((x) => !seen.has(entryKey({ path: x.path })))
             .map<MediaEntry>((x) => ({
               id: nextId(),
               path: x.path,
@@ -454,14 +533,17 @@ export function SlideshowPanel() {
   // ones that were actually new, so the caller places exactly what it added.
   const commitDownloaded = React.useCallback((entries: MediaEntry[]): MediaEntry[] => {
     if (entries.length === 0) return []
-    // Dedupe against the list and within the batch itself. A dropped entry
-    // takes its timeline slot with it, exactly like a failed link does.
-    // `knownPaths` is a ref rather than `media` so two chunks committed before
-    // the next render still see each other.
+    // Dedupe against the list and within the batch itself, on file + section:
+    // the same link pasted twice for two different moments is two clips, and
+    // only an exact repeat is dropped. A dropped entry takes its timeline slot
+    // with it, exactly like a failed link does. `knownKeys` is a ref rather than
+    // `media` so two chunks committed before the next render still see each
+    // other.
     const fresh: MediaEntry[] = []
     for (const entry of entries) {
-      if (knownPathsRef.current.has(entry.path)) continue
-      knownPathsRef.current.add(entry.path)
+      const key = entryKey(entry)
+      if (knownKeysRef.current.has(key)) continue
+      knownKeysRef.current.add(key)
       fresh.push(entry)
     }
     if (fresh.length === 0) return []
@@ -502,13 +584,15 @@ export function SlideshowPanel() {
     return picked
   }
 
-  // Download one link. Never rejects: a dead link resolves to null so it can't
-  // take the rest of its chunk down with it.
+  // Download one link. Never rejects: a dead link resolves to an empty list so
+  // it can't take the rest of its chunk down with it. `task.jobs` are every
+  // pasted line for this one URL, in order — several sections of one video are
+  // fetched once and cut afterwards, not downloaded once per section.
   const runDownloadJob = async (
-    job: DownloadJob,
+    task: DownloadTask,
     jobId: string,
     dir: string,
-  ): Promise<MediaEntry | null> => {
+  ): Promise<Array<{ index: number; entry: MediaEntry }>> => {
     dlJobsRef.current.add(jobId)
     const unlisten = await onDownloadProgress(jobId, (p) => {
       setDlActive((rows) =>
@@ -516,32 +600,43 @@ export function SlideshowPanel() {
       )
     })
     try {
-      const hasRange = job.from != null || job.to != null
+      const first = task.jobs[0]
+      const hasRange = first.from != null || first.to != null
       // Cutting at download hands yt-dlp the section; cutting on the timeline
       // pulls the whole clip and carries the range through to the editor
-      // instead.
-      const cutAtDownload = linkTrim === "download" && hasRange
-      const res = await downloadOne(jobId, job.url, dir, {
-        startTime: cutAtDownload ? String(job.from ?? 0) : null,
-        endTime: cutAtDownload && job.to != null ? String(job.to) : null,
+      // instead. Several sections of one URL always cut on the timeline: there
+      // is one file, and yt-dlp can only carve one piece out of it.
+      const cutAtDownload = linkTrim === "download" && hasRange && task.jobs.length === 1
+      const res = await downloadOne(jobId, task.url, dir, {
+        startTime: cutAtDownload ? String(first.from ?? 0) : null,
+        endTime: cutAtDownload && first.to != null ? String(first.to) : null,
       })
-      if (res.canceled) return null
+      if (res.canceled) return []
       if (!res.success || !res.filePath) {
-        toast.error(t("slideshow.link.failed", "Could not download {{url}}", { url: job.url }), {
+        toast.error(t("slideshow.link.failed", "Could not download {{url}}", { url: task.url }), {
           description: res.error ?? undefined,
         })
-        return null
+        return []
       }
-      return await makeDownloadedEntry(
-        res.filePath,
-        // yt-dlp already cut it, so the file *is* the section.
-        !cutAtDownload && hasRange ? { srcIn: job.from, srcOut: job.to } : undefined,
-      )
+      const entries: Array<{ index: number; entry: MediaEntry }> = []
+      for (const job of task.jobs) {
+        entries.push({
+          index: job.index,
+          entry: await makeDownloadedEntry(
+            res.filePath,
+            // yt-dlp already cut it, so the file *is* the section.
+            cutAtDownload || (job.from == null && job.to == null)
+              ? undefined
+              : { srcIn: job.from, srcOut: job.to },
+          ),
+        })
+      }
+      return entries
     } catch (err) {
-      toast.error(t("slideshow.link.failed", "Could not download {{url}}", { url: job.url }), {
+      toast.error(t("slideshow.link.failed", "Could not download {{url}}", { url: task.url }), {
         description: err instanceof Error ? err.message : String(err),
       })
-      return null
+      return []
     } finally {
       unlisten()
       dlJobsRef.current.delete(jobId)
@@ -567,7 +662,8 @@ export function SlideshowPanel() {
       .split("\n")
       .map(parseLinkLine)
       .filter((j): j is { url: string; from?: number; to?: number } => j !== null)
-      .map<DownloadJob>((j) => ({
+      .map<DownloadJob>((j, index) => ({
+        index,
         url: j.url,
         from: j.from ?? defFrom,
         to: j.to ?? defTo,
@@ -576,6 +672,9 @@ export function SlideshowPanel() {
       toast.error(t("slideshow.link.noUrl", "Paste at least one link."))
       return
     }
+    // Same link on several lines with different times = several sections of one
+    // video: fetch it once, cut each section from the file that comes back.
+    const tasks = groupDownloadJobs(jobs)
     if (!(await downloadToolsReady())) {
       toast.error(
         t("slideshow.link.toolsMissing", "Open the Download tab once to install the downloader."),
@@ -596,7 +695,7 @@ export function SlideshowPanel() {
     dlJobsRef.current.clear()
     setDlCanceling(false)
     setDownloading(true)
-    setDlTotal(jobs.length)
+    setDlTotal(tasks.length)
     setDlDone(0)
     setDlActive([])
     let ok = 0
@@ -605,20 +704,27 @@ export function SlideshowPanel() {
     // back at the top of the timeline.
     let placeCursor = 0
     try {
-      for (let i = 0; i < jobs.length; i += DOWNLOAD_CONCURRENCY) {
+      for (let i = 0; i < tasks.length; i += DOWNLOAD_CONCURRENCY) {
         if (dlCancelRef.current) break
         // Breathe between chunks. yt-dlp already staggers the videos inside a
         // chunk; this keeps a long paste from looking like one continuous
         // machine-gun burst to the site.
         if (i > 0 && !(await sleepUnlessCancelled(randomChunkDelayMs()))) break
-        const chunk = jobs
+        const chunk = tasks
           .slice(i, i + DOWNLOAD_CONCURRENCY)
-          .map((job) => ({ job, jobId: crypto.randomUUID() }))
-        setDlActive(chunk.map(({ job, jobId }) => ({ jobId, label: job.url, percent: null })))
+          .map((task) => ({ task, jobId: crypto.randomUUID() }))
+        setDlActive(chunk.map(({ task, jobId }) => ({ jobId, label: task.url, percent: null })))
         const results = await Promise.all(
-          chunk.map(({ job, jobId }) => runDownloadJob(job, jobId, dir)),
+          chunk.map(({ task, jobId }) => runDownloadJob(task, jobId, dir)),
         )
-        const fresh = commitDownloaded(results.filter((e): e is MediaEntry => e !== null))
+        // Back into pasted order: grouping by URL fetched the sections of one
+        // video together, but on the timeline they belong where they were typed.
+        const fresh = commitDownloaded(
+          results
+            .flat()
+            .sort((a, b) => a.index - b.index)
+            .map((r) => r.entry),
+        )
         ok += fresh.length
         // Cancelling stops new placements but keeps the files already fetched:
         // they stay in the list for the user to place by hand.
@@ -681,12 +787,53 @@ export function SlideshowPanel() {
   }
 
   const remove = (id: string) => {
+    // The row is gone, so its "already placed" mark is dead weight.
+    const gone = media.find((m) => m.id === id)
+    if (gone) placedKeysRef.current.delete(placedKey(gone))
     setMedia((prev) => prev.filter((m) => m.id !== id))
   }
 
   const setText = (id: string, text: string) => {
     setMedia((prev) => prev.map((m) => (m.id === id ? { ...m, text } : m)))
   }
+
+  /**
+   * What is typed in each row's two time boxes, keyed by entry id. The raw text
+   * lives here rather than on the entry because a half-typed "1:" is UI state,
+   * not a cut — only what parses gets written to `srcIn`/`srcOut`. A row the
+   * user hasn't touched has no entry here and falls back to whatever range the
+   * clip arrived with (a pasted "url 0:30-1:20" fills the boxes).
+   */
+  const [trimDrafts, setTrimDrafts] = React.useState<
+    Record<string, { from: string; to: string }>
+  >({})
+
+  const trimDraftFor = (m: MediaEntry): { from: string; to: string } =>
+    trimDrafts[m.id] ?? {
+      from: m.srcIn != null ? formatClock(m.srcIn) : "",
+      to: m.srcOut != null ? formatClock(m.srcOut) : "",
+    }
+
+  /**
+   * Write a draft onto the entry. An empty or unparseable box means "no bound"
+   * — clearing both puts the whole clip back — and an end at or before the start
+   * is dropped rather than fought over while the user is still typing.
+   */
+  const applyTrim = (id: string, draft: { from: string; to: string }) => {
+    const from = draft.from.trim() === "" ? undefined : parseTimecode(draft.from) ?? undefined
+    let to = draft.to.trim() === "" ? undefined : parseTimecode(draft.to) ?? undefined
+    if (to != null && from != null && to <= from) to = undefined
+    setMedia((prev) => prev.map((m) => (m.id === id ? { ...m, srcIn: from, srcOut: to } : m)))
+  }
+
+  const setTrimField = (id: string, field: "from" | "to", raw: string) => {
+    const current = media.find((m) => m.id === id)
+    const base = current ? trimDraftFor(current) : { from: "", to: "" }
+    const draft = { ...base, [field]: raw }
+    setTrimDrafts((prev) => ({ ...prev, [id]: draft }))
+    applyTrim(id, draft)
+  }
+
 
   // Load a .txt where line N is the sentence for media N (blank lines allowed).
   const handleImportScript = async () => {
@@ -817,6 +964,7 @@ export function SlideshowPanel() {
         if (opts.items.length > 0 && res.appended === 0) {
           toast.warning(res.lines[0] ?? "Nothing was placed on the timeline.")
         } else {
+          for (const it of opts.items) placedKeysRef.current.add(placedKey(it))
           opts.onSuccess()
           if (!opts.quiet) toast.success(t("slideshow.addedOk", "Added to the timeline."))
         }
@@ -836,14 +984,20 @@ export function SlideshowPanel() {
   // the chunked link download keeps its later batches off the earlier ones.
   const sequentialItems = (entries: MediaEntry[] = media, startAt = 0): BuildItem[] => {
     // Clips with a source range take that long, so the slots aren't uniform.
+    // With only a start the rest of the clip plays, so the slot is whatever the
+    // probe says is left after it.
     let cursor = startAt
     return entries.map((m) => {
+      const rangeEnd = m.srcOut ?? m.info?.durationSecs
       const ranged =
-        m.srcIn != null && m.srcOut != null ? m.srcOut - m.srcIn : undefined
+        (m.srcIn != null || m.srcOut != null) && rangeEnd != null
+          ? rangeEnd - (m.srcIn ?? 0)
+          : undefined
       const dur = ranged && ranged > 0 ? ranged : secsPerImage
       const start = cursor
       cursor += dur
       return {
+        id: m.id,
         path: m.path,
         start,
         end: start + dur,
@@ -853,20 +1007,29 @@ export function SlideshowPanel() {
     })
   }
 
-  // Media cut to the span of the sentence each one belongs to, laid back-to-back:
-  // each item starts exactly where the previous one ended. Durations are
-  // preserved; only the first start is kept from the alignment.
+  /**
+   * Each media placed where the voice actually says its line.
+   *
+   * The whole point of the alignment is that the script says which clip goes
+   * with which sentence and the transcribed audio says when that sentence is
+   * spoken — so both the position and the length come from the span, not from
+   * stacking clips back-to-back. Laying them end-to-end from the first span (as
+   * this used to) held only while the speaker never paused: every silence
+   * between sentences pushed the rest of the slideshow ahead of the voice, and
+   * the drift compounded down the timeline.
+   *
+   * A clip runs until the next one starts rather than stopping dead at the end
+   * of its own sentence, so the pause between two sentences keeps showing the
+   * picture that belongs to the one just spoken instead of a hole. The last
+   * clip ends where its sentence does.
+   */
   const syncedItems = (): BuildItem[] => {
-    const starts: number[] = []
-    let cursor = spans[0].start
-    for (const s of spans) {
-      starts.push(cursor)
-      cursor += Math.max(0.2, s.end - s.start)
-    }
     return spans.map((s, i) => {
-      const start = starts[i]
-      const end = start + Math.max(0.2, s.end - s.start)
+      const start = s.start
+      const next = spans[i + 1]
+      const end = Math.max(start + 0.2, next ? next.start : s.end)
       return {
+        id: media[s.lineIndex].id,
         path: media[s.lineIndex].path,
         start,
         end,
@@ -876,11 +1039,28 @@ export function SlideshowPanel() {
     })
   }
 
-  // Plain add: "just put my images on the timeline".
-  const handleAddMedia = () => {
+  // Plain add: "just put my images on the timeline". Only what hasn't been
+  // placed yet goes down, so adding one clip to a list already on the timeline
+  // and pressing Add again places that one clip — not the whole list again.
+  const handleAddMedia = (all = false) => {
     if (media.length === 0) return
+    const pending = all
+      ? media
+      : media.filter((m) => !placedKeysRef.current.has(placedKey(m)))
+    if (pending.length === 0) {
+      toast.info(
+        t("slideshow.allPlaced", "Every clip is already on the timeline."),
+        {
+          action: {
+            label: t("slideshow.placeAgain", "Place all again"),
+            onClick: () => handleAddMedia(true),
+          },
+        },
+      )
+      return
+    }
     runBuild({
-      items: sequentialItems(),
+      items: sequentialItems(pending),
       setBusy: setAddingMedia,
       onSuccess: () => setMediaAddCount((c) => c + 1),
     })
@@ -1154,6 +1334,9 @@ export function SlideshowPanel() {
               <div className="max-h-[320px] space-y-2 overflow-y-auto pr-1">
               {media.map((m, i) => {
                   const span = spanByLine.get(i)
+                  const trimDraft = trimDraftFor(m)
+                  const trimNote =
+                    m.kind === "video" ? trimHint(trimDraft, m.info?.durationSecs) : null
                   return (
                     <div key={m.id} className="rounded-2xl border bg-card p-2.5 flex items-center gap-3">
                       <div className="flex flex-col items-center gap-1 pt-0.5">
@@ -1186,37 +1369,58 @@ export function SlideshowPanel() {
                           <Film className="size-4.5 text-muted-foreground" />
                         )}
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <div className="flex min-w-0 max-w-[45%] shrink-0 flex-col">
-                            <div className="flex min-w-0 items-baseline gap-1.5">
-                              <span className="truncate text-sm font-medium" title={m.path}>
-                                {m.name}
-                              </span>
-                              {m.info && (m.info.durationSecs != null || (m.info.width && m.info.height)) && (
-                                <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
-                                  {m.info.durationSecs != null ? formatSecs(m.info.durationSecs) : null}
-                                  {m.info.durationSecs != null && m.info.width && m.info.height ? " · " : null}
-                                  {m.info.width && m.info.height ? `${m.info.width}×${m.info.height}` : null}
-                                </span>
-                              )}
-                            </div>
-                            {/* Only rendered for clips the user asked to cut, so
-                                a plain import keeps its single-line row. */}
-                            {rangeLabel(m) && (
-                              <span className="flex items-center gap-1 font-mono text-[11px] text-primary">
-                                <Scissors className="size-3" />
-                                {rangeLabel(m)}
-                              </span>
-                            )}
-                          </div>
-                          <Input
-                            value={m.text}
-                            onChange={(e) => setText(m.id, e.target.value)}
-                            placeholder={t("slideshow.linePlaceholder", "Sentence spoken while this shows…")}
-                            className="h-8 min-w-0 flex-1 text-xs"
-                          />
+                      <div className="min-w-0 flex-1 space-y-1.5">
+                        {/* What the file is, and — on the right — which part of
+                            it to use. Both describe the clip, so they share a
+                            line and leave the sentence below its own full width. */}
+                        <div className="flex min-w-0 items-baseline gap-1.5">
+                          <span className="truncate text-sm font-medium" title={m.path}>
+                            {m.name}
+                          </span>
+                          {m.info && (m.info.durationSecs != null || (m.info.width && m.info.height)) && (
+                            <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
+                              {m.info.durationSecs != null ? formatSecs(m.info.durationSecs) : null}
+                              {m.info.durationSecs != null && m.info.width && m.info.height ? " · " : null}
+                              {m.info.width && m.info.height ? `${m.info.width}×${m.info.height}` : null}
+                            </span>
+                          )}
+                          {/* Empty boxes read as "start" and "end", so a clip
+                              with one bound filled in says what it does without
+                              a sentence of explanation next to it. Stills have
+                              no section to take, so they get no boxes. */}
+                          {m.kind === "video" && (
+                            <span className="ml-auto flex shrink-0 items-center gap-1">
+                              <Input
+                                value={trimDraft.from}
+                                onChange={(e) => setTrimField(m.id, "from", e.target.value)}
+                                placeholder={t("slideshow.trimFromShort", "start")}
+                                className="h-6 w-16 border-transparent bg-muted/60 px-1 text-center font-mono text-[11px] shadow-none focus-visible:border-input focus-visible:bg-background"
+                              />
+                              <span className="text-[11px] text-muted-foreground">–</span>
+                              <Input
+                                value={trimDraft.to}
+                                onChange={(e) => setTrimField(m.id, "to", e.target.value)}
+                                placeholder={t("slideshow.trimToShort", "end")}
+                                className="h-6 w-16 border-transparent bg-muted/60 px-1 text-center font-mono text-[11px] shadow-none focus-visible:border-input focus-visible:bg-background"
+                              />
+                            </span>
+                          )}
                         </div>
+                        <Input
+                          value={m.text}
+                          onChange={(e) => setText(m.id, e.target.value)}
+                          placeholder={t("slideshow.linePlaceholder", "Sentence spoken while this shows…")}
+                          className="h-8 w-full text-xs"
+                        />
+                        {trimNote && (
+                          <p className="text-[11px] text-amber-600">
+                            {trimNote === "badTime"
+                              ? t("slideshow.trimBadTime", "Use 0:30, 1:20 or 1:02:03.")
+                              : trimNote === "order"
+                                ? t("slideshow.trimOrder", "The end has to come after the start.")
+                                : t("slideshow.trimPastEnd", "That start is past the end of the clip.")}
+                          </p>
+                        )}
                         {span && (
                           <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
                             <span className="font-mono">
@@ -1257,7 +1461,7 @@ export function SlideshowPanel() {
                 </span>
                 <Button
                   variant="outline"
-                  onClick={handleAddMedia}
+                  onClick={() => handleAddMedia()}
                   disabled={!isConnected || addingMedia}
                   className="shrink-0 gap-1.5"
                 >
