@@ -1340,6 +1340,48 @@ local function apply_storyboard_effects(appended, effects)
     end
 end
 
+-- Comparable form of a media path: Resolve reports "File Path" with the host's
+-- separators and Windows paths are case-insensitive, so neither can be trusted
+-- for a raw string compare.
+local function media_path_key(path)
+    if type(path) ~= "string" or #path == 0 then return nil end
+    return (path:gsub("\\", "/"):lower())
+end
+
+-- Index every clip already in the media pool by file path. Built once per
+-- storyboard so a repeat "add to timeline" reuses what the project has instead
+-- of importing a second copy of the same file (Resolve's ImportMedia happily
+-- creates duplicate entries for a path it already holds). Premiere's side does
+-- the same thing in ppro.ts's importOne.
+local function build_media_index()
+    local index = {}
+    local root = mediaPool:GetRootFolder()
+    if not root then return index end
+    pcall(walk_media_pool, root, function(clip)
+        local ok, p = pcall(clip.GetClipProperty, clip, "File Path")
+        if ok then
+            local key = media_path_key(p)
+            -- First one wins: if the project already holds duplicates, reusing
+            -- the same one every time keeps this run's placements consistent.
+            if key and not index[key] then index[key] = clip end
+        end
+    end)
+    return index
+end
+
+-- The media pool item for `path`, imported only if the project doesn't already
+-- have it. Newly imported items go into the index so repeats within one
+-- storyboard (the same clip used for two sentences) also reuse a single item.
+local function import_media_once(index, path)
+    local key = media_path_key(path)
+    if not key then return nil end
+    if index[key] then return index[key] end
+    local imp = mediaPool:ImportMedia({ path })
+    local item = (type(imp) == "table") and imp[1] or nil
+    if item then index[key] = item end
+    return item
+end
+
 -- Build a "slideshow" onto the timeline: import each supplied media file and
 -- drop it at the exact record time of the sentence it belongs to, so the visual
 -- changes track the voice-over. Stills are shown for their sentence's whole
@@ -1366,7 +1408,9 @@ end
 --
 -- Files are imported one at a time so the returned MediaPoolItems map 1:1 to the
 -- items (ImportMedia may drop unreadable files or merge image sequences, which
--- would desync a bulk import from the sentence list).
+-- would desync a bulk import from the sentence list), and each one goes through
+-- import_media_once so a file the project already holds is reused instead of
+-- landing in the media pool a second time.
 function BuildStoryboard(spec)
     refresh_project()
     local result
@@ -1423,6 +1467,8 @@ function BuildStoryboard(spec)
         end
         local trackEndSec = trackEndFrames / fps
 
+        local mediaIndex = build_media_index()
+
         local lines = {}
         local clipList = {}   -- parallel to `effects` below
         local effects = {}    -- effect table for each appended clip (or nil)
@@ -1432,11 +1478,7 @@ function BuildStoryboard(spec)
 
         for _, it in ipairs(items) do
             local path = it.path
-            local imp = nil
-            if type(path) == "string" and #path > 0 then
-                imp = mediaPool:ImportMedia({ path })
-            end
-            local mpItem = (type(imp) == "table") and imp[1] or nil
+            local mpItem = import_media_once(mediaIndex, path)
             if not mpItem then
                 lines[#lines + 1] = "Skipped (could not import): " .. tostring(path)
             else
@@ -1589,8 +1631,7 @@ function BuildStoryboard(spec)
         -- Optional voice-over: drop the audio file onto a fresh audio track at
         -- the timeline start so the narration plays under the slideshow.
         if hasAudio then
-            local imp = mediaPool:ImportMedia({ audioPath })
-            local mpItem = (type(imp) == "table") and imp[1] or nil
+            local mpItem = import_media_once(mediaIndex, audioPath)
             if not mpItem then
                 lines[#lines + 1] = "Skipped voice-over (could not import): " .. tostring(audioPath)
             elseif not timeline:AddTrack("audio") then
