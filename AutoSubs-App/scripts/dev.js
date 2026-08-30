@@ -35,22 +35,23 @@ if (platform === 'darwin') {
   process.exit(1);
 }
 
-// Ensure ffmpeg binary exists for macOS externalBin requirement
-if (platform === 'darwin') {
-  const binariesDir = path.resolve(__dirname, '../src-tauri/binaries');
-  const ffmpegTarget = path.join(binariesDir, `ffmpeg-${targetTriple}`);
+// Ensure ffmpeg binary exists for externalBin requirement
+const binariesDir = path.resolve(__dirname, '../src-tauri/binaries');
+const ffmpegTargetName = platform === 'win32' ? `ffmpeg-${targetTriple}.exe` : `ffmpeg-${targetTriple}`;
+const ffmpegTarget = path.join(binariesDir, ffmpegTargetName);
 
-  if (!fs.existsSync(ffmpegTarget)) {
-    fs.mkdirSync(binariesDir, { recursive: true });
-    try {
-      const systemFfmpeg = execSync('which ffmpeg', { encoding: 'utf-8' }).trim();
-      if (systemFfmpeg && fs.existsSync(systemFfmpeg)) {
-        fs.symlinkSync(systemFfmpeg, ffmpegTarget);
-        console.log(`[AutoSubs Dev] Linked ffmpeg from ${systemFfmpeg} -> ${ffmpegTarget}`);
-      }
-    } catch {
-      console.warn(`[AutoSubs Dev] Warning: ffmpeg not found in PATH. Make sure ffmpeg is installed.`);
+if (!fs.existsSync(ffmpegTarget)) {
+  fs.mkdirSync(binariesDir, { recursive: true });
+  try {
+    const cmd = platform === 'win32' ? 'where.exe ffmpeg' : 'which ffmpeg';
+    const output = execSync(cmd, { encoding: 'utf-8' }).trim();
+    const systemFfmpeg = output.split(/\r?\n/)[0].trim();
+    if (systemFfmpeg && fs.existsSync(systemFfmpeg)) {
+      fs.copyFileSync(systemFfmpeg, ffmpegTarget);
+      console.log(`[AutoSubs Dev] Copied ffmpeg from ${systemFfmpeg} -> ${ffmpegTarget}`);
     }
+  } catch (err) {
+    console.warn(`[AutoSubs Dev] Warning: ffmpeg not found in PATH or failed to copy. Make sure ffmpeg is installed.`);
   }
 }
 
