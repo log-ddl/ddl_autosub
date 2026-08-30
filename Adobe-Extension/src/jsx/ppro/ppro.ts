@@ -729,11 +729,56 @@ export function buildStoryboard(specJson: string): string {
       return null;
     }
 
-    function secondsToTime(secs: number): any {
+    /**
+     * Everything below works in whole SEQUENCE FRAMES rather than float seconds.
+     * Premiere snaps every time it writes a clip boundary, so a cursor kept in
+     * seconds drifts: the snapped clip ends a fraction earlier or later than the
+     * value we remembered, the next clip starts from the unsnapped number, and
+     * because overwriteClip *overwrites*, a start one frame early eats a frame
+     * off the clip before it. Over a slideshow that compounds into the "off by a
+     * few frames" the Resolve side never shows — its whole layout is integer
+     * frames already.
+     *
+     * `sequence.timebase` is ticks per frame. A sequence that won't report it
+     * leaves ticksPerFrame at 0, and the helpers below degrade to plain seconds.
+     */
+    var ticksPerFrame = 0;
+    try {
+      var tb = parseFloat(sequence.timebase);
+      if (!isNaN(tb) && tb > 0) ticksPerFrame = tb;
+    } catch (tbErr) {}
+    var seqFps = ticksPerFrame > 0 ? TICKS_PER_SECOND / ticksPerFrame : 0;
+
+    /** Seconds -> nearest whole sequence frame. */
+    function toFrames(secs: number): number {
+      if (!(secs > 0)) return 0;
+      return seqFps > 0 ? Math.round(secs * seqFps) : secs;
+    }
+
+    /** Whole sequence frames -> seconds. */
+    function frameSecs(frames: number): number {
+      return seqFps > 0 ? frames / seqFps : frames;
+    }
+
+    /**
+     * A frame boundary as a Time. Built from ticks, not seconds: ticks are the
+     * unit Premiere stores, so `frames * ticksPerFrame` lands exactly on the
+     * frame instead of near it.
+     */
+    function frameToTime(frames: number): any {
       // @ts-ignore - Time is an ExtendScript global provided by the host.
       var tt = new Time();
-      tt.seconds = secs;
+      if (ticksPerFrame > 0) {
+        tt.ticks = String(Math.round(frames * ticksPerFrame));
+      } else {
+        tt.seconds = frames;
+      }
       return tt;
+    }
+
+    /** Read a clip boundary back as a whole sequence frame. */
+    function timeToFrames(timeObj: any): number {
+      return toFrames(getTimeSeconds(timeObj));
     }
 
     /** Live sequence handle — re-read so track collections are never stale. */
@@ -747,19 +792,48 @@ export function buildStoryboard(specJson: string): string {
     }
 
     /**
+     * The media's own frame rate, or 0 when Premiere won't say. Used to put an
+     * in-point on a real source frame: a raw "30.5s" lands between two frames
+     * and Premiere resolves it in its own direction, which is how a cut ends up
+     * a frame or two off the moment the user asked for.
+     */
+    function sourceFps(mp: any): number {
+      try {
+        if (mp && typeof mp.getFootageInterpretation === "function") {
+          var fi = mp.getFootageInterpretation();
+          var rate = fi ? parseFloat(fi.frameRate) : NaN;
+          if (!isNaN(rate) && rate > 0) return rate;
+        }
+      } catch (e) {}
+      return 0;
+    }
+
+    /** Snap seconds to the nearest whole frame of `fps` (unchanged when fps is 0). */
+    function snapToSourceFrame(secs: number, fps: number): number {
+      return fps > 0 ? Math.round(secs * fps) / fps : secs;
+    }
+
+    /**
      * Set a project item's in/out points so the next insert only takes that
      * section. mediaType 4 means "video and audio"; older builds want the two
      * streams set separately, so both shapes are attempted. Returns whether the
      * range stuck.
+     *
+     * Both ends are snapped to the source frame grid first. The out point is
+     * only a hint here — Premiere disagrees across versions about whether it is
+     * inclusive — so the caller trims the placed clip to the exact requested
+     * length afterwards rather than trusting it.
      */
-    function setItemRange(mp: any, inSec: number, outSec: number): boolean {
+    function setItemRange(mp: any, inSec: number, outSec: number, fps: number): boolean {
       if (!mp || typeof mp.setInPoint !== "function") return false;
+      var inSnapped = snapToSourceFrame(inSec, fps);
+      var outSnapped = outSec > inSec ? snapToSourceFrame(outSec, fps) : 0;
       var ok = false;
       var types = [4, 1, 2]; // both, video, audio
       for (var i = 0; i < types.length; i++) {
         try {
-          mp.setInPoint(inSec, types[i]);
-          if (outSec > inSec) mp.setOutPoint(outSec, types[i]);
+          mp.setInPoint(inSnapped, types[i]);
+          if (outSnapped > inSnapped) mp.setOutPoint(outSnapped, types[i]);
           ok = true;
           if (types[i] === 4) break; // "both" covered it — no need for the rest
         } catch (e) {}
@@ -779,9 +853,11 @@ export function buildStoryboard(specJson: string): string {
     /**
      * Trim any audio clip that starts alongside a video clip we just shortened.
      * Setting `end` on the video track item leaves its linked audio at full
-     * length, which would run on past the picture.
+     * length, which would run on past the picture. Matching is on the frame, so
+     * the linked audio is identified exactly instead of by a seconds tolerance
+     * wide enough to catch a neighbouring clip.
      */
-    function trimAudioAt(startSec: number, endSec: number): void {
+    function trimAudioAt(startFrames: number, endFrames: number): void {
       var s = seq();
       if (!s || !s.audioTracks) return;
       for (var t = 0; t < s.audioTracks.numTracks; t++) {
@@ -789,20 +865,20 @@ export function buildStoryboard(specJson: string): string {
         for (var c = 0; c < track.clips.numItems; c++) {
           var clip = track.clips[c];
           try {
-            if (Math.abs(getTimeSeconds(clip.start) - startSec) > 0.05) continue;
-            if (getTimeSeconds(clip.end) > endSec) clip.end = secondsToTime(endSec);
+            if (timeToFrames(clip.start) !== startFrames) continue;
+            if (timeToFrames(clip.end) > endFrames) clip.end = frameToTime(endFrames);
           } catch (e) {}
         }
       }
     }
 
-    /** Where the last clip on `track` ends, in seconds (0 for an empty track). */
-    function trackEndSeconds(track: any): number {
+    /** Where the last clip on `track` ends, in frames (0 for an empty track). */
+    function trackEndFrames(track: any): number {
       if (!track || !track.clips) return 0;
       var end = 0;
       for (var i = 0; i < track.clips.numItems; i++) {
         try {
-          var e = getTimeSeconds(track.clips[i].end);
+          var e = timeToFrames(track.clips[i].end);
           if (e > end) end = e;
         } catch (err) {}
       }
@@ -825,11 +901,13 @@ export function buildStoryboard(specJson: string): string {
     var lastPlaceErr = "";
 
     /**
-     * Place `mp` at `startSec` on `track`. Premiere versions disagree on whether
-     * overwriteClip wants a Time object, plain seconds or a tick string, so each
-     * is tried in turn and the clip count decides whether anything landed.
+     * Place `mp` at `startFrames` on `track`. Premiere versions disagree on
+     * whether overwriteClip wants a Time object, plain seconds or a tick string,
+     * so each is tried in turn and the clip count decides whether anything
+     * landed. Every shape is derived from the frame number, so all three ask for
+     * the same instant.
      */
-    function placeClip(track: any, mp: any, startSec: number): any {
+    function placeClip(track: any, mp: any, startFrames: number): any {
       lastPlaceErr = "";
       if (!track) {
         lastPlaceErr = "no track";
@@ -840,10 +918,16 @@ export function buildStoryboard(specJson: string): string {
         return null;
       }
       var before = track.clips.numItems;
+      var startSec = frameSecs(startFrames);
       var attempts = [
-        { label: "time", value: secondsToTime(startSec) },
+        { label: "time", value: frameToTime(startFrames) },
         { label: "secs", value: startSec },
-        { label: "ticks", value: String(Math.round(startSec * TICKS_PER_SECOND)) },
+        {
+          label: "ticks",
+          value: ticksPerFrame > 0
+            ? String(Math.round(startFrames * ticksPerFrame))
+            : String(Math.round(startSec * TICKS_PER_SECOND)),
+        },
       ];
       for (var a = 0; a < attempts.length; a++) {
         try {
@@ -876,7 +960,7 @@ export function buildStoryboard(specJson: string): string {
     // overlap; each clip starts at the later of its request and the cursor.
     // It starts at the end of whatever is already on the track, so an existing
     // edit is appended to rather than overwritten.
-    var cursor = trackEndSeconds(videoTrackAt(vIndex));
+    var cursorFrames = trackEndFrames(videoTrackAt(vIndex));
 
     for (var it = 0; it < items.length; it++) {
       var item = items[it];
@@ -885,6 +969,10 @@ export function buildStoryboard(specJson: string): string {
       var reqEnd = item && item.end > reqStart ? item.end : reqStart + defaultStill;
       var spanSec = reqEnd - reqStart;
       if (spanSec <= 0) spanSec = defaultStill;
+      var reqStartFrames = toFrames(reqStart);
+      var spanFrames = toFrames(spanSec);
+      // A span shorter than a frame still has to occupy one.
+      if (seqFps > 0 && spanFrames < 1) spanFrames = 1;
 
       var mp = importOne(path);
       if (!mp) {
@@ -901,18 +989,28 @@ export function buildStoryboard(specJson: string): string {
       var srcIn = item && item.src_in > 0 ? item.src_in : 0;
       var srcOut = item && item.src_out > srcIn ? item.src_out : 0;
       var hasRange = !still && (srcIn > 0 || srcOut > 0);
+      var srcFps = hasRange ? sourceFps(mp) : 0;
       var rangeApplied = false;
-      if (hasRange) rangeApplied = setItemRange(mp, srcIn, srcOut);
+      if (hasRange) rangeApplied = setItemRange(mp, srcIn, srcOut, srcFps);
 
-      var trimTo = still ? spanSec : 0;
-      // If Premiere wouldn't take the in/out, fall back to cutting the placed
-      // clip to the right length (the start offset is lost, but the duration is
-      // still honoured instead of dropping a whole long video onto the timeline).
-      if (hasRange && !rangeApplied && srcOut > 0) trimTo = srcOut - srcIn;
+      // How long the clip should end up on the timeline, in sequence frames.
+      // Stills get their span. A ranged video gets exactly the section asked
+      // for, whether or not the in/out stuck: Premiere's out point may or may
+      // not include its own frame depending on the version, so the length is
+      // enforced here instead of being left to that. 0 means "leave it whole".
+      var trimFrames = 0;
+      if (still) {
+        trimFrames = spanFrames;
+      } else if (hasRange && srcOut > 0) {
+        trimFrames = toFrames(
+          snapToSourceFrame(srcOut, srcFps) - snapToSourceFrame(srcIn, srcFps),
+        );
+        if (seqFps > 0 && trimFrames < 1) trimFrames = 1;
+      }
 
-      var startSec = reqStart > cursor ? reqStart : cursor;
+      var startFrames = reqStartFrames > cursorFrames ? reqStartFrames : cursorFrames;
       var audioBefore = audioClipCount();
-      var placed = placeClip(videoTrackAt(vIndex), mp, startSec);
+      var placed = placeClip(videoTrackAt(vIndex), mp, startFrames);
 
       if (!placed) {
         lines[lines.length] =
@@ -921,7 +1019,7 @@ export function buildStoryboard(specJson: string): string {
       }
       appended++;
 
-      var endedAt = startSec + spanSec;
+      var endFrames = startFrames + spanFrames;
 
       // Placing on a video track normally carries the linked audio across. If
       // this build of Premiere didn't, put the audio on A1 so the clip's own
@@ -929,27 +1027,30 @@ export function buildStoryboard(specJson: string): string {
       if (!still && audioClipCount() === audioBefore) {
         var s0 = seq();
         if (s0 && s0.audioTracks && s0.audioTracks.numTracks > 0) {
-          placeClip(s0.audioTracks[0], mp, startSec);
+          placeClip(s0.audioTracks[0], mp, startFrames);
         }
       }
 
-      if (trimTo > 0) {
+      if (trimFrames > 0) {
         // Stills carry Premiere's own default duration and videos come in whole;
         // either way, cut back to the requested length.
-        endedAt = startSec + trimTo;
+        endFrames = startFrames + trimFrames;
         try {
-          placed.end = secondsToTime(endedAt);
+          placed.end = frameToTime(endFrames);
         } catch (trimErr) {
           lines[lines.length] = "Placed but could not trim: " + baseNameOf(path);
         }
-        if (!still) trimAudioAt(startSec, endedAt);
-      } else {
-        // Video keeps its full length — read back where it actually ended.
-        try {
-          var realEnd = getTimeSeconds(placed.end);
-          if (realEnd > startSec) endedAt = realEnd;
-        } catch (endErr) {}
+        if (!still) trimAudioAt(startFrames, endFrames);
       }
+
+      // Read back where the clip REALLY ends and carry that forward. Premiere
+      // snaps whatever it is given, so trusting the number we asked for is what
+      // let the error compound down the timeline; the next clip now starts on
+      // the frame this one actually vacates.
+      try {
+        var realEnd = timeToFrames(placed.end);
+        if (realEnd > startFrames) endFrames = realEnd;
+      } catch (endErr) {}
 
       // Leave the bin item as we found it — an in/out left behind would silently
       // shorten the clip the next time anyone drags it in.
@@ -958,9 +1059,10 @@ export function buildStoryboard(specJson: string): string {
       lines[lines.length] =
         baseNameOf(path) + ": " + (still ? "still" : "video") +
         (hasRange ? " src=" + srcIn + "-" + (srcOut || "end") +
+          (srcFps > 0 ? "@" + srcFps : "") +
           (rangeApplied ? "" : " (in/out refused)") : "") +
-        " -> " + (Math.round((endedAt - startSec) * 10) / 10) + "s";
-      cursor = endedAt;
+        " -> " + (endFrames - startFrames) + (seqFps > 0 ? "f @" : "s @") + startFrames;
+      cursorFrames = endFrames;
     }
 
     if (items.length > 0) {
