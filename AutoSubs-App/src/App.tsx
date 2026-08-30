@@ -10,8 +10,7 @@ import { useBlurSwap } from "@/hooks/use-blur-swap"
 import { useProgress } from "@/contexts/ProgressContext"
 import { useTranslation } from "react-i18next"
 import { TooltipProvider } from "@/components/ui/tooltip"
-import { GettingStartedOverlay } from "@/components/dialogs/getting-started-overlay"
-import { OnboardingTour } from "@/components/dialogs/onboarding-tour"
+import { completeFirstRun } from "@/lib/first-run"
 import { useSettingsStore } from "@/stores/settings-store"
 import { EditorWorkspaceProviders } from "@/contexts/GlobalProvider"
 import { useSubtitleDocument } from "@/contexts/SubtitleDocumentContext"
@@ -77,7 +76,6 @@ function AppContentBody() {
     React.useState(false)
   const { processingSteps, isRunActive, livePreviewSegments } = useProgress()
   const onboardingCompleted = useSettingsStore((s) => s.onboardingCompleted)
-  const tourCompleted = useSettingsStore((s) => s.tourCompleted)
   const isHydrated = useSettingsStore((s) => s.isHydrated)
   const { subtitles } = useSubtitleDocument()
   const isMobile = useIsMobile()
@@ -100,12 +98,12 @@ function AppContentBody() {
     void loadTranscriptDocuments()
   }, [loadTranscriptDocuments])
 
-  // Priority gating: only show one onboarding-style dialog at a time.
-  const showGettingStarted = isHydrated && !onboardingCompleted
-  const showTour =
-    isHydrated &&
-    onboardingCompleted &&
-    tourCompleted === false
+  // First launch has no welcome screen: the setup it used to ask for is applied
+  // in the background the moment settings are hydrated.
+  React.useEffect(() => {
+    if (!isHydrated || onboardingCompleted) return
+    void completeFirstRun()
+  }, [isHydrated, onboardingCompleted])
 
   const handleCloseSubtitleViewer = React.useCallback(() => {
     if (!showSubtitleViewer || isSubtitleViewerClosing) return
@@ -347,8 +345,6 @@ function AppContentBody() {
             </div>
           </div>
 
-          {showGettingStarted && <GettingStartedOverlay />}
-          {showTour && <OnboardingTour />}
       </div>
     </TooltipProvider>
   )

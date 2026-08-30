@@ -13,12 +13,18 @@ interface TabDef {
   labelKey: string
   fallback: string
   icon: React.ReactNode
+  /**
+   * Kept out of the tab bar while still wired up behind it. The workspace and
+   * everything it talks to stay in the build, so putting the tab back is this
+   * one flag — nothing has been deleted.
+   */
+  hidden?: boolean
 }
 
 const TABS: TabDef[] = [
   { id: "autocut", labelKey: "shell.tabs.autoEdit", fallback: "Auto Edit", icon: <Scissors className="size-4" /> },
   { id: "autosub", labelKey: "shell.tabs.subtitles", fallback: "Subtitles", icon: <Captions className="size-4" /> },
-  { id: "scripts", labelKey: "shell.tabs.scripts", fallback: "Scripts", icon: <SquareTerminal className="size-4" /> },
+  { id: "scripts", labelKey: "shell.tabs.scripts", fallback: "Scripts", icon: <SquareTerminal className="size-4" />, hidden: true },
   { id: "download", labelKey: "shell.tabs.download", fallback: "Download", icon: <Download className="size-4" /> },
 ]
 
@@ -77,7 +83,7 @@ export function WorkspaceShell({
           className="flex items-center gap-1 min-w-0"
           data-tauri-drag-region={isMacOs ? "false" : undefined}
         >
-          {TABS.map((tab) => {
+          {TABS.filter((tab) => !tab.hidden).map((tab) => {
             const active = mode === tab.id
             return (
               <button

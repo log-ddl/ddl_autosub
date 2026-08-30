@@ -1,5 +1,5 @@
 import * as React from "react";
-import { AudioLines, Gauge, Clock, GraduationCap, Terminal, ChevronDown } from "lucide-react";
+import { AudioLines, Gauge, Clock, Terminal, ChevronDown } from "lucide-react";
 import { DeleteIcon, type DeleteIconHandle } from "@/components/ui/icons/delete";
 import { useSettingsStore } from "@/stores/settings-store";
 import { ask, message } from "@tauri-apps/plugin-dialog";
@@ -107,12 +107,6 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     if (shouldReset) {
       resetSettings();
     }
-  };
-
-  const handleRestartOnboarding = () => {
-    updateSetting("onboardingCompleted", false);
-    updateSetting("tourCompleted", false);
-    onOpenChange(false);
   };
 
   const handleOpenLogsFolder = React.useCallback(async () => {
@@ -264,15 +258,6 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               </FieldGroup>
 
               <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  className="flex-1"
-                  onClick={handleRestartOnboarding}
-                >
-                  <GraduationCap/>
-                  {t("settings.restartOnboarding")}
-                </Button>
-
                 <Button
                   variant="outline"
                   className="flex-1"

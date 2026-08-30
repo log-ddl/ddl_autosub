@@ -35,7 +35,6 @@
       "notFound": "Chưa có",
       "errorTitle": "Công cụ dòng lệnh"
     },
-    "restartOnboarding": "Chạy lại hướng dẫn",
     "openLogsFolder": "Mở thư mục nhật ký",
     "reset": {
       "button": "Đặt lại cài đặt",
@@ -476,50 +475,6 @@
       "matches_one": "{{count}} kết quả",
       "matches_other": "{{count}} kết quả"
     }
-  },
-  "gettingStarted": {
-    "title": "Chào mừng đến với AutoSubs",
-    "description": "Chọn ngôn ngữ bạn nói. Ngôn ngữ này sẽ dùng cho giao diện (nếu có) và cho phiên âm.",
-    "selectLanguage": "Chọn ngôn ngữ",
-    "searchLanguage": "Tìm ngôn ngữ...",
-    "noLanguageFound": "Không tìm thấy ngôn ngữ.",
-    "resolveNote": {
-      "openResolve": "Mở DaVinci Resolve rồi vào:",
-      "workspace": "Workspace (menu trên cùng)",
-      "scripts": "Scripts",
-      "autosubs": "AutoSubs"
-    },
-    "continue": "Bắt đầu"
-  },
-  "tour": {
-    "connection": {
-      "title": "Trạng thái kết nối",
-      "description": "Cho biết AutoSubs đã kết nối với DaVinci Resolve hay chưa. Màu xanh nghĩa là đã kết nối và sẵn sàng truy cập dòng thời gian."
-    },
-    "modeSwitcher": {
-      "title": "Chế độ đầu vào",
-      "description": "Chuyển giữa phiên âm trực tiếp một tệp hoặc lấy âm thanh từ dòng thời gian DaVinci Resolve."
-    },
-    "modelPicker": {
-      "title": "Mô hình AI",
-      "description": "Chọn mô hình nhận dạng giọng nói. Một mô hình hỗ trợ ngôn ngữ của bạn đã được chọn sẵn. Mỗi mô hình cân bằng khác nhau giữa tốc độ và độ chính xác."
-    },
-    "audioInput": {
-      "title": "Nguồn âm thanh",
-      "description": "Chọn track âm thanh từ dòng thời gian Resolve, hoặc thả tệp media vào đây để phiên âm trực tiếp."
-    },
-    "controls": {
-      "title": "Điều khiển phiên âm",
-      "description": "Thiết lập ngôn ngữ, nhận diện người nói, định dạng chữ, rồi bấm Tạo phụ đề để bắt đầu."
-    },
-    "history": {
-      "title": "Lịch sử phụ đề",
-      "description": "Xem và tìm kiếm các tài liệu phụ đề đã lưu tại đây."
-    },
-    "skip": "Bỏ qua hướng dẫn",
-    "next": "Tiếp",
-    "finish": "Bắt đầu",
-    "open": "Mở gợi ý"
   },
   "titlebar": {
     "subtitleHistory": {
@@ -964,6 +919,13 @@
     "sortRandom": "Ngẫu nhiên",
     "addAudio": "Thêm vào timeline",
     "addedOk": "Đã thêm vào timeline.",
+    "allPlaced": "Mọi clip đã có trên timeline rồi.",
+    "placeAgain": "Đặt lại tất cả",
+    "trimFromShort": "đầu",
+    "trimToShort": "hết",
+    "trimBadTime": "Nhập kiểu 0:30, 1:20 hoặc 1:02:03.",
+    "trimOrder": "Điểm kết thúc phải sau điểm bắt đầu.",
+    "trimPastEnd": "Điểm bắt đầu vượt quá độ dài clip.",
     "addMedia": "Thêm vào timeline",
     "cutSync": "Cắt ghép lên timeline",
     "cutNeedsMedia": "Thêm media trước.",
