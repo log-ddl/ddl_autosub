@@ -17,9 +17,9 @@ import {
   updateSubtitleDocument,
   type TranscriptSourceType,
   type TranscriptMetadata,
-} from '../utils/file-utils';
+} from '@/lib/subtitle-documents';
 import { reformatSubtitles as rustReformatSubtitles } from '@/api/formatting-api';
-import { generateSrt, parseSrt } from '@/utils/srt-utils';
+import { generateSrt, parseSrt } from '@/lib/srt-utils';
 import { loadFontForLanguage } from '@/lib/font-loader';
 
 function getTranscriptSourceType(

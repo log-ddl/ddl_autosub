@@ -170,7 +170,7 @@ const FRIENDLY_TOOL_NAMES: Record<string, string> = {
 };
 
 /**
- * Parse a step string emitted by `cli_chat.rs`:
+ * Parse a step string emitted by `ai_cli/chat.rs`:
  * New format: `"{state}#{step_id}:{tool_name}||{detail}"`
  * Legacy format: `"{state}:{tool_name}"`
  */

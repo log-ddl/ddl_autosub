@@ -10,8 +10,8 @@ import {
   loadSubtitleDocumentSubtitles,
   loadSubtitleDocumentSourceSubtitles,
   type TimelineLanguageMode,
-} from '@/utils/file-utils';
-import { generateSrt } from '@/utils/srt-utils';
+} from '@/lib/subtitle-documents';
+import { generateSrt } from '@/lib/srt-utils';
 import { writeTextFile } from '@tauri-apps/plugin-fs';
 import { useSettingsStore } from '@/stores/settings-store';
 import { useIntegration } from '@/contexts/IntegrationContext';

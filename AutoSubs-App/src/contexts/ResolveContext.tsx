@@ -4,7 +4,7 @@ import { Template, TimelineInfo } from '@/types';
 import { getTimelineInfo, getTemplates, cancelExport, addSubtitlesToTimeline, ResolveApiError } from '@/api/resolve-api';
 import { useIntegration } from '@/contexts/IntegrationContext';
 import { useSettingsStore } from '@/stores/settings-store';
-import { validateExportedAudioFile, writeSingleLanguageDocument, type TimelineLanguageMode } from '@/utils/file-utils';
+import { validateExportedAudioFile, writeSingleLanguageDocument, type TimelineLanguageMode } from '@/lib/subtitle-documents';
 
 interface ResolveContextType {
   timelineInfo: TimelineInfo;

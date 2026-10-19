@@ -1,7 +1,7 @@
 //! CLI Chat Task Runner & Session Manager (`agy` Antigravity CLI & `claude` Claude Code CLI).
 //!
 //! Spawns `agy` or `claude` processes in the project workspace, manages session resumption
-//! and cancellation, and delegates NDJSON stream parsing to `cli_stream_parser`.
+//! and cancellation, and delegates NDJSON stream parsing to `stream_parser`.
 
 use std::collections::HashMap;
 use std::fs;
@@ -14,9 +14,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::AppHandle;
 
-use crate::cli_runtime::{build_cli_path_env, detect_cli_path};
-use crate::cli_stream_parser::{handle_stream_json_event, StreamParseState};
-use crate::cli_workspace::resolve_workspace_dir;
+use crate::ai_cli::runtime::{build_cli_path_env, detect_cli_path};
+use crate::ai_cli::stream_parser::{handle_stream_json_event, StreamParseState};
+use crate::ai_cli::workspace::resolve_workspace_dir;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]

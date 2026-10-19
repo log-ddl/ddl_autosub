@@ -36,7 +36,7 @@ import { useAudioPreview } from "@/contexts/AudioPreviewContext";
 import { useErrorDialog } from "@/contexts/ErrorDialogContext";
 import { describeError } from "@/components/transcription/utils";
 import { useTranslation } from "react-i18next";
-import { type SubtitleDocumentListItem, type TimelineLanguageMode } from "@/utils/file-utils";
+import { type SubtitleDocumentListItem, type TimelineLanguageMode } from "@/lib/subtitle-documents";
 
 interface SubtitleViewerPanelProps {
   isOpen?: boolean;

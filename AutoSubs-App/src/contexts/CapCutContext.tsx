@@ -13,7 +13,7 @@ import { useIntegration } from "@/contexts/IntegrationContext";
 import {
   writeSingleLanguageDocument,
   type TimelineLanguageMode,
-} from "@/utils/file-utils";
+} from "@/lib/subtitle-documents";
 
 interface CapCutContextType {
   timelineInfo: TimelineInfo;

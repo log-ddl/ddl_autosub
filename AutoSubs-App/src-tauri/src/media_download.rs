@@ -915,7 +915,7 @@ pub async fn media_download_start(
         .hidden()
         // yt-dlp is frozen Python: without this its stdout uses the OS code page,
         // so progress lines carrying a non-Latin-1 title arrive as invalid UTF-8
-        // and kill the reader loop below. Same fix as autoedit_runner.rs.
+        // and kill the reader loop below. Same fix as autoedit/runner.rs.
         .env("PYTHONIOENCODING", "utf-8")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

@@ -35,7 +35,7 @@ import {
   deleteSubtitleDocument,
   readSubtitleDocument,
   type SubtitleDocumentListItem,
-} from "@/utils/file-utils";
+} from "@/lib/subtitle-documents";
 import { useTranslation } from "react-i18next";
 
 interface TranscriptHistoryPopoverProps {

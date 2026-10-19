@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { getSubtitleDocumentPath } from "@/utils/file-utils";
+import { getSubtitleDocumentPath } from "@/lib/subtitle-documents";
 import type { BuildStoryboardSpec, BuildStoryboardResult } from "@/api/resolve-api";
 import type { Template, Track } from "@/types";
 

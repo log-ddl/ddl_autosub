@@ -47,7 +47,7 @@ import {
 import { ExportPopover, type ExportFormat } from "@/components/common/export-popover";
 import type { Speaker, Template, TimelineInfo } from "@/types";
 import type { Integration } from "@/contexts/IntegrationContext";
-import type { TimelineLanguageMode } from "@/utils/file-utils";
+import type { TimelineLanguageMode } from "@/lib/subtitle-documents";
 import { cn } from "@/lib/utils";
 
 interface OutputPanelProps {

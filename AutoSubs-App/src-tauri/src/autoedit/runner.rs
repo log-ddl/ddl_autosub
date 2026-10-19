@@ -41,12 +41,12 @@ fn shim_dir(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 // Locate the Python interpreter to use. Prefers the runtime downloaded on
-// demand into the app data dir (see autoedit_python.rs), which side-steps
+// demand into the app data dir (see autoedit/python.rs), which side-steps
 // Microsoft Store Python sandboxing and version drift on the user's system.
 // Falls back to `python3`/`python` on PATH so developer setups without a
 // downloaded runtime still work.
 fn python_executable(app: &AppHandle) -> PathBuf {
-    if let Ok(runtime) = crate::autoedit_python::python_binary(app) {
+    if let Ok(runtime) = crate::autoedit::python::python_binary(app) {
         if runtime.exists() {
             return runtime;
         }

@@ -1,4 +1,4 @@
-// Client-side port of the Rust silence math (autoedit_silence.rs). Kept pure
+// Client-side port of the Rust silence math (autoedit/silence.rs). Kept pure
 // and synchronous so the AutoCut tab can recompute keep/cut spans instantly
 // while the user drags the min-silence / padding sliders — VAD runs once in
 // Rust, everything after is cheap arithmetic here.

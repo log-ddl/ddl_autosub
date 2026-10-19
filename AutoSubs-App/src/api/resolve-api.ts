@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { getSubtitleDocumentPath, getAudioExportDir } from '@/utils/file-utils';
+import { getSubtitleDocumentPath, getAudioExportDir } from '@/lib/subtitle-documents';
 import { Speaker, Template } from '@/types';
 
 /**

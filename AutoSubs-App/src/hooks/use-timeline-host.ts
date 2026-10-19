@@ -11,7 +11,7 @@ import {
   saveAdHocSubtitleDocument,
   type TextCueInput,
 } from "@/lib/timeline-actions"
-import type { TimelineLanguageMode } from "@/utils/file-utils"
+import type { TimelineLanguageMode } from "@/lib/subtitle-documents"
 import type { Speaker, TimelineInfo } from "@/types"
 
 export interface AddTextCuesOptions {

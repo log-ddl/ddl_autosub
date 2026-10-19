@@ -1,4 +1,4 @@
-// src/utils/fileUtils.ts
+// src/lib/subtitle-documents.ts
 import {
   join,
   documentDir,

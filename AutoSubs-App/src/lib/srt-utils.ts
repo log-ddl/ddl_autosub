@@ -1,6 +1,6 @@
-import { Subtitle } from "../types";
+import { Subtitle } from "@/types";
 
-// src/utils/srtUtils.ts
+// src/lib/srt-utils.ts
 export function formatTimecode(seconds: number): string {
     const safeSeconds = typeof seconds === "number" && !isNaN(seconds) ? Math.max(0, seconds) : 0;
     const ms = Math.floor((safeSeconds % 1) * 1000);

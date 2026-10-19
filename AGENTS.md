@@ -57,11 +57,11 @@ flowchart TD
 * **Documentation**: The Adobe extension has excellent documentation at [Adobe-Extension/README.md](Adobe-Extension/README.md).
 
 ### 4b. CapCut Desktop Bridge (No Network)
-* CapCut has no scripting API. The app reads and writes project folders under `com.lveditor.draft/` directly ([capcut_bridge.rs](AutoSubs-App/src-tauri/src/capcut_bridge.rs), [capcut_storyboard.rs](AutoSubs-App/src-tauri/src/capcut_storyboard.rs), [capcut_timeline.rs](AutoSubs-App/src-tauri/src/capcut_timeline.rs)). Times are in microseconds.
+* CapCut has no scripting API. The app reads and writes project folders under `com.lveditor.draft/` directly ([capcut/](AutoSubs-App/src-tauri/src/capcut)). Times are in microseconds.
 * After a write, the project must be reopened from CapCut Home to show the changes.
 
 ### 4c. AI Edit (CLI Chat)
-* The AI Edit tab drives a local `agy` or `claude` CLI as a subprocess ([cli_runtime.rs](AutoSubs-App/src-tauri/src/cli_runtime.rs), [cli_chat.rs](AutoSubs-App/src-tauri/src/cli_chat.rs), [cli_stream_parser.rs](AutoSubs-App/src-tauri/src/cli_stream_parser.rs)), with a per-project workspace from [cli_workspace.rs](AutoSubs-App/src-tauri/src/cli_workspace.rs).
+* The AI Edit tab drives a local `agy` or `claude` CLI as a subprocess ([ai_cli/](AutoSubs-App/src-tauri/src/ai_cli)), with a per-project workspace from `ai_cli/workspace.rs`.
 
 ### 5. Error Propagation Across the Boundary
 * **The Gotcha**: Because transcription and diarization run fully locally across multiple sub-crates, native C/C++ exceptions and ONNX load errors can easily crash the backend.

@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils"
 import {
   listSubtitleDocumentIndex,
   type SubtitleDocumentListItem,
-} from "@/utils/file-utils"
+} from "@/lib/subtitle-documents"
 import { WorkspaceShell } from "@/components/layout/workspace-shell"
 import { AppUpdateGate } from "@/components/dialogs/app-update-gate"
 import { ScriptsPanel } from "@/components/autoedit/autoedit-panel"

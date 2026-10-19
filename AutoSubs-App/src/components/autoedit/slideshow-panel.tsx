@@ -24,7 +24,7 @@ import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { useSubtitleDocument } from "@/contexts/SubtitleDocumentContext"
 import { ResolveApiError } from "@/api/resolve-api"
-import { useTimelineHost } from "@/lib/use-timeline-host"
+import { useTimelineHost } from "@/hooks/use-timeline-host"
 import {
   DOWNLOAD_DIR_KEY,
   entryKey,

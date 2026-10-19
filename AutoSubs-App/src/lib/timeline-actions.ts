@@ -2,7 +2,7 @@ import type { StoryboardEffect } from "@/api/resolve-api"
 import type { MediaEntry } from "@/lib/media-import"
 import type { AlignedSpan, TimedWord } from "@/lib/slideshow-align"
 import type { Speaker, Subtitle } from "@/types"
-import { saveSubtitleDocument } from "@/utils/file-utils"
+import { saveSubtitleDocument } from "@/lib/subtitle-documents"
 
 /** One media clip in its timeline placement form. */
 export interface BuildItem {

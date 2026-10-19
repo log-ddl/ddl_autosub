@@ -6,7 +6,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::capcut_bridge::{
+use crate::capcut::bridge::{
     capcut_get_status, new_id, save_draft_json, CapCutDraftSummary, US_PER_SEC,
 };
 

@@ -30,20 +30,13 @@ mod logging;
 mod resolve_bridge;
 mod resolve_scripts;
 mod adobe_bridge;
-mod capcut_bridge;
-mod capcut_storyboard;
-mod capcut_timeline;
-mod autoedit_runner;
-mod autoedit_python;
-mod autoedit_silence;
+mod capcut;
+mod autoedit;
 mod media_scan;
 mod media_download;
 mod process_ext;
 mod cli;
-mod cli_workspace;
-mod cli_runtime;
-mod cli_stream_parser;
-mod cli_chat;
+mod ai_cli;
 
 use crate::process_ext::HiddenConsole; // keep above the cfg'd items below
 
@@ -465,27 +458,27 @@ fn main() {
             resolve_bridge::resolve_bridge,
             resolve_bridge::get_resolve_server_version,
             adobe_bridge::send_to_adobe,
-            capcut_bridge::capcut_get_status,
-            capcut_storyboard::capcut_build_storyboard,
-            capcut_bridge::capcut_add_subtitles,
-            capcut_bridge::capcut_get_timeline_audio,
-            capcut_timeline::capcut_get_timeline_snapshot,
-            capcut_timeline::capcut_delete_segment,
-            capcut_timeline::capcut_update_segment,
-            cli_runtime::cli_get_status,
-            cli_runtime::cli_get_models,
-            cli_workspace::cli_ensure_workspace,
-            cli_workspace::cli_save_memory,
-            cli_chat::cli_run_text_task,
-            cli_chat::cli_cancel_text_task,
+            capcut::bridge::capcut_get_status,
+            capcut::storyboard::capcut_build_storyboard,
+            capcut::bridge::capcut_add_subtitles,
+            capcut::bridge::capcut_get_timeline_audio,
+            capcut::timeline::capcut_get_timeline_snapshot,
+            capcut::timeline::capcut_delete_segment,
+            capcut::timeline::capcut_update_segment,
+            ai_cli::runtime::cli_get_status,
+            ai_cli::runtime::cli_get_models,
+            ai_cli::workspace::cli_ensure_workspace,
+            ai_cli::workspace::cli_save_memory,
+            ai_cli::chat::cli_run_text_task,
+            ai_cli::chat::cli_cancel_text_task,
             audio_preprocess::extract_audio_peaks,
             cli::cli_command_status,
             cli::install_cli_command,
             cli::uninstall_cli_command,
-            autoedit_runner::run_python_script,
-            autoedit_python::python_runtime_status,
-            autoedit_python::install_python_runtime,
-            autoedit_silence::analyze_wav_silences,
+            autoedit::runner::run_python_script,
+            autoedit::python::python_runtime_status,
+            autoedit::python::install_python_runtime,
+            autoedit::silence::analyze_wav_silences,
             media_scan::scan_media,
             media_download::media_download_status,
             media_download::media_download_install,
