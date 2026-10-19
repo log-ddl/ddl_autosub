@@ -10,8 +10,7 @@ const DEFAULT_MODE: AppMode = "autocut";
 interface AppModeStore {
   mode: AppMode;
   setMode: (mode: AppMode) => void;
-  // Retained for callers that used to return to the picker; now just resets
-  // to the default tab.
+  // Back to the default tab (used to leave a setup screen).
   resetMode: () => void;
 }
 
