@@ -1,11 +1,11 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { invoke } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Wand2 } from "lucide-react"
 import { useAppModeStore } from "@/stores/app-mode-store"
+import { getPythonRuntimeStatus, installPythonRuntime } from "@/api/autoedit-api"
 
 interface ProgressPayload {
   ratio: number | null
@@ -17,12 +17,6 @@ interface ProgressPayload {
 interface DonePayload {
   ok: boolean
   error: string | null
-}
-
-interface RuntimeStatus {
-  installed: boolean
-  installing: boolean
-  version: string | null
 }
 
 const EVENT_PROGRESS = "autoedit-python-progress"
@@ -53,7 +47,7 @@ export function AutoEditPythonSetup({
     setProgress(null)
     setStatus("installing")
     try {
-      await invoke("install_python_runtime")
+      await installPythonRuntime()
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       setError(message)
@@ -84,7 +78,7 @@ export function AutoEditPythonSetup({
         }
       })
 
-      const initial = await invoke<RuntimeStatus>("python_runtime_status")
+      const initial = await getPythonRuntimeStatus()
       if (cancelled) return
       if (initial.installed) {
         setStatus("ready")

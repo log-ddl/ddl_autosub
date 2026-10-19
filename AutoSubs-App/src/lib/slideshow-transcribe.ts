@@ -1,8 +1,8 @@
 import * as React from "react"
-import { invoke } from "@tauri-apps/api/core"
 import { useModels } from "@/contexts/ModelsContext"
 import { useSettingsStore } from "@/stores/settings-store"
 import type { Subtitle } from "@/types"
+import { ensureModels, transcribeAudio } from "@/api/transcription-api"
 
 /**
  * Transcribe an arbitrary audio/video file into word-timed segments, reusing the
@@ -25,35 +25,25 @@ export function useVoiceTranscriber() {
       const model = modelsState[s.model]?.value ?? modelsState[0]?.value
       if (!model) throw new Error("No transcription model is available.")
 
-      const modelPaths = await invoke<{
-        asr_model_path: string
-        vad_model_path?: string
-      }>("ensure_models", {
-        request: {
-          model,
-          enable_vad: true,
-          enable_diarize: false,
-          enable_forced_alignment: false,
-        },
+      const modelPaths = await ensureModels({
+        model,
+        enable_vad: true,
+        enable_diarize: false,
+        enable_forced_alignment: false,
       })
 
-      const transcript = await invoke<{ segments?: Subtitle[] }>(
-        "transcribe_audio",
-        {
-          options: {
-            audioPath,
-            offset: 0,
-            model,
-            lang: s.language,
-            enableDtw: true,
-            enableForcedAlignment: false,
-            enableGpu: s.enableGpu,
-            enableDiarize: false,
-            asrModelPath: modelPaths.asr_model_path,
-            vadModelPath: modelPaths.vad_model_path,
-          },
-        },
-      )
+      const transcript = await transcribeAudio<{ segments?: Subtitle[] }>({
+        audioPath,
+        offset: 0,
+        model,
+        lang: s.language,
+        enableDtw: true,
+        enableForcedAlignment: false,
+        enableGpu: s.enableGpu,
+        enableDiarize: false,
+        asrModelPath: modelPaths.asr_model_path,
+        vadModelPath: modelPaths.vad_model_path,
+      })
 
       return transcript?.segments ?? []
     },

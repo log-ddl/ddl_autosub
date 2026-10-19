@@ -4,7 +4,6 @@ import { DeleteIcon, type DeleteIconHandle } from "@/components/ui/icons/delete"
 import { useSettingsStore } from "@/stores/settings-store";
 import { ask, message } from "@tauri-apps/plugin-dialog";
 import { useTranslation } from "react-i18next";
-import { invoke } from "@tauri-apps/api/core";
 import {
   Dialog,
   DialogClose,
@@ -29,6 +28,13 @@ import { initI18n, normalizeUiLanguage } from "@/i18n";
 import { uiLanguages } from "@/lib/languages";
 import { useRef } from "react";
 import { getVersion } from "@tauri-apps/api/app";
+import {
+  getCliCommandStatus,
+  installCliCommand,
+  openLogDir,
+  uninstallCliCommand,
+  type CliCommandStatus,
+} from "@/api/system-api";
 
 function highlightCommand(text: string, command = "autosubs") {
   const parts = text.split(command);
@@ -111,7 +117,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
   const handleOpenLogsFolder = React.useCallback(async () => {
     try {
-      await invoke("open_log_dir");
+      await openLogDir();
     } catch (err) {
       console.error("[SettingsDialog] failed to open logs folder:", err);
     }
@@ -119,18 +125,12 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
   // Command-line tool ("autosubs" on PATH). Status is queried when the dialog
   // opens; install/uninstall are handled by the backend per-platform.
-  type CliStatus = {
-    installed: boolean;
-    manageable: boolean;
-    location: string | null;
-    note: string | null;
-  };
-  const [cliStatus, setCliStatus] = React.useState<CliStatus | null>(null);
+  const [cliStatus, setCliStatus] = React.useState<CliCommandStatus | null>(null);
   const [cliBusy, setCliBusy] = React.useState(false);
 
   const refreshCliStatus = React.useCallback(async () => {
     try {
-      setCliStatus(await invoke<CliStatus>("cli_command_status"));
+      setCliStatus(await getCliCommandStatus());
     } catch (err) {
       console.error("[SettingsDialog] failed to read CLI status:", err);
       setCliStatus(null);
@@ -143,10 +143,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
   const handleCliToggle = React.useCallback(async () => {
     if (!cliStatus?.manageable) return;
-    const command = cliStatus.installed ? "uninstall_cli_command" : "install_cli_command";
     setCliBusy(true);
     try {
-      setCliStatus(await invoke<CliStatus>(command));
+      setCliStatus(await (cliStatus.installed ? uninstallCliCommand() : installCliCommand()));
     } catch (err) {
       const msg = String(err);
       // User dismissing the macOS admin prompt is a normal, silent outcome.

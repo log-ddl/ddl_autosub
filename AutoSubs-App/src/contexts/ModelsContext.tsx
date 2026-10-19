@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { Model } from '@/types';
 import { models } from '@/lib/models';
+import { deleteModel, getDownloadedModels } from '@/api/transcription-api';
 
 interface ModelsContextType {
   modelsState: Model[];
@@ -19,7 +19,7 @@ export function ModelsProvider({ children }: { children: React.ReactNode }) {
 
   async function checkDownloadedModels() {
     try {
-      const downloadedModels = await invoke("get_downloaded_models") as string[]
+      const downloadedModels = await getDownloadedModels()
       console.log("Downloaded models:", downloadedModels)
       setDownloadedModelValues(downloadedModels)
 
@@ -44,7 +44,7 @@ export function ModelsProvider({ children }: { children: React.ReactNode }) {
   const handleDeleteModel = async (modelValue: string) => {
     try {
       // Call the backend to delete the model files
-      await invoke('delete_model', { model: modelValue });
+      await deleteModel(modelValue);
 
       // Update the models state
       await checkDownloadedModels();

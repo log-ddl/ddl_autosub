@@ -1,7 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
-import { invoke } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { open as openDialog } from "@tauri-apps/plugin-dialog"
 import { revealItemInDir } from "@tauri-apps/plugin-opener"
@@ -19,9 +18,9 @@ import {
 import {
   cancelDownload,
   DOWNLOAD_PROGRESS_EVENT,
+  startDownload as startDownloadJob,
   type DownloadProgress,
-  type DownloadResult,
-} from "@/lib/media-download"
+} from "@/api/media-download-api"
 
 // The Download workspace body (rendered once the tools are installed). Paste a
 // URL, optionally trim, pick a folder, then download the best-quality MP4 in one
@@ -75,8 +74,8 @@ export function DownloadPanel() {
     setProgress(null)
     setDonePath(null)
     try {
-      const result = await invoke<DownloadResult>("media_download_start", {
-        request: batchFile
+      const result = await startDownloadJob(
+        batchFile
           ? { jobId, batchFile, outputDirectory: dir }
           : {
               jobId,
@@ -85,7 +84,7 @@ export function DownloadPanel() {
               startTime: startTime.trim() || null,
               endTime: endTime.trim() || null,
             },
-      })
+      )
       if (result.canceled) {
         toast.info(t("download.canceled", "Download canceled"))
       } else if (result.success) {

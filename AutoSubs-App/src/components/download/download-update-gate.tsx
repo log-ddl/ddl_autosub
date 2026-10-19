@@ -1,9 +1,13 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { invoke } from "@tauri-apps/api/core"
 import { AlertTriangle, CheckCircle2, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
+import {
+  checkDownloaderVersion,
+  updateDownloader,
+  type DownloaderVersionCheck,
+} from "@/api/media-download-api"
 
 /**
  * Blocks the Download workspace while yt-dlp is out of date.
@@ -18,16 +22,9 @@ import { Spinner } from "@/components/ui/spinner"
  * installed binary still works and a network hiccup must not lock the feature.
  */
 
-interface VersionCheck {
-  current: string
-  latest: string | null
-  updateAvailable: boolean
-  error: string | null
-}
-
 export function DownloadUpdateGate({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation()
-  const [check, setCheck] = React.useState<VersionCheck | null>(null)
+  const [check, setCheck] = React.useState<DownloaderVersionCheck | null>(null)
   const [checking, setChecking] = React.useState(true)
   const [updating, setUpdating] = React.useState(false)
   const [failed, setFailed] = React.useState<string | null>(null)
@@ -38,7 +35,7 @@ export function DownloadUpdateGate({ children }: { children: React.ReactNode }) 
   const runCheck = React.useCallback(async () => {
     setChecking(true)
     try {
-      setCheck(await invoke<VersionCheck>("media_download_version_check"))
+      setCheck(await checkDownloaderVersion())
     } catch {
       // The command itself failing is treated like an unavailable check.
       setCheck(null)
@@ -55,7 +52,7 @@ export function DownloadUpdateGate({ children }: { children: React.ReactNode }) 
     setUpdating(true)
     setFailed(null)
     try {
-      await invoke<string>("media_download_update")
+      await updateDownloader()
       await runCheck()
     } catch (err) {
       setFailed(err instanceof Error ? err.message : String(err))

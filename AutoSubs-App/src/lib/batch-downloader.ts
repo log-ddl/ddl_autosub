@@ -3,7 +3,7 @@ import {
   downloadOne,
   downloadToolsReady,
   onDownloadProgress,
-} from "@/lib/media-download"
+} from "@/api/media-download-api"
 import {
   makeMediaEntryFromPath,
   parseTimecode,

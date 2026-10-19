@@ -32,6 +32,20 @@ export interface DownloadOptions {
   quality?: string | null
 }
 
+/** Request body for `media_download_start`: one URL, or a batch file of URLs. */
+export type DownloadRequest = {
+  jobId: string
+  outputDirectory: string
+} & (
+  | { url: string; startTime?: string | null; endTime?: string | null; quality?: string | null }
+  | { batchFile: string }
+)
+
+/** Start a download job and resolve once yt-dlp has finished with it. */
+export async function startDownload(request: DownloadRequest): Promise<DownloadResult> {
+  return invoke<DownloadResult>("media_download_start", { request })
+}
+
 /** Download one URL and resolve once yt-dlp has finished with it. */
 export async function downloadOne(
   jobId: string,
@@ -39,15 +53,13 @@ export async function downloadOne(
   outputDirectory: string,
   opts: DownloadOptions = {},
 ): Promise<DownloadResult> {
-  return invoke<DownloadResult>("media_download_start", {
-    request: {
-      jobId,
-      url,
-      outputDirectory,
-      startTime: opts.startTime ?? null,
-      endTime: opts.endTime ?? null,
-      quality: opts.quality ?? null,
-    },
+  return startDownload({
+    jobId,
+    url,
+    outputDirectory,
+    startTime: opts.startTime ?? null,
+    endTime: opts.endTime ?? null,
+    quality: opts.quality ?? null,
   })
 }
 
@@ -65,14 +77,41 @@ export async function onDownloadProgress(
   })
 }
 
+export interface DownloadToolsStatus {
+  installed: boolean
+  installing: boolean
+}
+
+export async function getDownloadToolsStatus(): Promise<DownloadToolsStatus> {
+  return invoke<DownloadToolsStatus>("media_download_status")
+}
+
 /** Whether yt-dlp and ffmpeg are installed (the Download tab installs them). */
 export async function downloadToolsReady(): Promise<boolean> {
   try {
-    const status = await invoke<{ installed: boolean; installing: boolean }>(
-      "media_download_status",
-    )
+    const status = await getDownloadToolsStatus()
     return Boolean(status?.installed)
   } catch {
     return false
   }
+}
+
+/** Start the one-time tools install; progress arrives as setup events. */
+export async function installDownloadTools(): Promise<void> {
+  await invoke("media_download_install")
+}
+
+export interface DownloaderVersionCheck {
+  current: string
+  latest: string | null
+  updateAvailable: boolean
+  error: string | null
+}
+
+export async function checkDownloaderVersion(): Promise<DownloaderVersionCheck> {
+  return invoke<DownloaderVersionCheck>("media_download_version_check")
+}
+
+export async function updateDownloader(): Promise<string> {
+  return invoke<string>("media_download_update")
 }

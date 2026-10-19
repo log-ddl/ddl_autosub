@@ -8,7 +8,6 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { invoke } from "@tauri-apps/api/core";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -17,6 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAudioPreview } from "@/contexts/AudioPreviewContext";
+import { extractAudioPeaks } from "@/api/media-api";
 
 interface MediaPlayerProps {
   src: string;
@@ -142,10 +142,7 @@ export function MediaPlayer({
     }, 2000);
 
     const pathForPeaks = filePath || src;
-    invoke<number[]>("extract_audio_peaks", { 
-      input: pathForPeaks, 
-      count: barCount 
-    })
+    extractAudioPeaks(pathForPeaks, barCount)
       .then((result) => {
         if (!cancelled) {
           clearTimeout(timeoutId);

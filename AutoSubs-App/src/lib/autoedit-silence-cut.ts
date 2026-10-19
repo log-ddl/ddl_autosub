@@ -8,7 +8,6 @@
 //   5. Create a fresh empty timeline so the original stays untouched.
 //   6. Rebuild the keep-segments compacted onto it — the "cut" effect.
 
-import { invoke } from '@tauri-apps/api/core';
 import {
   applyKeepSegments,
   cancelExport,
@@ -22,6 +21,8 @@ import {
   TimelineClipInfo,
 } from '@/api/resolve-api';
 import { detectFillerSpans, type TranscriptLike } from '@/lib/filler-words';
+import { ensureModels, transcribeAudio } from '@/api/transcription-api';
+import { analyzeWavSilences, type AnalyzeSilenceResult } from '@/api/autoedit-api';
 
 /** Which tracks a cut is applied to. */
 export type CutTarget = 'both' | 'video' | 'audio';
@@ -60,13 +61,7 @@ export interface SilenceCutResult {
   lines: string[];
 }
 
-export interface AnalyzeSilenceResult {
-  total_duration_secs: number;
-  speech_duration_secs: number;
-  raw_speech_spans: Array<{ start_secs: number; end_secs: number }>;
-  keep_spans: Array<{ start_secs: number; end_secs: number }>;
-  cut_spans: Array<{ start_secs: number; end_secs: number }>;
-}
+export type { AnalyzeSilenceResult };
 
 // One audio track's own export and detection pass. Tracks are measured and cut
 // independently, so each carries its own spans and its own timing.
@@ -306,13 +301,11 @@ export async function analyzeTimelineForSilence(
     }
 
     emit({ step: 'analyzing', message: `Detecting silences on ${label}...` });
-    const analysis: AnalyzeSilenceResult = await invoke('analyze_wav_silences', {
-      args: {
-        wav_path: audioPath,
-        min_silence_secs: minSilenceSecs,
-        padding_secs: paddingSecs,
-        min_keep_secs: minKeepSecs,
-      },
+    const analysis = await analyzeWavSilences({
+      wav_path: audioPath,
+      min_silence_secs: minSilenceSecs,
+      padding_secs: paddingSecs,
+      min_keep_secs: minKeepSecs,
     });
 
     // Optional filler-word pass: transcribe this track's WAV and pull out the
@@ -321,24 +314,22 @@ export async function analyzeTimelineForSilence(
     let fillerSpans: Array<{ start_secs: number; end_secs: number }> = [];
     if (detectFillers) {
       emit({ step: 'analyzing', message: `Transcribing ${label} to find filler words...` });
-      const modelPaths = await invoke<{
-        asr_model_path: string;
-        vad_model_path?: string;
-      }>('ensure_models', {
-        request: { model: fillerModel, enable_vad: true, enable_diarize: false, enable_forced_alignment: false },
+      const modelPaths = await ensureModels({
+        model: fillerModel,
+        enable_vad: true,
+        enable_diarize: false,
+        enable_forced_alignment: false,
       });
-      const transcript = await invoke<TranscriptLike>('transcribe_audio', {
-        options: {
-          audioPath,
-          offset: 0,
-          model: fillerModel,
-          lang: fillerLang,
-          enableDtw: true,
-          enableGpu: fillerGpu,
-          enableDiarize: false,
-          asrModelPath: modelPaths.asr_model_path,
-          vadModelPath: modelPaths.vad_model_path,
-        },
+      const transcript = await transcribeAudio<TranscriptLike>({
+        audioPath,
+        offset: 0,
+        model: fillerModel,
+        lang: fillerLang,
+        enableDtw: true,
+        enableGpu: fillerGpu,
+        enableDiarize: false,
+        asrModelPath: modelPaths.asr_model_path,
+        vadModelPath: modelPaths.vad_model_path,
       });
       fillerSpans = detectFillerSpans(transcript);
     }

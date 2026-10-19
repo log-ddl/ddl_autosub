@@ -1,5 +1,4 @@
 import * as React from "react"
-import { invoke } from "@tauri-apps/api/core"
 import { writeText } from "@tauri-apps/plugin-clipboard-manager"
 import { openUrl } from "@tauri-apps/plugin-opener"
 import { platform } from "@tauri-apps/plugin-os"
@@ -18,6 +17,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "../ui/button"
+import { getBackendLogs, openLogDir } from "@/api/system-api"
 
 interface ErrorReportDialogProps {
   open: boolean
@@ -100,7 +100,7 @@ export function ErrorReportDialog({
 
     try {
       // Get log contents from the backend (avoids permission issues)
-      const logContents = await invoke<string>("get_backend_logs")
+      const logContents = await getBackendLogs()
 
       // Copy logs to clipboard
       await writeText(logContents)
@@ -133,7 +133,7 @@ export function ErrorReportDialog({
 
   const handleOpenLogsFolder = React.useCallback(async () => {
     try {
-      await invoke("open_log_dir")
+      await openLogDir()
     } catch (err) {
       console.error("[ErrorReportDialog] failed to open logs folder:", err)
     }

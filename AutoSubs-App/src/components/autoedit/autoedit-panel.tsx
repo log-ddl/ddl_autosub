@@ -36,7 +36,6 @@ import { useResolve } from "@/contexts/ResolveContext"
 import { useTranslation } from "react-i18next"
 import { open as openDialog } from "@tauri-apps/plugin-dialog"
 import { toast } from "sonner"
-import { invoke } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import {
   addMarkerAtPlayhead,
@@ -51,6 +50,7 @@ import {
 } from "@/api/resolve-api"
 import { useSavedScripts } from "@/lib/saved-scripts"
 import { TrackCard } from "@/components/autoedit/track-card"
+import { runPythonScript } from "@/api/autoedit-api"
 
 interface LogLine {
   stream: "stdout" | "stderr" | "system"
@@ -124,7 +124,7 @@ function useScriptRunner() {
           },
         )
 
-        await invoke("run_python_script", { scriptPath })
+        await runPythonScript(scriptPath)
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         appendError(message)

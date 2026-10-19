@@ -1,5 +1,4 @@
 import * as React from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useModels } from "@/contexts/ModelsContext";
@@ -14,10 +13,11 @@ import { useCapCut } from "@/contexts/CapCutContext";
 import { useIntegration } from "@/contexts/IntegrationContext";
 import { useErrorDialog } from "@/contexts/ErrorDialogContext";
 import { ResolveApiError } from "@/api/resolve-api";
-import type { TranscriptionOptions, EnsureModelsRequest, EnsureModelsResponse } from "@/types";
+import type { TranscriptionOptions, EnsureModelsRequest } from "@/types";
 import { getActiveCensorWords } from "@/censor/merge";
 import { TranscriptionPanelView } from "./transcription-panel-view";
 import { describeError } from "./utils";
+import { cancelTranscription, ensureModels, transcribeAudio } from "@/api/transcription-api";
 
 interface TranscriptionPanelProps {
   onViewSubtitles?: () => void;
@@ -334,7 +334,7 @@ export function TranscriptionPanel({
           fileInput,
           activeSelectedTracks,
         ),
-        invoke<EnsureModelsResponse>("ensure_models", { request: ensureModelsRequest }),
+        ensureModels(ensureModelsRequest),
       ]);
 
       if (!audioInfo) {
@@ -376,7 +376,7 @@ export function TranscriptionPanel({
         alignerModelDir: modelPaths.aligner_dir,
       };
 
-      const transcript = await invoke("transcribe_audio", { options });
+      const transcript = await transcribeAudio(options);
 
       completeAllProgressSteps();
 
@@ -439,7 +439,7 @@ export function TranscriptionPanel({
 
     try {
       if (isProcessing) {
-        await invoke("cancel_transcription");
+        await cancelTranscription();
         console.log("Transcription cancellation request sent to backend");
       }
 

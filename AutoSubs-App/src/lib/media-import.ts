@@ -1,7 +1,8 @@
-import { convertFileSrc, invoke } from "@tauri-apps/api/core"
+import { convertFileSrc } from "@tauri-apps/api/core"
 import { open as openDialog } from "@tauri-apps/plugin-dialog"
 import { readTextFile } from "@tauri-apps/plugin-fs"
 import { probeVideoMetadata } from "@/lib/media-probe"
+import { scanMedia, type MediaFileInfo } from "@/api/media-api"
 
 export const IMAGE_EXTS = new Set([
   "jpg", "jpeg", "png", "gif", "bmp", "webp", "tif", "tiff", "heic", "avif",
@@ -19,13 +20,7 @@ export const AUDIO_EXTS = new Set([
 export const DOWNLOAD_DIR_KEY = "autosubs.download.lastDir"
 
 /** Returned by the Rust `scan_media` command (folder listing / file stat). */
-export interface MediaFileInfo {
-  path: string
-  name: string
-  kind: "image" | "video"
-  createdMs: number
-  modifiedMs: number
-}
+export type { MediaFileInfo }
 
 export interface MediaEntry {
   id: string
@@ -176,13 +171,13 @@ export async function probeMediaInfo(m: MediaEntry): Promise<MediaEntry> {
 /** Scan specific file paths via Rust `scan_media`. */
 export async function scanMediaPaths(paths: string[]): Promise<MediaFileInfo[]> {
   if (paths.length === 0) return []
-  return invoke<MediaFileInfo[]>("scan_media", { input: { paths } })
+  return scanMedia({ paths })
 }
 
 /** Scan an entire directory via Rust `scan_media`. */
 export async function scanMediaDir(dir: string): Promise<MediaFileInfo[]> {
   if (!dir) return []
-  return invoke<MediaFileInfo[]>("scan_media", { input: { dir } })
+  return scanMedia({ dir })
 }
 
 /** Open file picker for images/videos and scan them via Rust `scan_media`. */

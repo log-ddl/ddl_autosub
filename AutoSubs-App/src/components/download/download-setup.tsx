@@ -1,10 +1,10 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { invoke } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Download } from "lucide-react"
+import { getDownloadToolsStatus, installDownloadTools } from "@/api/media-download-api"
 
 interface SetupProgress {
   label: string
@@ -16,11 +16,6 @@ interface SetupProgress {
 interface SetupDone {
   ok: boolean
   error: string | null
-}
-
-interface DownloadStatus {
-  installed: boolean
-  installing: boolean
 }
 
 const EVENT_PROGRESS = "media-download-setup-progress"
@@ -46,7 +41,7 @@ export function DownloadSetup({ children }: { children: React.ReactNode }) {
     setProgress(null)
     setStatus("installing")
     try {
-      await invoke("media_download_install")
+      await installDownloadTools()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
       setStatus("error")
@@ -72,7 +67,7 @@ export function DownloadSetup({ children }: { children: React.ReactNode }) {
         }
       })
 
-      const initial = await invoke<DownloadStatus>("media_download_status")
+      const initial = await getDownloadToolsStatus()
       if (cancelled) return
       if (initial.installed) {
         setStatus("ready")
