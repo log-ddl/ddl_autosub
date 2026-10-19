@@ -1,7 +1,7 @@
 import * as React from "react"
 import { platform } from "@tauri-apps/plugin-os"
 import { useTranslation } from "react-i18next"
-import { Captions, Download, Scissors, SquareTerminal } from "lucide-react"
+import { Captions, Download, Scissors, Sparkles, SquareTerminal } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { IntegrationStatus } from "@/components/layout/integration-status"
 import { SettingsDropdown } from "@/components/transcription/settings-dropdown"
@@ -24,6 +24,7 @@ interface TabDef {
 const TABS: TabDef[] = [
   { id: "autocut", labelKey: "shell.tabs.autoEdit", fallback: "Auto Edit", icon: <Scissors className="size-4" /> },
   { id: "autosub", labelKey: "shell.tabs.subtitles", fallback: "Subtitles", icon: <Captions className="size-4" /> },
+  { id: "aiedit", labelKey: "shell.tabs.aiEdit", fallback: "AI EDIT", icon: <Sparkles className="size-4" /> },
   { id: "scripts", labelKey: "shell.tabs.scripts", fallback: "Scripts", icon: <SquareTerminal className="size-4" />, hidden: true },
   { id: "download", labelKey: "shell.tabs.download", fallback: "Download", icon: <Download className="size-4" /> },
 ]
@@ -34,11 +35,13 @@ const TABS: TabDef[] = [
 export function WorkspaceShell({
   autocut,
   subtitles,
+  aiedit,
   scripts,
   download,
 }: {
   autocut: React.ReactNode
   subtitles: React.ReactNode
+  aiedit: React.ReactNode
   scripts: React.ReactNode
   download: React.ReactNode
 }) {
@@ -46,6 +49,11 @@ export function WorkspaceShell({
   const mode = useAppModeStore((s) => s.mode)
   const setMode = useAppModeStore((s) => s.setMode)
   const [isMacOs, setIsMacOs] = React.useState(true)
+
+  const [aiEditMounted, setAiEditMounted] = React.useState(false)
+  React.useEffect(() => {
+    if (mode === "aiedit") setAiEditMounted(true)
+  }, [mode])
 
   // Scripts is gated behind a one-time Python download, so only mount it once
   // the user has actually opened the tab (then keep it mounted).
@@ -120,6 +128,9 @@ export function WorkspaceShell({
         </div>
         <div className={cn("h-full", mode === "autosub" ? "block" : "hidden")}>
           {subtitles}
+        </div>
+        <div className={cn("h-full", mode === "aiedit" ? "block" : "hidden")}>
+          {aiEditMounted ? aiedit : null}
         </div>
         <div className={cn("h-full", mode === "scripts" ? "block" : "hidden")}>
           {scriptsMounted ? scripts : null}

@@ -26,6 +26,7 @@ import { ScriptsPanel } from "@/components/autoedit/autoedit-panel"
 import { AutoEditWorkspace } from "@/components/autoedit/auto-edit-workspace"
 import { AutoEditPythonSetup } from "@/components/autoedit/autoedit-python-setup"
 import { DownloadWorkspace } from "@/components/download/download-workspace"
+import { AiEditWorkspace } from "@/components/aiedit/ai-edit-workspace"
 
 const MIN_TRANSCRIPTION_PANEL_WIDTH = 370
 const MIN_SUBTITLE_PANEL_WIDTH = 280
@@ -359,6 +360,7 @@ function AppRouter() {
       <WorkspaceShell
         autocut={<AutoEditWorkspace />}
         subtitles={<AppContentBody />}
+        aiedit={<AiEditWorkspace />}
         scripts={
           <AutoEditPythonSetup>
             <ScriptsPanel />

@@ -23,15 +23,18 @@ function getResolveScriptsPath() {
       return path.join(os.homedir(), 'Library', 'Application Support', 'Blackmagic Design', 'DaVinci Resolve', 'Fusion', 'Scripts', 'Utility');
     
     case 'linux':
-      // Linux: Try /opt/resolve first, then /home/resolve
-      const optPath = '/opt/resolve/Fusion/Scripts/Utility';
-      const homePath = path.join(os.homedir(), 'resolve', 'Fusion', 'Scripts', 'Utility');
-      
-      if (fs.existsSync(optPath)) {
-        return optPath;
-      }
-      return homePath;
-    
+      // Linux: the per-user tree. This matches fusion_support_dir() in
+      // src-tauri/src/resolve_bridge.rs and the directory the release build
+      // installs into via resolve_scripts.rs, so the dev launcher lands
+      // alongside the paths the app already knows about.
+      //
+      // Deliberately NOT /opt/resolve/Fusion/Scripts/Utility: that tree is
+      // where the deb/rpm packages install the production launcher, and it is
+      // root-owned in a standard install, so writing there both needs sudo and
+      // races the release launcher. Resolve scans the per-user tree as well,
+      // so nothing is lost by staying out of /opt.
+      return path.join(os.homedir(), '.local', 'share', 'DaVinciResolve', 'Fusion', 'Scripts', 'Utility');
+
     default:
       console.error(`❌ Unsupported platform: ${platform}`);
       process.exit(1);
@@ -44,6 +47,13 @@ const REPO_PATH_PLACEHOLDER = '[[__AUTOSUBS_REPO_PATH__]]';
 
 // Name of the dev launcher (also the label shown in Resolve's Scripts menu).
 const LAUNCHER_NAME = 'AutoSubs (Dev).lua';
+// Startup scriptlibs that 3.10.0-era setups installed into the Scripts ROOT
+// (parent of Utility). They started the bridge via fusion:Execute, which holds
+// Fusion's shared script executor for the whole Resolve session and breaks
+// scripted macro controls, so they are removed rather than generated. See
+// Resolve-Integration/docs/resident-bridge-fusion-regression.md.
+const DEV_SCRIPTLIB_NAME = 'AutoSubs (Dev).scriptlib';
+const PROD_SCRIPTLIB_NAME = 'AutoSubs.scriptlib';
 const CAPTION_UPDATER_NAME = 'AutoSubs - Update Caption Template.lua';
 
 // Older name this script used to generate; cleaned up so contributors don't end
@@ -195,21 +205,62 @@ function setupResolveDev() {
     process.exit(1);
   }
 
-  // Remove any launcher generated under the old name so it doesn't linger as a
-  // duplicate entry in the Resolve Scripts menu.
-  const legacyFile = path.join(resolvePath, LEGACY_LAUNCHER_NAME);
-  try {
-    if (fs.existsSync(legacyFile)) {
-      fs.rmSync(legacyFile);
-      console.log(`✓ Removed stale ${LEGACY_LAUNCHER_NAME}`);
+  const scriptsRoot = path.dirname(resolvePath);
+
+  // ── Stale artifact cleanup ────────────────────────────────────────────────
+  // Resolve scans the per-user Scripts tree and, on Linux, the system one
+  // (/opt/resolve/Fusion/Scripts) as independent locations, so an artifact
+  // present in both is not shadowed — it is loaded twice.
+  //
+  // Before this script moved to the per-user tree it wrote to /opt, so a
+  // checkout that ran it there, or ran it under sudo, still has a launcher
+  // there. Any startup scriptlib (dev or production, either tree) is removed
+  // too: it blocks Fusion's script executor for the whole session.
+  const legacyRoots = process.platform === 'linux'
+    ? [path.join('/opt', 'resolve', 'Fusion', 'Scripts')]
+    : [];
+
+  const staleArtifacts = [
+    path.join(resolvePath, LEGACY_LAUNCHER_NAME),
+    path.join(scriptsRoot, DEV_SCRIPTLIB_NAME),
+    path.join(scriptsRoot, PROD_SCRIPTLIB_NAME),
+  ];
+  for (const root of legacyRoots) {
+    staleArtifacts.push(
+      path.join(root, 'Utility', LAUNCHER_NAME),
+      path.join(root, DEV_SCRIPTLIB_NAME),
+      path.join(root, PROD_SCRIPTLIB_NAME),
+      path.join(root, 'Utility', CAPTION_UPDATER_NAME),
+      path.join(root, 'Utility', LEGACY_LAUNCHER_NAME),
+    );
+  }
+
+  // Removal is best-effort: /opt is root-owned in a standard install, so a
+  // non-root run cannot clean it and has to say so instead.
+  const blockedArtifacts = [];
+  for (const artifact of staleArtifacts) {
+    if (!fs.existsSync(artifact)) continue;
+    try {
+      fs.rmSync(artifact);
+      console.log(`✓ Removed stale ${artifact}`);
+    } catch {
+      blockedArtifacts.push(artifact);
     }
-  } catch (err) {
-    console.warn(`⚠ Could not remove stale ${LEGACY_LAUNCHER_NAME}: ${err.message}`);
+  }
+
+  if (blockedArtifacts.length > 0) {
+    const quoted = blockedArtifacts.map((p) => `'${p}'`).join(' ');
+    console.warn('\n⚠ Stale AutoSubs dev scripts could not be removed:');
+    for (const artifact of blockedArtifacts) {
+      console.warn(`    ${artifact}`);
+    }
+    console.warn('  Resolve scans that tree too; a stale launcher shows up twice in the');
+    console.warn('  Scripts menu and a scriptlib there blocks Fusion scripts. Remove with:');
+    console.warn(`    sudo rm -f ${quoted}`);
   }
 
   const menuLabel = LAUNCHER_NAME.replace(/\.lua$/, '');
-  console.log(`\nYou can now open it from Resolve via:`);
-  console.log(`   Workspace → Scripts → ${menuLabel}`);
+  console.log(`\nStart the dev bridge once per Resolve session: Workspace → Scripts → ${menuLabel}`);
   console.log('\nEdits to the Lua modules take effect the next time you run the script.');
   console.log('Re-run `npm run setup-resolve` if you move this repository.');
 }

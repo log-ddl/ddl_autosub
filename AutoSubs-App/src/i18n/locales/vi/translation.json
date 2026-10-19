@@ -525,6 +525,12 @@
         "disconnected": "Extension đã ngắt kết nối",
         "openAfterEffects": "Mở After Effects để tự động kết nối."
       }
+    },
+    "capcut": {
+      "name": "CapCut",
+      "connected": "Đã tải dự án",
+      "disconnected": "Chưa có dự án CapCut",
+      "ActiveDraft": "Dự án đang chọn"
     }
   },
   "theme": {
@@ -535,7 +541,8 @@
       "subtitles": "Phụ đề",
       "scripts": "Scripts",
       "autoEdit": "Auto Edit",
-      "download": "Tải video"
+      "download": "Tải video",
+      "aiEdit": "AI EDIT"
     }
   },
   "addToTimeline": {

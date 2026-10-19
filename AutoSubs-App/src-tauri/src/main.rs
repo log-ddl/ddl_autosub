@@ -28,7 +28,11 @@ mod transcription_api;
 mod transcript_types;
 mod logging;
 mod resolve_bridge;
+mod resolve_scripts;
 mod adobe_bridge;
+mod capcut_bridge;
+mod capcut_storyboard;
+mod capcut_timeline;
 mod autoedit_runner;
 mod autoedit_python;
 mod autoedit_silence;
@@ -36,6 +40,10 @@ mod media_scan;
 mod media_download;
 mod process_ext;
 mod cli;
+mod cli_workspace;
+mod cli_runtime;
+mod cli_stream_parser;
+mod cli_chat;
 
 use crate::process_ext::HiddenConsole; // keep above the cfg'd items below
 #[cfg(target_os = "macos")]
@@ -418,6 +426,22 @@ fn main() {
                 });
             }
 
+            // Drop a leftover mailbox request (e.g. from a previous app quit)
+            // so a freshly launched Lua script can't replay it before our first request.
+            resolve_bridge::clear_stale_request();
+            resolve_bridge::init_http_compat_proxy();
+
+            // Release builds install/refresh the Resolve launcher themselves so
+            // app updates land it without a reinstall. Dev builds must not:
+            // setup-resolve owns the dev launcher.
+            #[cfg(not(debug_assertions))]
+            {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    resolve_scripts::install_resolve_scripts(&handle);
+                });
+            }
+
             // If a Resolve server from a previous session is running, make sure it
             // hot-reloads to the current app's Lua code and version.
             let app_version = app.package_info().version.to_string();
@@ -442,6 +466,19 @@ fn main() {
             resolve_bridge::resolve_bridge,
             resolve_bridge::get_resolve_server_version,
             adobe_bridge::send_to_adobe,
+            capcut_bridge::capcut_get_status,
+            capcut_storyboard::capcut_build_storyboard,
+            capcut_bridge::capcut_add_subtitles,
+            capcut_bridge::capcut_get_timeline_audio,
+            capcut_timeline::capcut_get_timeline_snapshot,
+            capcut_timeline::capcut_delete_segment,
+            capcut_timeline::capcut_update_segment,
+            cli_runtime::cli_get_status,
+            cli_runtime::cli_get_models,
+            cli_workspace::cli_ensure_workspace,
+            cli_workspace::cli_save_memory,
+            cli_chat::cli_run_text_task,
+            cli_chat::cli_cancel_text_task,
             audio_preprocess::extract_audio_peaks,
             cli::cli_command_status,
             cli::install_cli_command,
@@ -499,47 +536,12 @@ fn main() {
                         *should_cancel = true;
                     }
 
-                    // Windows: do a small blocking send inline so we don't exit before the request is on the wire
+                    // The Lua bridge stays resident in Resolve after it is
+                    // started from Workspace > Scripts, so reopening the app
+                    // reconnects without re-running the script — it must NOT
+                    // be told to exit when the app quits. Just exit.
                     #[cfg(target_os = "windows")]
                     {
-                        let url = "http://127.0.0.1:56002/";
-                        let bc = reqwest::blocking::Client::builder()
-                            .no_proxy()
-                            .tcp_nodelay(true)
-                            .timeout(Duration::from_millis(800))
-                            .build();
-                        if let Ok(bc) = bc {
-                            let _ = bc
-                                .post(url)
-                                .header("Connection", "close")
-                                .json(&json!({ "func": "Exit" }))
-                                .send();
-                        }
-
-                        // As an extra-safe fallback, send a raw HTTP request over TCP synchronously
-                        {
-                            use std::io::Write;
-                            use std::net::TcpStream;
-                            let body = b"{\"func\":\"Exit\"}";
-                            let req = format!(
-                                "POST / HTTP/1.1\r\nHost: 127.0.0.1:56002\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n",
-                                body.len()
-                            );
-                            if let Ok(mut stream) = TcpStream::connect_timeout(
-                                &"127.0.0.1:56002".parse().unwrap(),
-                                Duration::from_millis(400),
-                            ) {
-                                let _ = stream.set_nodelay(true);
-                                let _ = stream.set_write_timeout(Some(Duration::from_millis(400)));
-                                let _ = stream.write_all(req.as_bytes());
-                                let _ = stream.write_all(body);
-                                let _ = stream.flush();
-                            }
-                        }
-                        // brief pause to allow flush
-                        std::thread::sleep(Duration::from_millis(250));
-
-                        // now actually exit the app
                         app.exit(0);
 
                         // last resort hard exit after a grace period
@@ -549,28 +551,10 @@ fn main() {
                         });
                     }
 
-                    // Non-Windows: keep async path
                     #[cfg(not(target_os = "windows"))]
                     {
                         let app_handle = app.clone();
                         tauri::async_runtime::spawn(async move {
-                            // short timeout to avoid hanging on exit
-                            let client = reqwest::Client::builder()
-                                .no_proxy()
-                                .tcp_nodelay(true)
-                                .timeout(Duration::from_millis(750))
-                                .build()
-                                .unwrap_or_else(|_| reqwest::Client::new());
-
-                            let url = "http://127.0.0.1:56002/";
-                            let _ = client
-                                .post(url)
-                                .header("Connection", "close")
-                                .json(&json!({ "func": "Exit" }))
-                                .send()
-                                .await;
-
-                            tokio::time::sleep(Duration::from_millis(150)).await;
                             app_handle.exit(0);
                         });
                     }

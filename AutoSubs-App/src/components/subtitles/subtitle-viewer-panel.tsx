@@ -28,6 +28,7 @@ import { TranscriptHistoryPopover } from "@/components/subtitles/transcript-hist
 import { useSubtitleDocument } from "@/contexts/SubtitleDocumentContext";
 import { useResolve } from "@/contexts/ResolveContext";
 import { useAdobe } from "@/contexts/AdobeContext";
+import { useCapCut } from "@/contexts/CapCutContext";
 import { useIntegration } from "@/contexts/IntegrationContext";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useOutputPanelStore } from "@/stores/output-panel-store";
@@ -378,12 +379,23 @@ export function SubtitleViewerPanel({
     jumpToTime: adobeJumpToTime,
   } = useAdobe();
 
+  const {
+    timelineInfo: capcutTimeline,
+    pushToTimeline: capcutPush,
+    jumpToTime: capcutJumpToTime,
+  } = useCapCut();
+
   const { selectedIntegration } = useIntegration();
   const isAdobeActive =
     selectedIntegration === "premiere" ||
     selectedIntegration === "aftereffects";
+  const isCapCutActive = selectedIntegration === "capcut";
 
-  const timelineInfo = isAdobeActive ? adobeTimeline : resolveTimeline;
+  const timelineInfo = isCapCutActive
+    ? capcutTimeline
+    : isAdobeActive
+      ? adobeTimeline
+      : resolveTimeline;
 
   // The store keeps `expanded` true through the sheet's exit animation, but
   // the viewer's chrome — title, document actions, header rule — should revert
@@ -392,17 +404,29 @@ export function SubtitleViewerPanel({
   const requestCloseOutputPanel = useOutputPanelStore((s) => s.requestClose);
   const resetOutputPanel = useOutputPanelStore((s) => s.reset);
 
-  const pushToTimeline = isAdobeActive
+  const pushToTimeline = isCapCutActive
     ? (
         filename?: string,
-        _selectedTemplate?: string,
+        selectedTemplate?: string,
         _selectedOutputTrack?: string,
         _presetSettings?: Record<string, unknown>,
         languageMode?: TimelineLanguageMode,
-      ) => adobePush(filename, languageMode)
-    : resolvePush;
+      ) => capcutPush(filename, selectedTemplate, languageMode)
+    : isAdobeActive
+      ? (
+          filename?: string,
+          _selectedTemplate?: string,
+          _selectedOutputTrack?: string,
+          _presetSettings?: Record<string, unknown>,
+          languageMode?: TimelineLanguageMode,
+        ) => adobePush(filename, languageMode)
+      : resolvePush;
 
-  const jumpToTime = isAdobeActive ? adobeJumpToTime : resolveJumpToTime;
+  const jumpToTime = isCapCutActive
+    ? capcutJumpToTime
+    : isAdobeActive
+      ? adobeJumpToTime
+      : resolveJumpToTime;
 
   const { seekToTime: seekAudioPreview } = useAudioPreview();
   const { showError } = useErrorDialog();

@@ -1,4 +1,4 @@
-import { ChevronDown, Check, RotateCcw } from "lucide-react";
+import { ChevronDown, Check, RotateCcw, FolderOpen } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,10 +11,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useResolve } from "@/contexts/ResolveContext";
 import { useAdobe } from "@/contexts/AdobeContext";
+import { useCapCut } from "@/contexts/CapCutContext";
 import {
   useIntegration,
   type Integration,
 } from "@/contexts/IntegrationContext";
+import { CapCutProjectPickerDialog } from "@/components/dialogs/capcut-project-picker-dialog";
 
 export function IntegrationStatus() {
   const { t } = useTranslation();
@@ -27,6 +29,13 @@ export function IntegrationStatus() {
     isAfterEffectsConnected,
     refresh: refreshAdobe,
   } = useAdobe();
+  const {
+    timelineInfo: capcutTimeline,
+    isConnected: isCapCutConnected,
+    drafts: capcutDrafts,
+    setProjectPickerOpen,
+    refresh: refreshCapCut,
+  } = useCapCut();
   const { selectedIntegration, setSelectedIntegration } = useIntegration();
 
   const isResolveConnected = Boolean(resolveTimeline?.timelineId);
@@ -44,6 +53,26 @@ export function IntegrationStatus() {
         ? t("titlebar.resolve.tooltip.canGetAudio")
         : t("titlebar.resolve.tooltip.openResolve"),
       refresh: refreshResolve,
+    },
+    capcut: {
+      productName: t("titlebar.capcut.productName", "CapCut"),
+      logo: "/capcut-logo.svg",
+      connected: isCapCutConnected,
+      timelineName: capcutTimeline?.name,
+      projectName: capcutTimeline?.projectName,
+      description: t("titlebar.capcut.description", "Draft JSON integration"),
+      connectedText: t("titlebar.capcut.tooltip.connected", "Connected"),
+      disconnectedText: t("titlebar.capcut.tooltip.disconnected", "No project"),
+      helperText: isCapCutConnected
+        ? t(
+            "titlebar.capcut.tooltip.canEditDraft",
+            "Đang kết nối trực tiếp vào file JSON của Project CapCut.",
+          )
+        : t(
+            "titlebar.capcut.tooltip.openCapCut",
+            "Hãy chọn một Project CapCut để bắt đầu làm việc.",
+          ),
+      refresh: refreshCapCut,
     },
     premiere: {
       productName: t("titlebar.premiere.productName"),
@@ -89,7 +118,7 @@ export function IntegrationStatus() {
     }
   >;
 
-  const activeIntegration = integrations[selectedIntegration];
+  const activeIntegration = integrations[selectedIntegration] || integrations.davinci;
 
   const activeLabel = activeIntegration.connected
     ? activeIntegration.timelineName || activeIntegration.connectedText
@@ -97,7 +126,7 @@ export function IntegrationStatus() {
 
   return (
     <div
-      className="flex items-center select-none z-20 min-w-0"
+      className="flex items-center gap-1 select-none z-20 min-w-0"
     >
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -113,7 +142,7 @@ export function IntegrationStatus() {
               <img
                 src={activeIntegration.logo}
                 alt={activeIntegration.productName}
-                className="size-5"
+                className="size-5 rounded-sm"
               />
               <span
                 aria-hidden="true"
@@ -153,19 +182,42 @@ export function IntegrationStatus() {
               </p>
             </div>
           </div>
+          {selectedIntegration === "capcut" && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => {
+                  void refreshCapCut();
+                  setProjectPickerOpen(true);
+                }}
+                className="cursor-pointer font-medium text-xs py-2"
+              >
+                <FolderOpen className="size-4 text-primary" />
+                <span>
+                  Chọn Project CapCut ({capcutDrafts.length} project)...
+                </span>
+              </DropdownMenuItem>
+            </>
+          )}
           <DropdownMenuSeparator />
           {(Object.keys(integrations) as Integration[]).map((integration) => {
             const item = integrations[integration];
             return (
               <DropdownMenuItem
                 key={integration}
-                onClick={() => setSelectedIntegration(integration)}
+                onClick={() => {
+                  setSelectedIntegration(integration);
+                  if (integration === "capcut") {
+                    void refreshCapCut();
+                    setProjectPickerOpen(true);
+                  }
+                }}
                 className="cursor-pointer pl-1.5 pr-3"
               >
                 <img
                   src={item.logo}
                   alt={item.productName}
-                  className="size-10"
+                  className="size-10 rounded-md"
                 />
                 <div className="flex min-w-0 flex-1 flex-col">
                   <span>{item.productName}</span>
@@ -191,6 +243,25 @@ export function IntegrationStatus() {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      {selectedIntegration === "capcut" && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            void refreshCapCut();
+            setProjectPickerOpen(true);
+          }}
+          className="h-6 px-2 text-[11px] gap-1 shrink-0"
+          title="Mở bảng danh sách các Project CapCut"
+        >
+          <FolderOpen className="size-3" />
+          <span>Chọn Project</span>
+        </Button>
+      )}
+
+      <CapCutProjectPickerDialog />
     </div>
   );
 }

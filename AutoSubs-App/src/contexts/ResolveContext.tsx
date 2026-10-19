@@ -80,6 +80,13 @@ export function ResolveProvider({ children }: { children: React.ReactNode }) {
     }
   }, [templates, templatesLoaded]);
 
+  // Mirror of connection state for the poll scheduler below, so the effect
+  // doesn't re-subscribe every time timelineInfo changes.
+  const connectedRef = useRef(false);
+  useEffect(() => {
+    connectedRef.current = timelineInfo.timelineId !== "";
+  }, [timelineInfo]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -92,24 +99,52 @@ export function ResolveProvider({ children }: { children: React.ReactNode }) {
     }
 
     let inFlight = false;
+    let pollTimer: number | null = null;
+    let offlineStrikes = 0;
+
+    const scheduleNext = (delayOverride?: number) => {
+      if (cancelled) return;
+      const delay = delayOverride ?? (connectedRef.current ? 60000 : 5000);
+      if (pollTimer !== null) window.clearTimeout(pollTimer);
+      pollTimer = window.setTimeout(() => {
+        void pollTimeline();
+      }, delay);
+    };
+
     const pollTimeline = async () => {
       if (cancelled || inFlight) return;
       inFlight = true;
       try {
         const info = await getTimelineInfo();
-        if (!cancelled) setTimelineInfo({ ...info, templates });
+        if (!cancelled) {
+          offlineStrikes = 0;
+          setTimelineInfo({ ...info, templates });
+        }
       } catch (error) {
         if (cancelled) return;
         const errorMessage = error instanceof Error ? error.message : String(error);
-        if (
-          errorMessage.includes('Connection refused') ||
-          errorMessage.includes('tcp connect error') ||
-          errorMessage.includes('No timeline detected')
-        ) {
+        if (errorMessage.includes('No timeline detected')) {
+          offlineStrikes = 0;
           setTimelineInfo(emptyTimelineInfo);
+        } else if (
+          errorMessage.includes('DaVinci Resolve is not running') ||
+          errorMessage.includes('AutoSubs bridge is unavailable') ||
+          errorMessage.includes('Connection refused') ||
+          errorMessage.includes('tcp connect error')
+        ) {
+          offlineStrikes++;
+          if (!connectedRef.current || offlineStrikes >= 2) {
+            setTimelineInfo(emptyTimelineInfo);
+          }
         }
       } finally {
         inFlight = false;
+        const delay = offlineStrikes >= 2
+          ? 5000
+          : connectedRef.current && offlineStrikes === 1
+            ? 3000
+            : undefined;
+        scheduleNext(delay);
       }
     };
 
@@ -118,16 +153,13 @@ export function ResolveProvider({ children }: { children: React.ReactNode }) {
         void pollTimeline();
       }, delay),
     );
-    const interval = window.setInterval(() => {
-      void pollTimeline();
-    }, 60000);
 
     return () => {
       cancelled = true;
       startupTimers.forEach((timer) => window.clearTimeout(timer));
-      window.clearInterval(interval);
+      if (pollTimer !== null) window.clearTimeout(pollTimer);
     };
-  }, [selectedIntegration, templates, refresh]);
+  }, [selectedIntegration, templates]);
 
   async function pushToTimeline(
     filename?: string,

@@ -525,6 +525,12 @@
         "disconnected": "Extension disconnected",
         "openAfterEffects": "Open After Effects to connect automatically."
       }
+    },
+    "capcut": {
+      "name": "CapCut",
+      "connected": "Project Loaded",
+      "disconnected": "No CapCut Project Found",
+      "ActiveDraft": "Active Project"
     }
   },
   "theme": {
@@ -535,7 +541,8 @@
       "subtitles": "Subtitles",
       "scripts": "Scripts",
       "autoEdit": "Auto Edit",
-      "download": "Download"
+      "download": "Download",
+      "aiEdit": "AI EDIT"
     }
   },
   "addToTimeline": {

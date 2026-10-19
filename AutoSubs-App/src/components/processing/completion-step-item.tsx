@@ -40,6 +40,7 @@ export function CompletionStepItem({
 
     const isResolveConnected = Boolean(timelineInfo?.timelineId) && selectedIntegration === "davinci"
     const isAdobeConnected = Boolean(timelineInfo?.timelineId) && (selectedIntegration === "premiere" || selectedIntegration === "aftereffects")
+    const isCapCutConnected = Boolean(timelineInfo?.timelineId) && selectedIntegration === "capcut"
     const hasSubtitles = subtitles.length > 0
 
     // Sending happens in the viewer's output sheet, where the settings are
@@ -98,7 +99,7 @@ export function CompletionStepItem({
                                     }
                                 />
                             )}
-                            {(isResolveConnected || isAdobeConnected) && (
+                            {(isResolveConnected || isAdobeConnected || isCapCutConnected) && (
                                 <Button
                                     variant="outline"
                                     size="sm"

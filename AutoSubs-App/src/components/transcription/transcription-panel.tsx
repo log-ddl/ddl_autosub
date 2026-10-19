@@ -10,6 +10,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useResolve } from "@/contexts/ResolveContext";
 import { useAdobe } from "@/contexts/AdobeContext";
+import { useCapCut } from "@/contexts/CapCutContext";
 import { useIntegration } from "@/contexts/IntegrationContext";
 import { useErrorDialog } from "@/contexts/ErrorDialogContext";
 import { ResolveApiError } from "@/api/resolve-api";
@@ -106,15 +107,32 @@ export function TranscriptionPanel({
     getSourceAudio: premiereGetSourceAudio,
   } = useAdobe();
 
+  const {
+    timelineInfo: capcutTimeline,
+    refresh: refreshCapCut,
+    getSourceAudio: capcutGetSourceAudio,
+  } = useCapCut();
+
   const { selectedIntegration } = useIntegration();
 
   const isPremiereActive =
     selectedIntegration === "premiere" || selectedIntegration === "aftereffects";
-  const timelineInfo = isPremiereActive ? premiereTimeline : resolveTimeline;
-  const refreshAudioTracks = isPremiereActive ? refreshPremiere : refreshResolve;
-  const getSourceAudio = isPremiereActive
-    ? premiereGetSourceAudio
-    : resolveGetSourceAudio;
+  const isCapCutActive = selectedIntegration === "capcut";
+  const timelineInfo = isCapCutActive
+    ? capcutTimeline
+    : isPremiereActive
+      ? premiereTimeline
+      : resolveTimeline;
+  const refreshAudioTracks = isCapCutActive
+    ? refreshCapCut
+    : isPremiereActive
+      ? refreshPremiere
+      : refreshResolve;
+  const getSourceAudio = isCapCutActive
+    ? capcutGetSourceAudio
+    : isPremiereActive
+      ? premiereGetSourceAudio
+      : resolveGetSourceAudio;
   const cancelRequestedRef = resolveCancelRequestedRef;
   const isExporting = isPremiereActive
     ? premiereIsExporting

@@ -1,9 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
-import { convertFileSrc, invoke } from "@tauri-apps/api/core"
-import { open as openDialog } from "@tauri-apps/plugin-dialog"
-import { readTextFile } from "@tauri-apps/plugin-fs"
 import {
   ArrowDown,
   ArrowUp,
@@ -28,291 +25,53 @@ import { cn } from "@/lib/utils"
 import { useSubtitleDocument } from "@/contexts/SubtitleDocumentContext"
 import { ResolveApiError } from "@/api/resolve-api"
 import { useTimelineHost } from "@/lib/use-timeline-host"
-import { probeVideoMetadata } from "@/lib/media-probe"
+import {
+  DOWNLOAD_DIR_KEY,
+  entryKey,
+  formatClock,
+  formatSecs,
+  nextMediaId,
+  parseTimecode,
+  pickAndReadScriptLines,
+  pickAndScanMediaFiles,
+  pickAndScanMediaFolder,
+  pickDownloadFolder,
+  pickVoiceFile,
+  placedKey,
+  probeMediaInfo,
+  sortEntries,
+  trimHint,
+  type MediaEntry,
+  type MediaFileInfo,
+  type SortMode,
+  type VoiceSource,
+} from "@/lib/media-import"
 import {
   cancelDownload,
-  downloadOne,
+  DOWNLOAD_CONCURRENCY,
   downloadToolsReady,
-  onDownloadProgress,
-} from "@/lib/media-download"
+  groupDownloadJobs,
+  parseBatchLinkJobs,
+  runBatchDownloads,
+  type DownloadRow,
+} from "@/lib/batch-downloader"
+import {
+  buildSequentialItems,
+  buildSyncedItems,
+  type BuildItem,
+} from "@/lib/timeline-actions"
+import {
+  alignScriptToWords,
+  flattenWords,
+  transcribeVoiceSource,
+  useVoiceTranscriber,
+  type AlignedSpan,
+  type TimedWord,
+} from "@/lib/voice-pipeline"
 import { TrackCard } from "@/components/autoedit/track-card"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import type { Track } from "@/types"
-import {
-  alignScriptToWords,
-  flattenWords,
-  type AlignedSpan,
-  type TimedWord,
-} from "@/lib/slideshow-align"
-import { useVoiceTranscriber } from "@/lib/slideshow-transcribe"
-
-const IMAGE_EXTS = new Set([
-  "jpg", "jpeg", "png", "gif", "bmp", "webp", "tif", "tiff", "heic", "avif",
-])
-const VIDEO_EXTS = new Set([
-  "mp4", "mov", "mkv", "avi", "webm", "m4v", "wmv", "mpg", "mpeg", "flv",
-])
-
-// Shared with the Download workspace so both remember the same folder.
-const DOWNLOAD_DIR_KEY = "autosubs.download.lastDir"
-
-/**
- * How many links download at once. Kept small on purpose: YouTube throttles
- * parallel connections, and every yt-dlp spawns an ffmpeg to merge streams, so
- * a wide window costs CPU without buying much wall time.
- */
-const DOWNLOAD_CONCURRENCY = 2
-
-/**
- * Idle gap between download chunks, in ms. Randomised so a long paste doesn't
- * hit the site on a fixed rhythm; yt-dlp adds its own per-video sleep on top.
- */
-const CHUNK_DELAY_MIN_MS = 2000
-const CHUNK_DELAY_MAX_MS = 6000
-
-const randomChunkDelayMs = () =>
-  CHUNK_DELAY_MIN_MS + Math.random() * (CHUNK_DELAY_MAX_MS - CHUNK_DELAY_MIN_MS)
-
-// Returned by the Rust `scan_media` command (folder listing / file stat).
-interface MediaFileInfo {
-  path: string
-  name: string
-  kind: "image" | "video"
-  createdMs: number
-  modifiedMs: number
-}
-
-interface MediaEntry {
-  id: string
-  path: string
-  name: string
-  kind: "image" | "video"
-  /** File creation time (unix ms) for time-sorting; 0 when unknown. */
-  createdMs: number
-  /** The sentence spoken while this media shows. Filled from the .txt import. */
-  text: string
-  /** Probed duration/dimensions, shown as a small info line under the name. */
-  info?: { durationSecs?: number; width?: number; height?: number }
-  /**
-   * Optional section to use from this file, in seconds into the source. Set by
-   * the "url start-end" import; both undefined means "use the whole clip".
-   */
-  srcIn?: number
-  srcOut?: number
-}
-
-/** Read an image's intrinsic dimensions through an <img> element. */
-function probeImageDims(path: string): Promise<{ width: number; height: number } | null> {
-  return new Promise((resolve) => {
-    const img = new Image()
-    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight })
-    img.onerror = () => resolve(null)
-    img.src = convertFileSrc(path)
-    window.setTimeout(() => resolve(null), 8000)
-  })
-}
-
-/** Probe a media entry's duration (videos) and dimensions (both kinds). */
-const probeMediaInfo = async (m: MediaEntry): Promise<MediaEntry> => {
-  try {
-    if (m.kind === "video") {
-      const probe = await probeVideoMetadata(m.path)
-      if (!probe) return m
-      return { ...m, info: { durationSecs: probe.durationSecs, width: probe.width, height: probe.height } }
-    }
-    const dims = await probeImageDims(m.path)
-    if (!dims) return m
-    return { ...m, info: { width: dims.width, height: dims.height } }
-  } catch {
-    return m
-  }
-}
-
-type SortMode = "name" | "created" | "random"
-
-// A voice the user has chosen but not necessarily transcribed yet. Picking is
-// kept separate from running so selecting a file never kicks off a long job.
-type VoiceSource =
-  | { kind: "file"; path: string; name: string }
-  | { kind: "track"; value: string; name: string }
-  | null
-
-// One media clip in its build form: just where it sits on the timeline.
-interface BuildItem {
-  /** The row this came from. Local bookkeeping only — never sent to the host. */
-  id: string
-  path: string
-  start: number
-  end: number
-  /** Section within the source; see MediaEntry.srcIn/srcOut. */
-  srcIn?: number
-  srcOut?: number
-}
-
-/**
- * Identity of a clip as it lands on the timeline: the ROW it came from plus the
- * section taken from it. Deliberately not the file path — one video listed
- * twice for two different sections is two clips, and even two rows of the same
- * whole file are two clips if the user asked for them that way. The range is in
- * the key so re-cutting a row makes it something new to place again.
- */
-function placedKey(m: { id: string; srcIn?: number; srcOut?: number }): string {
-  return `${m.id}|${m.srcIn ?? ""}|${m.srcOut ?? ""}`
-}
-
-/**
- * Identity of a clip as an entry in the list: the file plus the section taken
- * from it. This is what stops a re-picked file or a re-pasted link from
- * doubling the list, and it is deliberately not the path alone — the same video
- * cut to a different section (or added whole alongside a cut of itself) is a
- * different clip, so it belongs in the list too.
- */
-function entryKey(m: { path: string; srcIn?: number; srcOut?: number }): string {
-  return `${m.path}|${m.srcIn ?? ""}|${m.srcOut ?? ""}`
-}
-
-/** One link being downloaded right now, as shown in the progress list. */
-interface DownloadRow {
-  jobId: string
-  label: string
-  percent: number | null
-}
-
-/** One pasted link, resolved against the default range boxes. */
-interface DownloadJob {
-  /** Position in the pasted text, so grouping by URL doesn't reshuffle clips. */
-  index: number
-  url: string
-  from?: number
-  to?: number
-}
-
-/**
- * One URL to fetch, with every pasted line that wants a piece of it. Lines are
- * grouped this way so three sections of one video cost one download instead of
- * three, and each section still becomes its own clip.
- */
-interface DownloadTask {
-  url: string
-  jobs: DownloadJob[]
-}
-
-/**
- * Group pasted lines by URL, keeping first-appearance order for the URLs and
- * pasted order for the sections inside each one. An exact repeat (same URL,
- * same range) is dropped — that is the same clip twice, not two sections.
- */
-function groupDownloadJobs(jobs: DownloadJob[]): DownloadTask[] {
-  const byUrl = new Map<string, DownloadTask>()
-  const seen = new Set<string>()
-  for (const job of jobs) {
-    const key = `${job.url}|${job.from ?? ""}|${job.to ?? ""}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    const task = byUrl.get(job.url)
-    if (task) task.jobs.push(job)
-    else byUrl.set(job.url, { url: job.url, jobs: [job] })
-  }
-  return [...byUrl.values()]
-}
-
-/** "90", "1:30" or "1:02:03" -> seconds. Returns null when unparseable. */
-function parseTimecode(raw: string): number | null {
-  const s = raw.trim()
-  if (!s) return null
-  const parts = s.split(":")
-  if (parts.some((p) => p === "" || !/^\d+(\.\d+)?$/.test(p))) return null
-  let secs = 0
-  for (const p of parts) secs = secs * 60 + Number(p)
-  return Number.isFinite(secs) ? secs : null
-}
-
-/**
- * One pasted line: a URL, optionally followed by a `start-end` range
- * ("https://… 0:30-1:20"). Either side of the range may be empty
- * ("30-" = from 0:30 to the end). No range at all means the whole clip.
- */
-function parseLinkLine(line: string): { url: string; from?: number; to?: number } | null {
-  const trimmed = line.trim()
-  if (!trimmed) return null
-  const parts = trimmed.split(/\s+/)
-  const url = parts[0]
-  if (!url) return null
-  const range = parts[1]
-  if (!range) return { url }
-  // Split on the LAST dash so "1:00-2:00" works and a dash inside a timecode
-  // never confuses it.
-  const cut = range.lastIndexOf("-")
-  if (cut < 0) return { url }
-  const from = parseTimecode(range.slice(0, cut))
-  const to = parseTimecode(range.slice(cut + 1))
-  return { url, from: from ?? undefined, to: to ?? undefined }
-}
-
-function baseName(path: string): string {
-  return path.split(/[/\\]/).pop() ?? path
-}
-
-function sortEntries<T extends { name: string; createdMs: number }>(
-  entries: T[],
-  mode: SortMode,
-): T[] {
-  const arr = [...entries]
-  if (mode === "name") arr.sort((a, b) => naturalCompare(a.name, b.name))
-  else if (mode === "created") arr.sort((a, b) => a.createdMs - b.createdMs)
-  else {
-    for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1))
-      ;[arr[i], arr[j]] = [arr[j], arr[i]]
-    }
-  }
-  return arr
-}
-
-// Natural sort so "img2" precedes "img10" — the order a human expects.
-const naturalCompare = (a: string, b: string) =>
-  a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })
-
-let idSeq = 0
-const nextId = () => `m${Date.now()}_${idSeq++}`
-
-/** Clock form for a cut range: "0:30", "1:02:03". No decimals. */
-function formatClock(s: number): string {
-  const total = Math.max(0, Math.round(s))
-  const h = Math.floor(total / 3600)
-  const m = Math.floor((total % 3600) / 60)
-  const sec = total % 60
-  const mm = h > 0 ? String(m).padStart(2, "0") : String(m)
-  return `${h > 0 ? `${h}:` : ""}${mm}:${String(sec).padStart(2, "0")}`
-}
-
-/**
- * Why a typed trim can't be used, or null when it can. Only covers the cases
- * that would otherwise do nothing at all: without a word the box just sits
- * there looking accepted while the clip goes in whole.
- */
-function trimHint(
-  draft: { from: string; to: string },
-  durationSecs?: number,
-): "badTime" | "order" | "pastEnd" | null {
-  const fromRaw = draft.from.trim()
-  const toRaw = draft.to.trim()
-  const from = fromRaw === "" ? null : parseTimecode(fromRaw)
-  const to = toRaw === "" ? null : parseTimecode(toRaw)
-  if ((fromRaw !== "" && from == null) || (toRaw !== "" && to == null)) return "badTime"
-  if (from != null && to != null && to <= from) return "order"
-  if (durationSecs != null && from != null && from >= durationSecs) return "pastEnd"
-  return null
-}
-
-function formatSecs(s: number): string {
-  if (!Number.isFinite(s)) return "—"
-  const total = Math.max(0, s)
-  const mm = Math.floor(total / 60)
-  const ss = total - mm * 60
-  return `${mm}:${ss.toFixed(1).padStart(4, "0")}`
-}
 
 /**
  * "Slideshow from voice" — an Auto Edit tool. Import ordered media, optionally
@@ -383,11 +142,7 @@ export function SlideshowPanel() {
     knownKeysRef.current = new Set(media.map(entryKey))
   }, [media])
 
-  // What this session has already pushed to the timeline, by `placedKey`. The
-  // host has no way to tell "the clip the user just added" from "the clip that
-  // was already placed" — both are the same file with the same range — so
-  // pressing Add again would lay the whole list down a second time. Tracking it
-  // here means a repeat press only sends what is genuinely new.
+  // What this session has already pushed to the timeline, by `placedKey`.
   const placedKeysRef = React.useRef<Set<string>>(new Set())
 
   const audioTracks = timelineInfo.inputTracks ?? []
@@ -397,11 +152,7 @@ export function SlideshowPanel() {
   const hasVoice = words.length > 0
   const voiceLabel = voiceWords ? voiceName : currentSubtitleDocumentSourceName
 
-  // The video tracks we can drop onto. (outputTracks carries a value-"0" pseudo
-  // entry we filter out here.) Resolve can create a fresh track above the
-  // existing ones, so it gets a synthetic "New track" option that never
-  // overwrites the user's clips; Premiere can't add tracks from a script, so it
-  // only lists the real ones.
+  // The video tracks we can drop onto.
   const isResolveHost = kind === "davinci"
   const realVideoTracks = (timelineInfo.outputTracks ?? []).filter(
     (tr) => tr.value !== "0",
@@ -418,8 +169,7 @@ export function SlideshowPanel() {
     if (!videoTargetVal) setVideoTargetVal(defaultTargetVal)
   }, [defaultTargetVal, videoTargetVal])
 
-  // Live alignment, recomputed as media/text/voice change. There is no "align"
-  // button: the per-media times below update on the fly, and Place uses these.
+  // Live alignment, recomputed as media/text/voice change.
   const spans = React.useMemo<AlignedSpan[]>(() => {
     if (!hasVoice || media.length === 0) return []
     const result = alignScriptToWords(media.map((m) => m.text), words)
@@ -439,16 +189,13 @@ export function SlideshowPanel() {
       }
       const ordered = sortEntries(infos, sortBy)
       setMedia((prev) => {
-        // A picked file always comes in whole, so it only repeats an entry that
-        // is also whole. The same file already in the list as a cut section
-        // doesn't block it — that's the user asking for the rest of the video.
         const seen = new Set(prev.map(entryKey))
         return [
           ...prev,
           ...ordered
             .filter((x) => !seen.has(entryKey({ path: x.path })))
             .map<MediaEntry>((x) => ({
-              id: nextId(),
+              id: nextMediaId(),
               path: x.path,
               name: x.name,
               kind: x.kind,
@@ -457,8 +204,6 @@ export function SlideshowPanel() {
             })),
         ]
       })
-      // Probe duration/dimensions in the background; dedupe by path so an
-      // already-imported file just refreshes its own info.
       for (const x of ordered) {
         const stub: MediaEntry = {
           id: "",
@@ -480,65 +225,19 @@ export function SlideshowPanel() {
   )
 
   const handleImportFiles = async () => {
-    const picked = await openDialog({
-      multiple: true,
-      directory: false,
-      filters: [{ name: "Media", extensions: [...IMAGE_EXTS, ...VIDEO_EXTS] }],
-    })
-    const paths = Array.isArray(picked) ? picked : typeof picked === "string" ? [picked] : []
-    if (paths.length === 0) return
-    const infos = await invoke<MediaFileInfo[]>("scan_media", { input: { paths } })
-    addInfos(infos)
+    const infos = await pickAndScanMediaFiles()
+    if (infos) addInfos(infos)
   }
 
   const handleImportFolder = async () => {
-    const picked = await openDialog({ multiple: false, directory: true })
-    if (typeof picked !== "string") return
-    const infos = await invoke<MediaFileInfo[]>("scan_media", { input: { dir: picked } })
-    addInfos(infos)
+    const infos = await pickAndScanMediaFolder()
+    if (infos) addInfos(infos)
   }
-
-  // Turn a downloaded file into a media entry. Deliberately free of state
-  // updates: downloads finish out of order, so the caller collects a whole
-  // batch and commits it in the pasted order instead.
-  const makeDownloadedEntry = React.useCallback(
-    async (filePath: string, range?: { srcIn?: number; srcOut?: number }) => {
-      let info: MediaFileInfo | undefined
-      try {
-        const scanned = await invoke<MediaFileInfo[]>("scan_media", {
-          input: { paths: [filePath] },
-        })
-        info = scanned[0]
-      } catch {
-        // scan_media only classifies the file; fall back to the extension.
-      }
-      const name = info?.name ?? baseName(filePath)
-      const ext = name.split(".").pop()?.toLowerCase() ?? ""
-      const entry: MediaEntry = {
-        id: nextId(),
-        path: filePath,
-        name,
-        kind: info?.kind ?? (IMAGE_EXTS.has(ext) ? "image" : "video"),
-        createdMs: info?.createdMs ?? Date.now(),
-        text: "",
-        srcIn: range?.srcIn,
-        srcOut: range?.srcOut,
-      }
-      return entry
-    },
-    [],
-  )
 
   // Commit a batch of downloaded entries, already in pasted order. Returns the
   // ones that were actually new, so the caller places exactly what it added.
   const commitDownloaded = React.useCallback((entries: MediaEntry[]): MediaEntry[] => {
     if (entries.length === 0) return []
-    // Dedupe against the list and within the batch itself, on file + section:
-    // the same link pasted twice for two different moments is two clips, and
-    // only an exact repeat is dropped. A dropped entry takes its timeline slot
-    // with it, exactly like a failed link does. `knownKeys` is a ref rather than
-    // `media` so two chunks committed before the next render still see each
-    // other.
     const fresh: MediaEntry[] = []
     for (const entry of entries) {
       const key = entryKey(entry)
@@ -559,121 +258,20 @@ export function SlideshowPanel() {
     return fresh
   }, [])
 
-  // Wait `ms`, but wake early when the user cancels so Stop stays responsive
-  // during the gap. Returns false when the wait was cut short by a cancel.
-  const sleepUnlessCancelled = (ms: number): Promise<boolean> =>
-    new Promise((resolve) => {
-      const started = Date.now()
-      const tick = window.setInterval(() => {
-        if (dlCancelRef.current) {
-          window.clearInterval(tick)
-          resolve(false)
-        } else if (Date.now() - started >= ms) {
-          window.clearInterval(tick)
-          resolve(true)
-        }
-      }, 100)
-    })
-
   // Ask for the download folder and remember it. Returns "" if cancelled.
   const pickDownloadDir = async (): Promise<string> => {
-    const picked = await openDialog({ directory: true, multiple: false })
-    if (typeof picked !== "string") return ""
-    setLinkDir(picked)
-    localStorage.setItem(DOWNLOAD_DIR_KEY, picked)
+    const picked = await pickDownloadFolder()
+    if (picked) setLinkDir(picked)
     return picked
   }
 
-  // Download one link. Never rejects: a dead link resolves to an empty list so
-  // it can't take the rest of its chunk down with it. `task.jobs` are every
-  // pasted line for this one URL, in order — several sections of one video are
-  // fetched once and cut afterwards, not downloaded once per section.
-  const runDownloadJob = async (
-    task: DownloadTask,
-    jobId: string,
-    dir: string,
-  ): Promise<Array<{ index: number; entry: MediaEntry }>> => {
-    dlJobsRef.current.add(jobId)
-    const unlisten = await onDownloadProgress(jobId, (p) => {
-      setDlActive((rows) =>
-        rows.map((r) => (r.jobId === jobId ? { ...r, percent: p.percent } : r)),
-      )
-    })
-    try {
-      const first = task.jobs[0]
-      const hasRange = first.from != null || first.to != null
-      // Cutting at download hands yt-dlp the section; cutting on the timeline
-      // pulls the whole clip and carries the range through to the editor
-      // instead. Several sections of one URL always cut on the timeline: there
-      // is one file, and yt-dlp can only carve one piece out of it.
-      const cutAtDownload = linkTrim === "download" && hasRange && task.jobs.length === 1
-      const res = await downloadOne(jobId, task.url, dir, {
-        startTime: cutAtDownload ? String(first.from ?? 0) : null,
-        endTime: cutAtDownload && first.to != null ? String(first.to) : null,
-      })
-      if (res.canceled) return []
-      if (!res.success || !res.filePath) {
-        toast.error(t("slideshow.link.failed", "Could not download {{url}}", { url: task.url }), {
-          description: res.error ?? undefined,
-        })
-        return []
-      }
-      const entries: Array<{ index: number; entry: MediaEntry }> = []
-      for (const job of task.jobs) {
-        entries.push({
-          index: job.index,
-          entry: await makeDownloadedEntry(
-            res.filePath,
-            // yt-dlp already cut it, so the file *is* the section.
-            cutAtDownload || (job.from == null && job.to == null)
-              ? undefined
-              : { srcIn: job.from, srcOut: job.to },
-          ),
-        })
-      }
-      return entries
-    } catch (err) {
-      toast.error(t("slideshow.link.failed", "Could not download {{url}}", { url: task.url }), {
-        description: err instanceof Error ? err.message : String(err),
-      })
-      return []
-    } finally {
-      unlisten()
-      dlJobsRef.current.delete(jobId)
-      setDlDone((n) => n + 1)
-    }
-  }
-
-  /**
-   * Download the pasted links `DOWNLOAD_CONCURRENCY` at a time, committing each
-   * chunk before starting the next. Order is safe because a chunk is only
-   * committed once every link in it has settled — `Promise.all` hands the
-   * results back in the pasted order regardless of who finished first — and a
-   * link that fails simply gives up its slot, so the next clip butts straight
-   * against the previous one instead of leaving a hole.
-   */
   const handleDownloadLinks = async (autoPlace = false) => {
     if (downloading) return
-    // Each line is "url" or "url start-end"; the boxes above supply the range
-    // for any line that doesn't carry one. No range anywhere = whole clip.
-    const defFrom = parseTimecode(linkFrom) ?? undefined
-    const defTo = parseTimecode(linkTo) ?? undefined
-    const jobs = linkUrls
-      .split("\n")
-      .map(parseLinkLine)
-      .filter((j): j is { url: string; from?: number; to?: number } => j !== null)
-      .map<DownloadJob>((j, index) => ({
-        index,
-        url: j.url,
-        from: j.from ?? defFrom,
-        to: j.to ?? defTo,
-      }))
+    const jobs = parseBatchLinkJobs(linkUrls, linkFrom, linkTo)
     if (jobs.length === 0) {
       toast.error(t("slideshow.link.noUrl", "Paste at least one link."))
       return
     }
-    // Same link on several lines with different times = several sections of one
-    // video: fetch it once, cut each section from the file that comes back.
     const tasks = groupDownloadJobs(jobs)
     if (!(await downloadToolsReady())) {
       toast.error(
@@ -700,48 +298,44 @@ export function SlideshowPanel() {
     setDlActive([])
     let ok = 0
     let placedAny = false
-    // Where the next chunk starts, so chunk 2 lands after chunk 1 instead of
-    // back at the top of the timeline.
     let placeCursor = 0
     try {
-      for (let i = 0; i < tasks.length; i += DOWNLOAD_CONCURRENCY) {
-        if (dlCancelRef.current) break
-        // Breathe between chunks. yt-dlp already staggers the videos inside a
-        // chunk; this keeps a long paste from looking like one continuous
-        // machine-gun burst to the site.
-        if (i > 0 && !(await sleepUnlessCancelled(randomChunkDelayMs()))) break
-        const chunk = tasks
-          .slice(i, i + DOWNLOAD_CONCURRENCY)
-          .map((task) => ({ task, jobId: crypto.randomUUID() }))
-        setDlActive(chunk.map(({ task, jobId }) => ({ jobId, label: task.url, percent: null })))
-        const results = await Promise.all(
-          chunk.map(({ task, jobId }) => runDownloadJob(task, jobId, dir)),
-        )
-        // Back into pasted order: grouping by URL fetched the sections of one
-        // video together, but on the timeline they belong where they were typed.
-        const fresh = commitDownloaded(
-          results
-            .flat()
-            .sort((a, b) => a.index - b.index)
-            .map((r) => r.entry),
-        )
-        ok += fresh.length
-        // Cancelling stops new placements but keeps the files already fetched:
-        // they stay in the list for the user to place by hand.
-        if (canPlace && fresh.length > 0 && !dlCancelRef.current) {
-          const items = sequentialItems(fresh, placeCursor)
-          placeCursor = items[items.length - 1]?.end ?? placeCursor
-          await runBuild({
-            items,
-            setBusy: setAddingMedia,
-            onSuccess: () => {
-              placedAny = true
-            },
-            // One summary toast for the whole run, not one per chunk.
-            quiet: true,
+      await runBatchDownloads({
+        tasks,
+        dir,
+        trimMode: linkTrim,
+        concurrency: DOWNLOAD_CONCURRENCY,
+        activeJobIds: dlJobsRef.current,
+        isCancelled: () => dlCancelRef.current,
+        onActiveRowsChange: setDlActive,
+        onTaskProgress: (jobId, percent) => {
+          setDlActive((rows) =>
+            rows.map((r) => (r.jobId === jobId ? { ...r, percent } : r)),
+          )
+        },
+        onTaskDone: () => setDlDone((n) => n + 1),
+        onTaskError: (url, errorMessage) => {
+          toast.error(t("slideshow.link.failed", "Could not download {{url}}", { url }), {
+            description: errorMessage,
           })
-        }
-      }
+        },
+        onChunkEntries: async (orderedEntries) => {
+          const fresh = commitDownloaded(orderedEntries)
+          ok += fresh.length
+          if (canPlace && fresh.length > 0 && !dlCancelRef.current) {
+            const items = buildSequentialItems(fresh, secsPerImage, placeCursor)
+            placeCursor = items[items.length - 1]?.end ?? placeCursor
+            await runBuild({
+              items,
+              setBusy: setAddingMedia,
+              onSuccess: () => {
+                placedAny = true
+              },
+              quiet: true,
+            })
+          }
+        },
+      })
       if (placedAny) setMediaAddCount((c) => c + 1)
       if (dlCancelRef.current) {
         toast.info(
@@ -761,9 +355,6 @@ export function SlideshowPanel() {
     }
   }
 
-  // Stop the whole run: kill every link currently downloading, and stop the
-  // chunk loop so nothing further is downloaded or placed. Files already
-  // finished stay in the list — they're on disk either way.
   const handleCancelDownload = async () => {
     if (dlCancelRef.current) return
     dlCancelRef.current = true
@@ -787,7 +378,6 @@ export function SlideshowPanel() {
   }
 
   const remove = (id: string) => {
-    // The row is gone, so its "already placed" mark is dead weight.
     const gone = media.find((m) => m.id === id)
     if (gone) placedKeysRef.current.delete(placedKey(gone))
     setMedia((prev) => prev.filter((m) => m.id !== id))
@@ -797,13 +387,6 @@ export function SlideshowPanel() {
     setMedia((prev) => prev.map((m) => (m.id === id ? { ...m, text } : m)))
   }
 
-  /**
-   * What is typed in each row's two time boxes, keyed by entry id. The raw text
-   * lives here rather than on the entry because a half-typed "1:" is UI state,
-   * not a cut — only what parses gets written to `srcIn`/`srcOut`. A row the
-   * user hasn't touched has no entry here and falls back to whatever range the
-   * clip arrived with (a pasted "url 0:30-1:20" fills the boxes).
-   */
   const [trimDrafts, setTrimDrafts] = React.useState<
     Record<string, { from: string; to: string }>
   >({})
@@ -814,11 +397,6 @@ export function SlideshowPanel() {
       to: m.srcOut != null ? formatClock(m.srcOut) : "",
     }
 
-  /**
-   * Write a draft onto the entry. An empty or unparseable box means "no bound"
-   * — clearing both puts the whole clip back — and an end at or before the start
-   * is dropped rather than fought over while the user is still typing.
-   */
   const applyTrim = (id: string, draft: { from: string; to: string }) => {
     const from = draft.from.trim() === "" ? undefined : parseTimecode(draft.from) ?? undefined
     let to = draft.to.trim() === "" ? undefined : parseTimecode(draft.to) ?? undefined
@@ -834,18 +412,11 @@ export function SlideshowPanel() {
     applyTrim(id, draft)
   }
 
-
   // Load a .txt where line N is the sentence for media N (blank lines allowed).
   const handleImportScript = async () => {
-    const picked = await openDialog({
-      multiple: false,
-      directory: false,
-      filters: [{ name: "Text", extensions: ["txt"] }],
-    })
-    if (typeof picked !== "string") return
     try {
-      const raw = await readTextFile(picked)
-      const lines = raw.replace(/\r\n?/g, "\n").split("\n")
+      const lines = await pickAndReadScriptLines()
+      if (!lines) return
       setMedia((prev) => prev.map((m, i) => ({ ...m, text: (lines[i] ?? "").trim() })))
       toast.success(
         t("slideshow.scriptLoaded", "Loaded {{n}} lines from the script.", {
@@ -858,62 +429,28 @@ export function SlideshowPanel() {
     }
   }
 
-  // Shared tail for both voice sources: flatten, shift word times into the
-  // timeline domain (0 = timeline start), and stash them. `offsetSecs` is how
-  // far into the timeline the transcribed audio begins — 0 for a standalone
-  // file, the track's export offset for a timeline track — so `buildStoryboard`
-  // (which adds the timeline start itself) lands each clip in the right place.
-  const applyTranscript = (
-    segments: Parameters<typeof flattenWords>[0],
-    offsetSecs: number,
-    name: string,
-  ): boolean => {
-    const flat = flattenWords(segments)
-    if (flat.length === 0) {
-      toast.error(t("slideshow.voiceEmpty", "No speech was found in that file."))
-      return false
-    }
-    const shifted =
-      offsetSecs === 0
-        ? flat
-        : flat.map((w) => ({ ...w, start: w.start + offsetSecs, end: w.end + offsetSecs }))
-    setVoiceWords(shifted)
-    setVoiceName(name)
-    toast.success(t("slideshow.voiceDone", "Transcribed {{n}} words.", { n: shifted.length }))
-    return true
-  }
-
   // Pick a voice file — nothing heavy happens yet, just remember the choice.
   const handlePickVoiceFile = async () => {
-    const picked = await openDialog({
-      multiple: false,
-      directory: false,
-      filters: [
-        { name: "Audio/Video", extensions: ["mp3", "wav", "m4a", "aac", "flac", "ogg", "opus", ...VIDEO_EXTS] },
-      ],
-    })
-    if (typeof picked !== "string") return
-    setVoiceSource({ kind: "file", path: picked, name: baseName(picked) })
-    setVoiceWords(null) // a new source supersedes any earlier transcription
+    const picked = await pickVoiceFile()
+    if (!picked) return
+    setVoiceSource(picked)
+    setVoiceWords(null)
   }
 
-  // Run transcription on the chosen source. Separate from picking so the long
-  // job only starts when the user explicitly asks for it.
+  // Run transcription on the chosen source.
   const handleTranscribe = async () => {
     if (!voiceSource || transcribing) return
     setTranscribing(true)
     try {
-      if (voiceSource.kind === "file") {
-        const segments = await transcribe(voiceSource.path)
-        applyTranscript(segments, 0, voiceSource.name)
-      } else {
-        // Export the track, transcribe the WAV, then shift by the export offset
-        // so timings are timeline-absolute.
-        const audio = await getSourceAudio("timeline", null, [voiceSource.value])
-        if (!audio || !audio.path) return // cancelled / failed (export reports its own errors)
-        const segments = await transcribe(audio.path)
-        applyTranscript(segments, audio.offset || 0, voiceSource.name)
+      const res = await transcribeVoiceSource(voiceSource, transcribe, getSourceAudio)
+      if (!res) return
+      if (res.words.length === 0) {
+        toast.error(t("slideshow.voiceEmpty", "No speech was found in that file."))
+        return
       }
+      setVoiceWords(res.words)
+      setVoiceName(res.name)
+      toast.success(t("slideshow.voiceDone", "Transcribed {{n}} words.", { n: res.words.length }))
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       console.error("Transcription failed:", err)
@@ -923,23 +460,13 @@ export function SlideshowPanel() {
     }
   }
 
-  // A voice imported as a FILE can also be dropped onto the timeline as its own
-  // audio track. A voice taken from a timeline track is already there, so it is
-  // never re-added.
   const voiceFilePath = voiceSource?.kind === "file" ? voiceSource.path : null
 
-  // Shared timeline push used by both the Media and Audio buttons. Media and
-  // audio are added independently so each can be re-run on its own; a success
-  // bumps the caller's counter (shown as "(n)" on the button).
-  // Returns a promise so a caller placing several batches in a row can wait for
-  // one to land before sending the next — the host APIs don't take concurrent
-  // edits. Callers that fire and forget can ignore it.
   const runBuild = (opts: {
     items: BuildItem[]
     audioPath?: string
     setBusy: (b: boolean) => void
     onSuccess: () => void
-    /** Skip the success toast — for batched pushes that report once at the end. */
     quiet?: boolean
   }): Promise<void> => {
     opts.setBusy(true)
@@ -958,9 +485,6 @@ export function SlideshowPanel() {
           audioPath: opts.audioPath,
         })
         if (res.lines.length) console.log("[slideshow]\n" + res.lines.join("\n"))
-        // The host can report success yet land nothing (import/placement failed
-        // on its side). Surface the first reason instead of a misleading toast,
-        // and don't bump the "(n)" counter for a no-op.
         if (opts.items.length > 0 && res.appended === 0) {
           toast.warning(res.lines[0] ?? "Nothing was placed on the timeline.")
         } else {
@@ -979,69 +503,6 @@ export function SlideshowPanel() {
     })()
   }
 
-  // Media laid out back-to-back, `secsPerImage` each. No voice involved.
-  // `startAt` lets a caller append after what it already placed, which is how
-  // the chunked link download keeps its later batches off the earlier ones.
-  const sequentialItems = (entries: MediaEntry[] = media, startAt = 0): BuildItem[] => {
-    // Clips with a source range take that long, so the slots aren't uniform.
-    // With only a start the rest of the clip plays, so the slot is whatever the
-    // probe says is left after it.
-    let cursor = startAt
-    return entries.map((m) => {
-      const rangeEnd = m.srcOut ?? m.info?.durationSecs
-      const ranged =
-        (m.srcIn != null || m.srcOut != null) && rangeEnd != null
-          ? rangeEnd - (m.srcIn ?? 0)
-          : undefined
-      const dur = ranged && ranged > 0 ? ranged : secsPerImage
-      const start = cursor
-      cursor += dur
-      return {
-        id: m.id,
-        path: m.path,
-        start,
-        end: start + dur,
-        srcIn: m.srcIn,
-        srcOut: m.srcOut,
-      }
-    })
-  }
-
-  /**
-   * Each media placed where the voice actually says its line.
-   *
-   * The whole point of the alignment is that the script says which clip goes
-   * with which sentence and the transcribed audio says when that sentence is
-   * spoken — so both the position and the length come from the span, not from
-   * stacking clips back-to-back. Laying them end-to-end from the first span (as
-   * this used to) held only while the speaker never paused: every silence
-   * between sentences pushed the rest of the slideshow ahead of the voice, and
-   * the drift compounded down the timeline.
-   *
-   * A clip runs until the next one starts rather than stopping dead at the end
-   * of its own sentence, so the pause between two sentences keeps showing the
-   * picture that belongs to the one just spoken instead of a hole. The last
-   * clip ends where its sentence does.
-   */
-  const syncedItems = (): BuildItem[] => {
-    return spans.map((s, i) => {
-      const start = s.start
-      const next = spans[i + 1]
-      const end = Math.max(start + 0.2, next ? next.start : s.end)
-      return {
-        id: media[s.lineIndex].id,
-        path: media[s.lineIndex].path,
-        start,
-        end,
-        srcIn: media[s.lineIndex].srcIn,
-        srcOut: media[s.lineIndex].srcOut,
-      }
-    })
-  }
-
-  // Plain add: "just put my images on the timeline". Only what hasn't been
-  // placed yet goes down, so adding one clip to a list already on the timeline
-  // and pressing Add again places that one clip — not the whole list again.
   const handleAddMedia = (all = false) => {
     if (media.length === 0) return
     const pending = all
@@ -1059,17 +520,16 @@ export function SlideshowPanel() {
       )
       return
     }
-    runBuild({
-      items: sequentialItems(pending),
+    void runBuild({
+      items: buildSequentialItems(pending, secsPerImage),
       setBusy: setAddingMedia,
       onSuccess: () => setMediaAddCount((c) => c + 1),
     })
   }
 
-  // Drop just the voice-over audio file onto a new audio track.
   const handleAddAudio = () => {
     if (!voiceFilePath) return
-    runBuild({
+    void runBuild({
       items: [],
       audioPath: voiceFilePath,
       setBusy: setAddingAudio,
@@ -1077,12 +537,10 @@ export function SlideshowPanel() {
     })
   }
 
-  // The real work: cut each media to the span of the sentence it belongs to and
-  // lay them out against the transcribed voice. Needs both a voice and a script.
   const handleCutSync = () => {
     if (spans.length === 0) return
-    runBuild({
-      items: syncedItems(),
+    void runBuild({
+      items: buildSyncedItems(media, spans),
       setBusy: setCutting,
       onSuccess: () => {},
     })

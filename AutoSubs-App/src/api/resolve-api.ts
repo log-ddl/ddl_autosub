@@ -501,6 +501,7 @@ export interface StoryboardItem {
 
 export interface BuildStoryboardSpec {
   targetVideoTrack: number;   // >=1; created if it doesn't exist yet
+  mode?: "replace" | "insert" | "overlay" | "append";
   defaultStillSecs: number;   // fallback duration for a 0/absent span
   items: StoryboardItem[];    // in play order (may be empty for audio-only)
   /** Optional voice-over file dropped onto a fresh audio track at t=0. */
@@ -525,6 +526,7 @@ export async function buildStoryboard(
       func: 'BuildStoryboard',
       spec: {
         target_video_track: spec.targetVideoTrack,
+        mode: spec.mode,
         default_still_secs: spec.defaultStillSecs,
         audio_path: spec.audioPath,
         items: spec.items.map((it) => ({

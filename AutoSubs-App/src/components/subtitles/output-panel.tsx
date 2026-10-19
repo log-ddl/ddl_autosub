@@ -106,7 +106,9 @@ export function OutputPanel({
 }: OutputPanelProps) {
   const { t } = useTranslation();
   const isAdobe =
-    selectedIntegration === "premiere" || selectedIntegration === "aftereffects";
+    selectedIntegration === "premiere" ||
+    selectedIntegration === "aftereffects" ||
+    selectedIntegration === "capcut";
 
   const { subtitles, speakers, updateSpeakers, currentSubtitleDocumentFilename } =
     useSubtitleDocument();
@@ -295,7 +297,11 @@ export function OutputPanel({
   const summaryParts: string[] = [];
   if (isAdobe) {
     summaryParts.push(
-      selectedIntegration === "aftereffects" ? "After Effects" : "Premiere Pro",
+      selectedIntegration === "capcut"
+        ? `CapCut (${timelineInfo?.name || "Draft"})`
+        : selectedIntegration === "aftereffects"
+          ? "After Effects"
+          : "Premiere Pro",
     );
   } else {
     summaryParts.push(trackLabel || t("output.track.none"));

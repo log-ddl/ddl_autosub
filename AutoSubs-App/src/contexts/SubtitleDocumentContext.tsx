@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useRef } from 
 import { Subtitle, Speaker, Settings } from '@/types';
 import { useResolve } from '@/contexts/ResolveContext';
 import { useAdobe } from '@/contexts/AdobeContext';
+import { useCapCut } from '@/contexts/CapCutContext';
 import { useIntegration, type Integration } from '@/contexts/IntegrationContext';
 import { getActiveCensorWords } from '@/censor/merge';
 import { open, save } from '@tauri-apps/plugin-dialog';
@@ -87,9 +88,15 @@ export function SubtitleDocumentProvider({ children }: { children: React.ReactNo
   const pendingSaveRef = useRef<{ subtitles: Subtitle[]; filename: string } | null>(null);
   const { timelineInfo: resolveTimeline } = useResolve();
   const { timelineInfo: adobeTimeline } = useAdobe();
+  const { timelineInfo: capcutTimeline } = useCapCut();
   const { selectedIntegration } = useIntegration();
   const isAdobeActive = selectedIntegration === "premiere" || selectedIntegration === "aftereffects";
-  const timelineInfo = isAdobeActive ? adobeTimeline : resolveTimeline;
+  const isCapCutActive = selectedIntegration === "capcut";
+  const timelineInfo = isCapCutActive
+    ? capcutTimeline
+    : isAdobeActive
+      ? adobeTimeline
+      : resolveTimeline;
 
   // Load subtitles when timelineId or fileInput changes
   const loadSubtitles = useCallback(async (audioInputMode: "file" | "timeline", fileInput: string | null, timelineId: string) => {

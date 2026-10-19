@@ -11,27 +11,17 @@ import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { Spinner } from "@/components/ui/spinner"
 import { CheckCircle2, Download, FileText, FolderOpen, X } from "lucide-react"
-
-function baseName(p: string): string {
-  return p.split(/[\\/]/).pop() ?? p
-}
-
-interface DownloadProgress {
-  jobId: string
-  stage: "downloading" | "processing" | "done" | "error"
-  percent: number | null
-  message: string
-}
-
-interface DownloadResult {
-  success: boolean
-  canceled: boolean
-  filePath: string | null
-  error: string | null
-}
-
-const EVENT_PROGRESS = "media-download-progress"
-const LAST_DIR_KEY = "autosubs.download.lastDir"
+import {
+  baseName,
+  DOWNLOAD_DIR_KEY,
+  pickDownloadFolder,
+} from "@/lib/media-import"
+import {
+  cancelDownload,
+  DOWNLOAD_PROGRESS_EVENT,
+  type DownloadProgress,
+  type DownloadResult,
+} from "@/lib/media-download"
 
 // The Download workspace body (rendered once the tools are installed). Paste a
 // URL, optionally trim, pick a folder, then download the best-quality MP4 in one
@@ -40,7 +30,7 @@ export function DownloadPanel() {
   const { t } = useTranslation()
   const [url, setUrl] = React.useState("")
   const [outputDir, setOutputDir] = React.useState<string>(
-    () => localStorage.getItem(LAST_DIR_KEY) ?? "",
+    () => localStorage.getItem(DOWNLOAD_DIR_KEY) ?? "",
   )
   const [startTime, setStartTime] = React.useState("")
   const [endTime, setEndTime] = React.useState("")
@@ -51,12 +41,12 @@ export function DownloadPanel() {
   const jobIdRef = React.useRef<string>("")
 
   const pickFolder = React.useCallback(async () => {
-    const picked = await openDialog({ directory: true, multiple: false })
-    if (typeof picked === "string") {
+    const picked = await pickDownloadFolder()
+    if (picked) {
       setOutputDir(picked)
-      localStorage.setItem(LAST_DIR_KEY, picked)
+      return picked
     }
-    return typeof picked === "string" ? picked : null
+    return null
   }, [])
 
   const pickBatchFile = React.useCallback(async () => {
@@ -118,7 +108,7 @@ export function DownloadPanel() {
 
   const cancel = React.useCallback(async () => {
     if (jobIdRef.current) {
-      await invoke("media_download_cancel", { jobId: jobIdRef.current })
+      await cancelDownload(jobIdRef.current)
     }
   }, [])
 
@@ -126,7 +116,7 @@ export function DownloadPanel() {
   React.useEffect(() => {
     let unlisten: UnlistenFn | null = null
     ;(async () => {
-      unlisten = await listen<DownloadProgress>(EVENT_PROGRESS, (e) => {
+      unlisten = await listen<DownloadProgress>(DOWNLOAD_PROGRESS_EVENT, (e) => {
         if (e.payload.jobId === jobIdRef.current) setProgress(e.payload)
       })
     })()

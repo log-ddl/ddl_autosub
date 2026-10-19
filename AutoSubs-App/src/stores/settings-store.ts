@@ -66,6 +66,7 @@ export const DEFAULT_SETTINGS: Settings = {
     davinci: ["1"],
     premiere: [],
     aftereffects: [],
+    capcut: ["1"],
   },
   selectedOutputTrack: "1",
   selectedTemplate: { value: "Default Template", label: "Default Template" },
