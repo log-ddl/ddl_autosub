@@ -2,7 +2,7 @@
 
 > **Note:** This document is primarily intended for AI agents working on the AutoSubs codebase. For general documentation, see the [main README](README.md), [Contributing Guide](CONTRIBUTING.md), or [AutoSubs-App README](AutoSubs-App/README.md).
 
-AutoSubs is a local-first desktop application that generates accurate, timestamped, and speaker-labeled subtitles from audio or video files. It runs standalone or integrates directly with video editors (DaVinci Resolve and Adobe Premiere Pro/After Effects) using local network bridges.
+AutoSubs is a local-first desktop application that generates accurate, timestamped, and speaker-labeled subtitles from audio or video files. It runs standalone or integrates directly with video editors (DaVinci Resolve, Adobe Premiere Pro/After Effects, and CapCut Desktop) using local bridges.
 
 ---
 
@@ -14,18 +14,23 @@ AutoSubs uses a local-first **Tauri v2 (Rust + React)** app communicating with h
 flowchart TD
     ReactFE[React Frontend] <-->|Tauri IPC| RustBE[Rust Backend Core]
     RustBE <-->|Local Crate Calls| AICrates[transcription-engine & diarize]
-    RustBE <-->|HTTP POST :56002| Resolve[DaVinci Resolve LuaJIT Server]
+    RustBE <-->|File mailbox + Fusion.prefs| Resolve[DaVinci Resolve Lua loop]
     RustBE <-->|WebSocket :8185| Adobe[Adobe CEP Extension]
+    RustBE <-->|Edits draft JSON on disk| CapCut[CapCut Desktop drafts]
+    RustBE <-->|Spawns CLI| AiCli[agy / claude CLI for AI Edit]
 ```
 
 ---
 
 ## ⚠️ High-Context & Tricky Architecture Details
 
-### 1. The DaVinci Resolve Bridge (Port `56002`)
-* **The Server**: Runs directly inside Resolve's LuaJIT environment, powered by [ljsocket.lua](AutoSubs-App/src-tauri/resources/modules/ljsocket.lua).
-* **The Gotcha**: The frontend does *not* talk to the Lua server directly. Tauri's webview HTTP plugin hangs when processing Resolve's short, unbuffered `Connection: close` responses.
-* **The Solution**: All HTTP traffic is proxied through the Rust backend command `resolve_bridge` ([resolve_bridge.rs](AutoSubs-App/src-tauri/src/resolve_bridge.rs)) using `reqwest`.
+### 1. The DaVinci Resolve Bridge (File Mailbox)
+* **The Gotcha**: Resolve 21.1 sandboxes the Lua state that runs Workspace > Scripts: `io`, `ffi`, `package`, `require`, `os.execute` and `bmd.readdir` are all nil. The old `ljsocket` HTTP server on port `56002` can no longer exist.
+* **The Transport**: Rust writes `request.lua` into a mailbox directory (`<data_local_dir>/com.autosubs/resolve-bridge`); the Lua loop reads it with `loadfile` and answers through `fusion:SetPrefs` + `SavePrefs()`, which Rust polls in `Fusion.prefs`. One request at a time. See [resolve_bridge.rs](AutoSubs-App/src-tauri/src/resolve_bridge.rs).
+* **Lua side**: [bootstrap.lua](AutoSubs-App/src-tauri/resources/modules/bootstrap.lua) replaces `require` with a `loadfile`-based loader and starts the loop; [autosubs_core.lua](AutoSubs-App/src-tauri/resources/modules/autosubs_core.lua) holds the handlers.
+* **Launcher install**: [AutoSubs.lua](AutoSubs-App/src-tauri/resources/AutoSubs.lua) is a template; release builds write the real launcher into Resolve's Scripts folder on startup ([resolve_scripts.rs](AutoSubs-App/src-tauri/src/resolve_scripts.rs)). Dev uses `npm run setup-resolve`.
+* **Port `56002`** is now only a Rust-side HTTP compat proxy (`init_http_compat_proxy`) so the Python shim in `resources/autoedit-shim` keeps working.
+* The frontend never touches the mailbox directly; everything goes through the `resolve_bridge` Tauri command.
 * **Documentation**: Comprehensive documentation of the Resolve integration architecture, Lua server API, Fusion macro system, and development workflow is available in [Resolve-Integration/README.md](Resolve-Integration/README.md).
 
 ### 2. Local AI Execution & Cargo Features
@@ -41,9 +46,9 @@ flowchart TD
 
 
 
-### 3. DaVinci Resolve Sandboxing & Wide Characters (Windows)
-* Resolve's Lua engine is sandboxed. On Windows, file access fails on paths containing special or non-ASCII characters if standard Lua `io.open` is used.
-* **Solution**: [AutoSubs.lua](AutoSubs-App/src-tauri/resources/AutoSubs.lua) uses LuaJIT FFI to declare and invoke native Windows APIs (`MultiByteToWideChar` and `_wfopen`) to safely handle file encodings.
+### 3. DaVinci Resolve Sandboxing & Non-ASCII Paths (Windows)
+* With no `io` or `ffi`, Lua cannot open files itself; it only uses `loadfile` and Fusion prefs.
+* On Windows, `LOCALAPPDATA` is mangled when the profile name isn't representable in the ANSI code page, so the app substitutes an ANSI-safe mailbox path into the launcher (`__AUTOSUBS_MAILBOX_DIR__`) instead of letting Lua rebuild it.
 * **Fusion Macro**: The animated caption macro is stored at [Resolve-Integration/autosubs-macro.setting](Resolve-Integration/autosubs-macro.setting). See [Resolve-Integration/README.md](Resolve-Integration/README.md) for editing instructions and workflow.
 
 ### 4. Adobe CEP WebSocket Bridge (Port `8185`)
@@ -51,15 +56,22 @@ flowchart TD
 * **Tricky Detail**: The extension launches a WebSocket client connecting to the Tauri app's built-in server ([adobe_bridge.rs](AutoSubs-App/src-tauri/src/adobe_bridge.rs)) to coordinate timeline audio exports and subtitle imports.
 * **Documentation**: The Adobe extension has excellent documentation at [Adobe-Extension/README.md](Adobe-Extension/README.md).
 
+### 4b. CapCut Desktop Bridge (No Network)
+* CapCut has no scripting API. The app reads and writes project folders under `com.lveditor.draft/` directly ([capcut_bridge.rs](AutoSubs-App/src-tauri/src/capcut_bridge.rs), [capcut_storyboard.rs](AutoSubs-App/src-tauri/src/capcut_storyboard.rs), [capcut_timeline.rs](AutoSubs-App/src-tauri/src/capcut_timeline.rs)). Times are in microseconds.
+* After a write, the project must be reopened from CapCut Home to show the changes.
+
+### 4c. AI Edit (CLI Chat)
+* The AI Edit tab drives a local `agy` or `claude` CLI as a subprocess ([cli_runtime.rs](AutoSubs-App/src-tauri/src/cli_runtime.rs), [cli_chat.rs](AutoSubs-App/src-tauri/src/cli_chat.rs), [cli_stream_parser.rs](AutoSubs-App/src-tauri/src/cli_stream_parser.rs)), with a per-project workspace from [cli_workspace.rs](AutoSubs-App/src-tauri/src/cli_workspace.rs).
+
 ### 5. Error Propagation Across the Boundary
 * **The Gotcha**: Because transcription and diarization run fully locally across multiple sub-crates, native C/C++ exceptions and ONNX load errors can easily crash the backend.
 * **The Rule**: All internal crate errors must bubble up explicitly as standard Rust `Result<T, String>` or `eyre::Result` types, which Tauri command handlers serialize into rejected JS promises so the React UI can gracefully display error dialogs.
 
 ### 6. UI Copy & Translations (i18n)
 
-All user-facing strings live in `AutoSubs-App/src/i18n/locales/<lang>/translation.json` across **9 locales**: `de`, `en`, `es`, `fr`, `ja`, `ko`, `ru`, `vi`, `zh`.
+All user-facing strings live in `AutoSubs-App/src/i18n/locales/<lang>/translation.json` across **2 locales**: `en`, `vi`.
 
-* **Never add an English-only key.** Every new key must land in all 9 files in the same change, or the other locales silently fall back to the raw key. The same goes for deletions — when UI is removed, strip the orphaned keys from all 9.
+* **Never add an English-only key.** Every new key must land in every locale file in the same change, or the other locales silently fall back to the raw key. The same goes for deletions — when UI is removed, strip the orphaned keys from every locale.
 * **Length is a hard constraint, and it applies per language.** Settings rows use `ItemDescription` ([item.tsx](AutoSubs-App/src/components/ui/item.tsx)), which combines `text-balance` with `line-clamp-*`. Two failure modes follow:
   * Past roughly **60 characters** the row wraps, and because of `text-balance` it does *not* fill the first line — it splits into two evenly-sized short lines, which looks broken rather than merely long.
   * Past the `line-clamp` limit the text is silently truncated with an ellipsis, losing information entirely.
@@ -68,7 +80,7 @@ All user-facing strings live in `AutoSubs-App/src/i18n/locales/<lang>/translatio
 * **No em dashes (`—`) or en dashes (`–`) in UI strings.** Use a comma, a period, or parentheses.
 * **Write for non-technical video editors.** Prefer the plain-language name over the technical one (the DTW toggle is labelled "Whisper Word Refinement", not "Dynamic Time Warping"). Jargon in a settings row is a bug.
 * **When one string references another feature, use that locale's own title** for it, not the English name.
-* **Edit all 9 files with a script**, not one at a time — it is the only reliable way to keep them in sync. Preserve the existing format: 2-space indent, `ensure_ascii=False`, trailing newline.
+* **Edit all locale files with a script**, not one at a time — it is the only reliable way to keep them in sync. Preserve the existing format: 2-space indent, `ensure_ascii=False`, trailing newline.
 
 Check the budget before considering the work done:
 

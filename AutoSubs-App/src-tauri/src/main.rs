@@ -46,7 +46,6 @@ mod cli_stream_parser;
 mod cli_chat;
 
 use crate::process_ext::HiddenConsole; // keep above the cfg'd items below
-#[cfg(target_os = "macos")]
 
 // Include integration-like tests that need crate visibility
 #[cfg(test)]
