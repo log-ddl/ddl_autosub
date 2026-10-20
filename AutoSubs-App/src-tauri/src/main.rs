@@ -37,6 +37,7 @@ mod media_download;
 mod process_ext;
 mod cli;
 mod ai_cli;
+mod ai_edit;
 
 use crate::process_ext::HiddenConsole; // keep above the cfg'd items below
 
@@ -466,6 +467,8 @@ fn main() {
             capcut::timeline::capcut_delete_segment,
             capcut::timeline::capcut_update_segment,
             capcut::timeline::capcut_add_markers,
+            ai_edit::actions::ai_edit_execute_action,
+            ai_edit::actions::ai_edit_get_timeline,
             ai_cli::runtime::cli_get_status,
             ai_cli::runtime::cli_get_models,
             ai_cli::workspace::cli_ensure_workspace,

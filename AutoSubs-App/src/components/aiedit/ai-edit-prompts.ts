@@ -133,6 +133,60 @@ const DELETE_SEGMENT_DOC = `**Xóa một clip/segment khỏi CapCut** (\`delete_
 }
 \`\`\``;
 
+const DAVINCI_ADD_TEXT_DOC = `**Thêm chữ / tiêu đề lên Timeline DaVinci** (\`add_text\`):
+- \`texts\`: danh sách đoạn chữ, mỗi phần tử gồm \`text\`, \`start\`, \`end\` (giây từ đầu timeline).
+- \`template\` (tùy chọn): tên một Text+ trong Media Pool. \`"AutoSubs Caption"\` là chữ động hiện từng từ; mặc định là \`"Default Template"\`.
+- \`track\` (tùy chọn): số Video Track đặt chữ, \`"0"\` hoặc bỏ trống là tạo track mới.
+\`\`\`timeline-action
+{
+  "action": "add_text",
+  "summary": "Thêm tiêu đề mở đầu",
+  "template": "AutoSubs Caption",
+  "texts": [
+    { "text": "5 SỰ THẬT BẠN CHƯA BIẾT", "start": 0, "end": 3 }
+  ]
+}
+\`\`\``;
+
+const CAPCUT_ADD_TEXT_DOC = `**Thêm chữ / tiêu đề lên Timeline CapCut** (\`add_text\`):
+- \`texts\`: danh sách đoạn chữ, mỗi phần tử gồm \`text\`, \`start\`, \`end\` (giây từ đầu timeline).
+- \`template\` (tùy chọn): \`"Yellow"\` cho chữ vàng, bỏ trống là chữ trắng viền đen.
+- Mỗi lần gọi tạo một Text Track mới.
+\`\`\`timeline-action
+{
+  "action": "add_text",
+  "summary": "Thêm tiêu đề mở đầu",
+  "template": "Yellow",
+  "texts": [
+    { "text": "5 SỰ THẬT BẠN CHƯA BIẾT", "start": 0, "end": 3 }
+  ]
+}
+\`\`\``;
+
+const DAVINCI_UPDATE_DOC = `**Chỉnh một clip trên DaVinci** (\`update_segment\` theo \`id\` trong danh sách clip ở trên):
+- Chỉ đổi được: \`zoom\`, \`panX\`, \`panY\`, \`rotation\`, \`opacity\` (0-100) và \`text\` (nội dung chữ của clip Text+).
+- API của Resolve **không** dời hay đổi độ dài clip, không tạo keyframe, không đổi âm lượng. Muốn dời clip, hãy xóa rồi đặt lại bằng \`build_storyboard\`.
+\`\`\`timeline-action
+{
+  "action": "update_segment",
+  "summary": "Zoom nhẹ clip mở đầu",
+  "segmentId": "<ID_CLIP>",
+  "zoom": 1.15
+}
+\`\`\``;
+
+const DAVINCI_DELETE_DOC = `**Xóa clip khỏi DaVinci** (\`delete_segment\`):
+- \`segmentId\` hoặc \`segmentIds\` (danh sách id trong danh sách clip ở trên).
+- \`ripple\` (tùy chọn): \`true\` để dồn các clip phía sau lấp chỗ trống.
+\`\`\`timeline-action
+{
+  "action": "delete_segment",
+  "summary": "Xóa 2 clip thừa",
+  "segmentIds": ["<ID_CLIP_1>", "<ID_CLIP_2>"],
+  "ripple": true
+}
+\`\`\``;
+
 // The command docs, numbered in the order this editor's prompt lists them.
 function actionsSection(docs: string[]): string {
   return [RULES_HEADER, ...docs.map((doc, i) => `${i + 1}. ${doc}`)].join("\n\n");
@@ -200,26 +254,81 @@ ${markerSummary || "  (Chưa có marker nào)"}
 - Nếu bạn dùng script Python sửa trực tiếp \`${snapshot.jsonPath}\`, hãy đồng bộ nội dung đó sang cả \`draft_info.json.bak\`, \`template-2.tmp\` và thư mục con \`Timelines/<id>/\` (nếu có) để CapCut nhận 100%.`;
 }
 
-function davinciContext(resolveTimelineName: string | undefined): string {
+/** What GetTimelineSnapshot (ai_edit.lua) returns for the open Resolve timeline. */
+export interface DavinciTimelineSnapshot {
+  name: string;
+  fps: number;
+  durationSec: number;
+  tracks: Array<{
+    trackType: string;
+    index: number;
+    name: string;
+    clips: Array<{
+      id: string;
+      name: string;
+      startSec: number;
+      durationSec: number;
+      zoom?: number;
+      text?: string;
+    }>;
+  }>;
+  markers: Array<{ atSec: number; color: string; name: string; durationSec: number }>;
+}
+
+function davinciTimelineSummary(snapshot: DavinciTimelineSnapshot): string {
+  const tracks = (snapshot.tracks ?? [])
+    .map((tr) => {
+      const clips = (tr.clips ?? [])
+        .slice(0, 40)
+        .map(
+          (c) =>
+            `  - [id="${c.id}"] "${c.name}" từ ${c.startSec.toFixed(2)}s -> ${(c.startSec + c.durationSec).toFixed(2)}s (dài ${c.durationSec.toFixed(2)}s${c.zoom != null ? `, zoom=${c.zoom.toFixed(2)}` : ""}${c.text ? `, text="${c.text}"` : ""})`,
+        )
+        .join("\n");
+      const label = tr.trackType === "video" ? "V" : tr.trackType === "audio" ? "A" : "S";
+      return `Track ${label}${tr.index}${tr.name ? ` "${tr.name}"` : ""} (${tr.trackType}, ${(tr.clips ?? []).length} clips):\n${clips || "  (trống)"}`;
+    })
+    .join("\n\n");
+  const markers = (snapshot.markers ?? [])
+    .map((m) => `  - [${m.color}] "${m.name}" tại ${m.atSec.toFixed(2)}s`)
+    .join("\n");
+  return `- ${snapshot.fps}fps, tổng thời lượng ${snapshot.durationSec.toFixed(2)}s
+- Chi tiết các Track trên Timeline:
+${tracks || "(Timeline hiện đang trống)"}
+- Marker đang có trên Timeline:
+${markers || "  (Chưa có marker nào)"}`;
+}
+
+function davinciContext(
+  resolveTimelineName: string | undefined,
+  snapshot: DavinciTimelineSnapshot | null,
+): string {
   return `### Ngữ cảnh DaVinci Resolve hiện tại:
-- Timeline đang mở: "${resolveTimelineName || "Current Timeline"}"
+- Timeline đang mở: "${snapshot?.name || resolveTimelineName || "Current Timeline"}"
+${snapshot ? davinciTimelineSummary(snapshot) : "- (Chưa đọc được danh sách clip của timeline)"}
 - Cổng HTTP của AutoSubs (app chuyển tiếp vào script AutoSubs đang chạy trong Resolve): \`http://127.0.0.1:56002\` (gửi HTTP POST JSON \`{"func": "<FunctionName>", ...}\`).
-- Các hàm có sẵn trên cổng \`:56002\`: \`GetTimelineInfo\`, \`GetTimelineSelection\`, \`BuildStoryboard\` (tự động \`AddTrack("video")\` theo \`target_video_track\` và \`AddTrack("audio")\` cho \`audio_path\`), \`AddSubtitles\`, \`JumpToTime\`, \`ResolveRpc\`.
-- Tài liệu kỹ năng tạo Fusion Macro (\`.setting\`) & Keyframe BezierSpline cho DaVinci Resolve có sẵn tại: \`/Users/dd/Documents/app/ddl_autosub/.agents/skills/davinci-resolve-fusion/SKILL.md\`.
+- Các hàm có sẵn trên cổng \`:56002\`: \`GetTimelineSnapshot\`, \`GetTimelineInfo\`, \`GetTimelineSelection\`, \`BuildStoryboard\`, \`AddMarkers\`, \`AddSubtitles\`, \`UpdateClip\`, \`DeleteClips\`, \`JumpToTime\`, \`ResolveRpc\`.
 - TUYỆT ĐỐI KHÔNG chạy grep/find quét thư mục \`target/\` hay \`node_modules/\`.`;
 }
 
 /** Prompt for a conversation bound to DaVinci Resolve. */
 export function buildDavinciPrompt(
   timelineName: string | undefined,
+  snapshot: DavinciTimelineSnapshot | null,
   userSystemPrompt: string,
   workspaceInfo: WorkspaceInfo | null,
 ): string {
   return [
     intro("DAVINCI"),
-    davinciContext(timelineName),
+    davinciContext(timelineName, snapshot),
     ...workspaceSection(workspaceInfo),
-    actionsSection([STORYBOARD_DOC, DAVINCI_MARKER_DOC]),
+    actionsSection([
+      STORYBOARD_DOC,
+      DAVINCI_MARKER_DOC,
+      DAVINCI_ADD_TEXT_DOC,
+      DAVINCI_UPDATE_DOC,
+      DAVINCI_DELETE_DOC,
+    ]),
     ...userAndMemorySections(userSystemPrompt, workspaceInfo),
   ].join("\n\n");
 }
@@ -234,7 +343,13 @@ export function buildCapCutPrompt(
     intro("CAPCUT"),
     ...(snapshot ? [capcutContext(snapshot)] : []),
     ...workspaceSection(workspaceInfo),
-    actionsSection([STORYBOARD_DOC, CAPCUT_MARKER_DOC, UPDATE_SEGMENT_DOC, DELETE_SEGMENT_DOC]),
+    actionsSection([
+      STORYBOARD_DOC,
+      CAPCUT_MARKER_DOC,
+      CAPCUT_ADD_TEXT_DOC,
+      UPDATE_SEGMENT_DOC,
+      DELETE_SEGMENT_DOC,
+    ]),
     ...userAndMemorySections(userSystemPrompt, workspaceInfo),
   ].join("\n\n");
 }
@@ -243,10 +358,11 @@ export function buildEditorContextPrompt(
   integration: string,
   snapshot: CapCutTimelineSnapshot | null,
   resolveTimelineName: string | undefined,
+  davinciSnapshot: DavinciTimelineSnapshot | null,
   userSystemPrompt: string,
   workspaceInfo: WorkspaceInfo | null,
 ): string {
   return integration === "capcut"
     ? buildCapCutPrompt(snapshot, userSystemPrompt, workspaceInfo)
-    : buildDavinciPrompt(resolveTimelineName, userSystemPrompt, workspaceInfo);
+    : buildDavinciPrompt(resolveTimelineName, davinciSnapshot, userSystemPrompt, workspaceInfo);
 }

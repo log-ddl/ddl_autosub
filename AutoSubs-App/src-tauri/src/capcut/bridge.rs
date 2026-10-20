@@ -569,46 +569,19 @@ pub(crate) fn register_in_draft_meta(folder_path: &str, file_path: &str, is_phot
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CapCutAddSubtitlesArgs {
-    pub file_path: String,
-    pub preferred_draft_id: Option<String>,
-    pub template_name: Option<String>,
+/// One piece of on-screen text, in seconds on the timeline.
+#[derive(Debug, Clone)]
+pub(crate) struct TextCue {
+    pub start_sec: f64,
+    pub end_sec: f64,
+    pub text: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CapCutAddSubtitlesResponse {
-    pub added: usize,
-    pub draft_name: String,
-}
-
-#[tauri::command]
-pub async fn capcut_add_subtitles(
-    args: CapCutAddSubtitlesArgs,
-) -> Result<CapCutAddSubtitlesResponse, String> {
-    let status = capcut_get_status(args.preferred_draft_id.clone()).await?;
-    let draft = status
-        .active_draft
-        .ok_or_else(|| "No CapCut project found. Please create a project in CapCut first.".to_string())?;
-
-    let sub_text = fs::read_to_string(&args.file_path)
-        .map_err(|e| format!("Failed to read subtitle file {}: {}", args.file_path, e))?;
-    let sub_doc: Value = serde_json::from_str(&sub_text)
-        .map_err(|e| format!("Failed to parse subtitle file {}: {}", args.file_path, e))?;
-
-    let segments_list = sub_doc
-        .get("segments")
-        .or_else(|| sub_doc.get("subtitles"))
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| "Subtitle document has no segments array".to_string())?;
-
-    let draft_text = fs::read_to_string(&draft.json_path)
-        .map_err(|e| format!("Failed to read {}: {}", draft.json_path, e))?;
-    let mut info: Value = serde_json::from_str(&draft_text)
-        .map_err(|e| format!("Failed to parse {}: {}", draft.json_path, e))?;
-
+/// Append `cues` to `info` as one new text track (white text, or yellow when
+/// the template name contains "Yellow"), and extend the draft duration to
+/// cover them. Empty cues and cues that end before they start are skipped.
+/// Returns how many were added.
+pub(crate) fn append_text_track(info: &mut Value, cues: &[TextCue], template_name: Option<&str>) -> usize {
     if !info["materials"].is_object() {
         info["materials"] = json!({});
     }
@@ -622,9 +595,7 @@ pub async fn capcut_add_subtitles(
         info["tracks"] = json!([]);
     }
 
-    let is_yellow = args
-        .template_name
-        .as_deref()
+    let is_yellow = template_name
         .map(|t| t.contains("Yellow"))
         .unwrap_or(false);
     let fill_rgb = if is_yellow {
@@ -637,17 +608,10 @@ pub async fn capcut_add_subtitles(
     let mut track_segments = Vec::new();
     let mut added = 0usize;
 
-    for seg in segments_list {
-        let start_sec = seg.get("start").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let end_sec = seg
-            .get("end")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(start_sec + 1.5);
-        let text_str = seg
-            .get("text")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .trim();
+    for cue in cues {
+        let start_sec = cue.start_sec;
+        let end_sec = cue.end_sec;
+        let text_str = cue.text.trim();
         if text_str.is_empty() || end_sec <= start_sec {
             continue;
         }
@@ -866,6 +830,63 @@ pub async fn capcut_add_subtitles(
     }
 
     info["duration"] = json!(max_end_us);
+    added
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapCutAddSubtitlesArgs {
+    pub file_path: String,
+    pub preferred_draft_id: Option<String>,
+    pub template_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapCutAddSubtitlesResponse {
+    pub added: usize,
+    pub draft_name: String,
+}
+
+#[tauri::command]
+pub async fn capcut_add_subtitles(
+    args: CapCutAddSubtitlesArgs,
+) -> Result<CapCutAddSubtitlesResponse, String> {
+    let status = capcut_get_status(args.preferred_draft_id.clone()).await?;
+    let draft = status
+        .active_draft
+        .ok_or_else(|| "No CapCut project found. Please create a project in CapCut first.".to_string())?;
+
+    let sub_text = fs::read_to_string(&args.file_path)
+        .map_err(|e| format!("Failed to read subtitle file {}: {}", args.file_path, e))?;
+    let sub_doc: Value = serde_json::from_str(&sub_text)
+        .map_err(|e| format!("Failed to parse subtitle file {}: {}", args.file_path, e))?;
+
+    let segments_list = sub_doc
+        .get("segments")
+        .or_else(|| sub_doc.get("subtitles"))
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "Subtitle document has no segments array".to_string())?;
+
+    let cues: Vec<TextCue> = segments_list
+        .iter()
+        .map(|seg| {
+            let start_sec = seg.get("start").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            TextCue {
+                start_sec,
+                end_sec: seg.get("end").and_then(|v| v.as_f64()).unwrap_or(start_sec + 1.5),
+                text: seg.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            }
+        })
+        .collect();
+
+    let draft_text = fs::read_to_string(&draft.json_path)
+        .map_err(|e| format!("Failed to read {}: {}", draft.json_path, e))?;
+    let mut info: Value = serde_json::from_str(&draft_text)
+        .map_err(|e| format!("Failed to parse {}: {}", draft.json_path, e))?;
+
+    let added = append_text_track(&mut info, &cues, args.template_name.as_deref());
+    let max_end_us = info.get("duration").and_then(|v| v.as_i64()).unwrap_or(0);
     save_draft_json(&draft, &info, max_end_us)?;
 
     Ok(CapCutAddSubtitlesResponse {

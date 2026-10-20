@@ -52,6 +52,8 @@ local mediaPool = project:GetMediaPool()
 
 local CAPTION_TEMPLATE_VERSION = AutoSubs_require("caption_template_version")
 local caption_style = AutoSubs_require("caption_style")
+-- AI Edit timeline endpoints (snapshot, markers, clip edits).
+local ai_edit = AutoSubs_require("ai_edit")
 local ANIMATED_CAPTION_DISPLAY_NAME = caption_style.DISPLAY_NAME
 local ANIMATED_CAPTION = caption_style.versioned_name(CAPTION_TEMPLATE_VERSION)
 local AUTOSUBS_BIN = caption_style.BIN_NAME
@@ -4513,6 +4515,10 @@ local handlers = {
         return ResolveRpc(req and req.objectId, req and req.method, req and req.args, req and req.argCount)
     end,
     ResetResolveRpc = function() return ResetResolveRpc() end,
+    GetTimelineSnapshot = function() return ai_edit.get_timeline_snapshot() end,
+    AddMarkers = function(req) return ai_edit.add_markers(req) end,
+    UpdateClip = function(req) return ai_edit.update_clip(req) end,
+    DeleteClips = function(req) return ai_edit.delete_clips(req) end,
 
     JumpToTime = function(req)
         JumpToTime(req.seconds)

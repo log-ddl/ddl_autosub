@@ -1,7 +1,12 @@
 import type { ContentCliAdapter } from "@/api/cli-chat-api";
 
 export interface TimelineActionCommand {
-  action: "build_storyboard" | "add_marker" | "update_segment" | "delete_segment";
+  action:
+    | "build_storyboard"
+    | "add_marker"
+    | "add_text"
+    | "update_segment"
+    | "delete_segment";
   summary?: string;
   mode?: "replace" | "insert" | "overlay" | "append";
   targetVideoTrack?: number;
@@ -31,6 +36,12 @@ export interface TimelineActionCommand {
   rotation?: number;
   volume?: number;
   text?: string;
+  opacity?: number;
+  segmentIds?: string[];
+  ripple?: boolean;
+  template?: string;
+  track?: string;
+  texts?: Array<{ text: string; start: number; end: number }>;
   markers?: Array<{
     atSec: number;
     color?: string;

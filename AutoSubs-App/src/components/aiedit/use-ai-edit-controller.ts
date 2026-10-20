@@ -12,14 +12,13 @@ import {
   type WorkspaceInfo,
 } from "@/api/cli-chat-api";
 import {
-  buildCapCutStoryboard,
-  addCapCutMarkers,
-  deleteCapCutSegment,
   getCapCutTimelineSnapshot,
-  updateCapCutSegment,
   type CapCutTimelineSnapshot,
 } from "@/api/capcut-api";
-import { addTimelineMarkers, buildStoryboard } from "@/api/resolve-api";
+import {
+  executeTimelineAction as runTimelineAction,
+  getEditTimeline,
+} from "@/api/ai-edit-api";
 import {
   useAiEditChatStore,
   type ContentMessage,
@@ -33,7 +32,10 @@ import {
   mergeStepEvent,
   type TimelineActionCommand,
 } from "./ai-edit-helpers";
-import { buildEditorContextPrompt } from "./ai-edit-prompts";
+import {
+  buildEditorContextPrompt,
+  type DavinciTimelineSnapshot,
+} from "./ai-edit-prompts";
 
 export function useAiEditController() {
   const { selectedIntegration } = useIntegration();
@@ -301,97 +303,23 @@ export function useAiEditController() {
   const executeTimelineAction = React.useCallback(
     async (cmd: TimelineActionCommand) => {
       try {
-        if (cmd.action === "build_storyboard" && cmd.items?.length) {
-          const trackIdx = cmd.targetVideoTrack || 1;
-          if (selectedIntegration === "capcut") {
-            const res = await buildCapCutStoryboard(
-              {
-                targetVideoTrack: trackIdx,
-                mode: cmd.mode,
-                defaultStillSecs: 3,
-                items: cmd.items,
-                audioPath: cmd.audioPath,
-              },
-              selectedDraftId || undefined,
-            );
-            toast.success(
-              `Đã đặt ${res.appended} clip vào Track V${trackIdx} CapCut`,
-            );
-            await refreshCapCut();
-            await loadTimelineSnapshot();
-          } else {
-            const res = await buildStoryboard({
-              targetVideoTrack: trackIdx,
-              mode: cmd.mode,
-              defaultStillSecs: 3,
-              items: cmd.items,
-              audioPath: cmd.audioPath,
-            });
-            toast.success(
-              `Đã đặt ${res.appended} clip vào Track V${trackIdx} DaVinci`,
-            );
-            await refreshResolve();
-          }
-        } else if (cmd.action === "add_marker" && cmd.markers?.length) {
-          if (selectedIntegration === "capcut") {
-            const res = await addCapCutMarkers(
-              cmd.markers,
-              selectedDraftId || undefined,
-            );
-            setTimelineSnapshot(res.snapshot);
-            if (res.skipped === 0) {
-              toast.success(cmd.summary || `Đã đặt ${res.added} marker trên CapCut`);
-            } else {
-              toast.warning(
-                `Đã đặt ${res.added}/${cmd.markers.length} marker trên CapCut`,
-                { description: "Bỏ qua marker có thời gian sai hoặc trùng frame đã có marker." },
-              );
-            }
-          } else {
-            const lines = await addTimelineMarkers(cmd.markers);
-            const placed = lines.filter((l) => l.startsWith("Added")).length;
-            if (placed === cmd.markers.length) {
-              toast.success(cmd.summary || `Đã đặt ${placed} marker trên DaVinci`);
-            } else {
-              toast.warning(`Đã đặt ${placed}/${cmd.markers.length} marker trên DaVinci`, {
-                description: lines.filter((l) => !l.startsWith("Added")).join("\n"),
-              });
-            }
-            await refreshResolve();
-          }
-        } else if (
-          cmd.action === "update_segment" &&
-          cmd.segmentId &&
-          selectedIntegration === "capcut"
-        ) {
-          const snap = await updateCapCutSegment({
-            segmentId: cmd.segmentId,
-            preferredDraftId: selectedDraftId || undefined,
-            startSec: cmd.startSec,
-            durationSec: cmd.durationSec,
-            zoom: cmd.zoom,
-            zoomEnd: cmd.zoomEnd,
-            panX: cmd.panX,
-            panXEnd: cmd.panXEnd,
-            panY: cmd.panY,
-            panYEnd: cmd.panYEnd,
-            rotation: cmd.rotation,
-            volume: cmd.volume,
-            text: cmd.text,
-          });
-          setTimelineSnapshot(snap);
-          toast.success(cmd.summary || "Đã cập nhật clip trên Timeline CapCut");
-        } else if (
-          cmd.action === "delete_segment" &&
-          cmd.segmentId &&
-          selectedIntegration === "capcut"
-        ) {
-          const snap = await deleteCapCutSegment(
-            cmd.segmentId,
-            selectedDraftId || undefined,
-          );
-          setTimelineSnapshot(snap);
-          toast.success(cmd.summary || "Đã xóa clip khỏi Timeline CapCut");
+        const outcome = await runTimelineAction(
+          {
+            integration: selectedIntegration === "capcut" ? "capcut" : "davinci",
+            draftId: selectedDraftId || null,
+          },
+          cmd as unknown as Record<string, unknown>,
+        );
+        if (outcome.partial) {
+          toast.warning(outcome.message, { description: outcome.lines.join("\n") || undefined });
+        } else {
+          toast.success(cmd.summary || outcome.message);
+        }
+        if (selectedIntegration === "capcut") {
+          await refreshCapCut();
+          await loadTimelineSnapshot();
+        } else {
+          await refreshResolve();
         }
       } catch (err: any) {
         toast.error(err?.message || String(err));
@@ -529,10 +457,24 @@ export function useAiEditController() {
     setRunningThinking((prev) => ({ ...prev, [convId]: "" }));
     setRunningSteps((prev) => ({ ...prev, [convId]: [] }));
 
+    // The DaVinci clip list is read fresh per message; CapCut's snapshot is
+    // kept up to date by the effects above.
+    let davinciSnapshot: DavinciTimelineSnapshot | null = null;
+    if (selectedIntegration !== "capcut") {
+      try {
+        davinciSnapshot = (await getEditTimeline({
+          integration: "davinci",
+        })) as DavinciTimelineSnapshot;
+      } catch {
+        davinciSnapshot = null;
+      }
+    }
+
     const fullSystemPrompt = buildEditorContextPrompt(
       selectedIntegration,
       timelineSnapshot,
       resolveTimeline?.name,
+      davinciSnapshot,
       activeConversation.systemPrompt,
       workspaceInfo,
     );
