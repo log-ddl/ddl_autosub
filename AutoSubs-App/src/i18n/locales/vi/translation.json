@@ -974,8 +974,8 @@
   },
   "download": {
     "title": "Tải video",
-    "subtitle": "Dán link video rồi lưu thành MP4.",
-    "urlLabel": "Link video",
+    "subtitle": "Dán link YouTube, TikTok, Facebook hoặc Instagram.",
+    "urlLabel": "Link video hoặc bài viết",
     "folder": "Lưu vào",
     "chooseFolder": "Chọn thư mục…",
     "trim": "Cắt đoạn (tuỳ chọn)",
@@ -1007,14 +1007,23 @@
     },
     "update": {
       "checking": "Đang kiểm tra bản mới của trình tải…",
-      "title": "Trình tải cần được cập nhật",
-      "body": "YouTube thay đổi cách phát video vài tháng một lần. Trình tải cũ sẽ ngừng hoạt động mà không báo lý do rõ ràng, nên hãy cập nhật trước khi tải.",
-      "installed": "Đang dùng",
-      "available": "Bản mới",
-      "action": "Cập nhật ngay",
       "updating": "Đang cập nhật…",
-      "skip": "Bỏ qua, dùng bản cũ",
-      "current": "Trình tải đã là bản mới nhất ({{version}})"
+      "current": "Trình tải đã là bản mới nhất ({{version}})",
+      "check": "Kiểm tra bản mới của trình tải",
+      "checkFailed": "Không kiểm tra được bản mới",
+      "updated": "Đã cập nhật trình tải lên {{version}}",
+      "failed": "Không cập nhật được trình tải"
+    },
+    "signIn": "Đăng nhập {{site}}",
+    "accounts": {
+      "title": "Tài khoản",
+      "hint": "Đăng nhập để tải bài cần tài khoản."
+    },
+    "article": {
+      "save": "Lưu bài viết",
+      "saving": "Đang lưu bài viết…",
+      "done": "Đã lưu bài viết kèm {{count}} ảnh",
+      "failed": "Không lưu được bài viết"
     }
   },
   "appUpdate": {
@@ -1026,5 +1035,12 @@
     "action": "Cập nhật và khởi động lại",
     "skip": "Tiếp tục dùng bản này",
     "resolveNote": "Sau khi khởi động lại, vào DaVinci Resolve chạy lại Workspace → Scripts → AutoSubs để kết nối lại."
+  },
+  "aiEdit": {
+    "assets": {
+      "button": "Tài nguyên",
+      "tooltip": "Mở tài nguyên của Project (Motion Graphics, AI B-Roll, Exports, Templates)",
+      "menuItem": "Tài nguyên (Motion / B-Roll)"
+    }
   }
 }

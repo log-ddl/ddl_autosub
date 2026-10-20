@@ -9,7 +9,9 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { Spinner } from "@/components/ui/spinner"
-import { CheckCircle2, Download, FileText, FolderOpen, X } from "lucide-react"
+import { CheckCircle2, Download, FileText, FolderOpen, Newspaper, X } from "lucide-react"
+import { DownloadAccountsMenu } from "@/components/download/download-accounts-menu"
+import { DownloadUpdateButton } from "@/components/download/download-update-button"
 import {
   baseName,
   DOWNLOAD_DIR_KEY,
@@ -18,6 +20,8 @@ import {
 import {
   cancelDownload,
   DOWNLOAD_PROGRESS_EVENT,
+  saveArticle as saveArticleSnapshot,
+  signInToSite,
   startDownload as startDownloadJob,
   type DownloadProgress,
 } from "@/api/media-download-api"
@@ -35,6 +39,8 @@ export function DownloadPanel() {
   const [endTime, setEndTime] = React.useState("")
   const [batchFile, setBatchFile] = React.useState<string | null>(null)
   const [downloading, setDownloading] = React.useState(false)
+  // Lets the download's error toast offer "Save article" (defined further down).
+  const saveArticleRef = React.useRef<() => Promise<void>>(async () => {})
   const [progress, setProgress] = React.useState<DownloadProgress | null>(null)
   const [donePath, setDonePath] = React.useState<string | null>(null)
   const jobIdRef = React.useRef<string>("")
@@ -91,8 +97,24 @@ export function DownloadPanel() {
         setDonePath(result.filePath)
         toast.success(t("download.done", "Download complete"))
       } else {
+        // A login wall or bot check: signing in to that site once fixes it.
+        // No video at the link: it is most likely an article to save instead.
+        const site = result.loginSite
+        const noVideo = !site && /Unsupported URL/i.test(result.error ?? "")
         toast.error(t("download.error.failed", "Download failed"), {
           description: result.error ?? undefined,
+          duration: site || noVideo ? 20000 : undefined,
+          action: site
+            ? {
+                label: t("download.signIn", "Sign in to {{site}}", { site: site.name }),
+                onClick: () => void signInToSite(site.key),
+              }
+            : noVideo
+              ? {
+                  label: t("download.article.save", "Save article"),
+                  onClick: () => void saveArticleRef.current(),
+                }
+              : undefined,
         })
       }
     } catch (err) {
@@ -104,6 +126,40 @@ export function DownloadPanel() {
       setProgress(null)
     }
   }, [downloading, url, batchFile, outputDir, startTime, endTime, pickFolder, t])
+
+  // Articles are fetched and parsed in one call; there is no progress to show.
+  const [savingArticle, setSavingArticle] = React.useState(false)
+  const saveArticle = React.useCallback(async () => {
+    if (downloading || savingArticle) return
+    const trimmed = url.trim()
+    if (!trimmed) {
+      toast.error(t("download.error.noUrl", "Paste a video link first"))
+      return
+    }
+    let dir = outputDir
+    if (!dir) {
+      dir = (await pickFolder()) ?? ""
+      if (!dir) return
+    }
+    setSavingArticle(true)
+    setDonePath(null)
+    try {
+      const saved = await saveArticleSnapshot(trimmed, dir)
+      setDonePath(saved.markdownPath)
+      const done = t("download.article.done", "Article saved with {{count}} images", {
+        count: saved.images.length,
+      })
+      if (saved.warnings.length > 0) toast.warning(done, { description: saved.warnings.join("\n") })
+      else toast.success(done)
+    } catch (err) {
+      toast.error(t("download.article.failed", "Could not save the article"), {
+        description: err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      setSavingArticle(false)
+    }
+  }, [downloading, savingArticle, url, outputDir, pickFolder, t])
+  saveArticleRef.current = saveArticle
 
   const cancel = React.useCallback(async () => {
     if (jobIdRef.current) {
@@ -133,19 +189,25 @@ export function DownloadPanel() {
 
   return (
     <div className="mx-auto w-full max-w-2xl">
-      <div className="mb-6">
-        <h1 className="text-xl font-semibold">
-          {t("download.title", "Download video")}
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {t("download.subtitle", "Paste a video link and save an MP4.")}
-        </p>
+      <div className="mb-6 flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold">
+            {t("download.title", "Download video")}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {t("download.subtitle", "Paste a YouTube, TikTok, Facebook or Instagram link.")}
+          </p>
+        </div>
+        <div className="flex items-center gap-1">
+          <DownloadAccountsMenu />
+          <DownloadUpdateButton />
+        </div>
       </div>
 
       {/* URL */}
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="download-url" className="text-xs">
-          {t("download.urlLabel", "Video URL")}
+          {t("download.urlLabel", "Video or article link")}
         </Label>
         <Input
           id="download-url"
@@ -265,15 +327,29 @@ export function DownloadPanel() {
           </div>
         ) : (
           <div className="flex flex-col gap-3">
-            <Button
-              onClick={() => void startDownload()}
-              disabled={!url.trim() && !batchFile}
-              className="w-full gap-2"
-              size="lg"
-            >
-              <Download className="size-4" />
-              {t("download.start", "Download")}
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                onClick={() => void startDownload()}
+                disabled={(!url.trim() && !batchFile) || savingArticle}
+                className="flex-1 gap-2"
+                size="lg"
+              >
+                <Download className="size-4" />
+                {t("download.start", "Download")}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => void saveArticle()}
+                disabled={!url.trim() || Boolean(batchFile) || savingArticle}
+                className="gap-2"
+                size="lg"
+              >
+                {savingArticle ? <Spinner className="size-4" /> : <Newspaper className="size-4" />}
+                {savingArticle
+                  ? t("download.article.saving", "Saving article…")
+                  : t("download.article.save", "Save article")}
+              </Button>
+            </div>
             {donePath && (
               <div className="flex items-center justify-between gap-3">
                 <span className="flex items-center gap-2 text-sm text-green-600 dark:text-green-500">

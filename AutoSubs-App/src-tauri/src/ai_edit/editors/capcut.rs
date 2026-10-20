@@ -6,8 +6,11 @@
 
 use serde_json::{json, Value};
 
-use crate::ai_edit::actions::{ActionOutcome, MarkerSpec, SegmentUpdate, StoryboardItem, TextSpec};
-use crate::ai_edit::mcp::tools::{delete_tool, marker_tool, storyboard_tool, text_item, tool};
+use crate::ai_edit::actions::{ActionOutcome, MarkerSpec, SegmentUpdate, StoryboardItem, TextSpec, TimeRange};
+use crate::ai_edit::mcp::tools::{
+    delete_tool, marker_tool, remove_ranges_tool, split_tool, storyboard_tool, text_item, tool,
+};
+use crate::capcut::cut::{capcut_remove_ranges, capcut_split_segments};
 use crate::capcut::bridge::{append_text_track, capcut_get_status, save_draft_json, TextCue};
 use crate::capcut::storyboard::{
     capcut_build_storyboard, CapCutBuildStoryboardSpec, CapCutStoryboardEffect, CapCutStoryboardItem,
@@ -147,6 +150,38 @@ pub async fn delete_segments(draft: Option<String>, ids: Vec<String>) -> Result<
     Ok(ActionOutcome::ok(format!("Deleted {} clip(s) from the CapCut timeline.", ids.len())))
 }
 
+pub async fn split_clips(draft: Option<String>, at_sec: f64, ids: Vec<String>) -> Result<ActionOutcome, String> {
+    let stats = capcut_split_segments(draft, at_sec, ids).await?;
+    if stats.split == 0 {
+        return Err(format!("No clip spans {:.2}s, so nothing was split.", at_sec));
+    }
+    Ok(ActionOutcome::ok(format!("Split {} clip(s) at {:.2}s on the CapCut timeline.", stats.split, at_sec)))
+}
+
+pub async fn remove_ranges(
+    draft: Option<String>,
+    ranges: Vec<TimeRange>,
+    ripple: bool,
+) -> Result<ActionOutcome, String> {
+    let total: f64 = ranges.iter().map(|r| r.end - r.start).sum();
+    let count = ranges.len();
+    let stats = capcut_remove_ranges(draft, ranges.into_iter().map(|r| (r.start, r.end)).collect(), ripple).await?;
+    let mut outcome = ActionOutcome::ok(format!(
+        "Removed {} span(s) ({:.2}s) from the CapCut timeline{}.",
+        count,
+        total,
+        if ripple { " and closed the gaps" } else { ", leaving gaps" }
+    ));
+    outcome.lines.push(format!(
+        "{} clip(s) cut, {} deleted, {} moved left.",
+        stats.split, stats.removed, stats.shifted
+    ));
+    if stats.markers_removed > 0 {
+        outcome.lines.push(format!("{} marker(s) inside the spans were removed.", stats.markers_removed));
+    }
+    Ok(outcome)
+}
+
 // ---------------------------------------------------------------------------
 // MCP tool schemas: what the agent is told CapCut can do
 // ---------------------------------------------------------------------------
@@ -200,5 +235,7 @@ pub fn edit_tools() -> Vec<Value> {
             }),
         ),
         delete_tool("CapCut", false),
+        split_tool("CapCut", ""),
+        remove_ranges_tool("CapCut", " Markers inside a span are removed and later ones move with the clips."),
     ]
 }

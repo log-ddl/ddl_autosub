@@ -38,6 +38,7 @@ function unsupportedAdapter(integration: string): EditorAdapter {
     target: null,
     projectId: null,
     projectName: null,
+    workspaceProject: null,
     title: `${name} (AI Edit chưa hỗ trợ dựng)`,
     refreshAfterEdit: async () => {},
     buildPrompt: async (userSystemPrompt, workspaceInfo) =>

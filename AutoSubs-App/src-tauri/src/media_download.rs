@@ -10,8 +10,11 @@
 // Both land in the app data dir and are reused forever. Merging the separate
 // video/audio streams reuses the ffmpeg sidecar that ships with the app.
 //
-// v1 downloads video only (no audio/subtitle/thumbnail) and no login cookies,
-// so only public URLs are supported.
+// v1 downloads video only (no audio/subtitle/thumbnail). Runs on a known site
+// (YouTube, Instagram, TikTok, ...) get the cookies of the app's own browser
+// session (see site_session.rs): a visitor's cookies get YouTube past its
+// "confirm you're not a bot" check, and a sign-in opens Instagram and the
+// other sites that want an account.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -27,6 +30,7 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 
 use crate::process_ext::HiddenConsole;
+use crate::site_session::{self, Site, SiteLogin};
 
 const EVENT_SETUP_PROGRESS: &str = "media-download-setup-progress";
 const EVENT_SETUP_DONE: &str = "media-download-setup-done";
@@ -194,6 +198,61 @@ fn ffmpeg_location() -> Option<PathBuf> {
     #[cfg(not(target_os = "windows"))]
     let candidate = dir.join("ffmpeg");
     candidate.exists().then_some(candidate)
+}
+
+/// A cookie file for one yt-dlp run, removed when the run is over.
+struct CookieFile(PathBuf);
+
+impl Drop for CookieFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// The session's cookies for `site` (every known site when `None`, for a
+/// batch) as a file for one run.
+async fn session_cookies(app: &AppHandle, site: Option<&'static Site>, tag: &str) -> Option<CookieFile> {
+    let path = std::env::temp_dir().join(format!("autosubs-cookies-{}.txt", tag));
+    site_session::write_cookie_file(app, &path, site).await.then(|| CookieFile(path))
+}
+
+/// Whether yt-dlp's error means the site wants a signed-in (or less
+/// bot-like) session: YouTube's bot check, a login wall, a rate limit.
+fn wants_login(msg: &str) -> bool {
+    let m = msg.to_ascii_lowercase();
+    [
+        "not a bot",
+        "sign in to confirm",
+        "http error 429",
+        "--cookies",
+        "login required",
+        "log in",
+        "logged-in",
+        "logged in",
+        "empty media response",
+        "rate-limit",
+        "private",
+    ]
+    .iter()
+    .any(|k| m.contains(k))
+}
+
+/// yt-dlp's error, plus the sign-in that would fix it. The cached cookies are
+/// dropped so the next try reads the session again.
+fn explain_error(msg: String, site: Option<&'static Site>) -> (String, Option<SiteLogin>) {
+    match site.filter(|_| wants_login(&msg)) {
+        Some(site) => {
+            site_session::invalidate();
+            (
+                format!(
+                    "{}\n\n{} wants a signed-in session. Sign in to {} (the account button in the Download tab), then try again.",
+                    msg, site.name, site.name
+                ),
+                Some(site.into()),
+            )
+        }
+        None => (msg, None),
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -687,6 +746,15 @@ pub async fn media_download_analyze(
             }
         }
     }
+    let site = site_session::site_for_url(&url);
+    let cookies = match site {
+        Some(_) => session_cookies(&app, site, &uuid::Uuid::new_v4().simple().to_string()).await,
+        None => None,
+    };
+    if let Some(c) = &cookies {
+        args.push("--cookies".into());
+        args.push(c.0.to_string_lossy().to_string());
+    }
     args.push(url.clone());
 
     let output = Command::new(&binary)
@@ -702,7 +770,7 @@ pub async fn media_download_analyze(
         return Err(if stderr.trim().is_empty() {
             "Could not analyze this URL".to_string()
         } else {
-            stderr.trim().to_string()
+            explain_error(stderr.trim().to_string(), site).0
         });
     }
     let data: serde_json::Value =
@@ -756,6 +824,8 @@ pub struct DownloadResult {
     pub canceled: bool,
     pub file_path: Option<String>,
     pub error: Option<String>,
+    /// The site to sign in to when the failure was a login wall or bot check.
+    pub login_site: Option<SiteLogin>,
 }
 
 fn output_template(directory: &str) -> String {
@@ -765,7 +835,7 @@ fn output_template(directory: &str) -> String {
         .to_string()
 }
 
-fn build_args(app: &AppHandle, req: &DownloadRequest, report_file: &Path) -> Vec<String> {
+fn build_args(app: &AppHandle, req: &DownloadRequest, report_file: &Path, cookies: Option<&Path>) -> Vec<String> {
     let report = report_file.to_string_lossy().to_string();
     let mut args: Vec<String> = vec![
         "--no-playlist".into(),
@@ -830,6 +900,10 @@ fn build_args(app: &AppHandle, req: &DownloadRequest, report_file: &Path) -> Vec
                 args.push(format!("deno:{}", deno.to_string_lossy()));
             }
         }
+    }
+    if let Some(c) = cookies {
+        args.push("--cookies".into());
+        args.push(c.to_string_lossy().to_string());
     }
 
     let height = req.quality.as_deref().filter(|q| *q != "best" && !q.is_empty());
@@ -908,7 +982,11 @@ pub async fn media_download_start(
     // Where yt-dlp writes the output path. One file per job, removed below.
     let report_file = std::env::temp_dir().join(format!("autosubs-dl-{}.txt", job_id));
     let _ = fs::remove_file(&report_file).await; // stale file from a crashed run
-    let args = build_args(&app, &request, &report_file);
+    // A batch file's URLs can't be sniffed here, so a batch gets every site's.
+    let batch = request.batch_file.is_some();
+    let site = if batch { None } else { site_session::site_for_url(&request.url) };
+    let cookies = if batch || site.is_some() { session_cookies(&app, site, &job_id).await } else { None };
+    let args = build_args(&app, &request, &report_file, cookies.as_ref().map(|c| c.0.as_path()));
 
     let mut child = Command::new(&binary)
         .args(&args)
@@ -966,6 +1044,7 @@ pub async fn media_download_start(
             canceled: true,
             file_path: None,
             error: None,
+            login_site: None,
         });
     };
     let status = child
@@ -976,6 +1055,11 @@ pub async fn media_download_start(
 
     if !status.success() {
         let msg = stderr_text.trim().to_string();
+        let (error, login_site) = if msg.is_empty() {
+            ("Download failed".to_string(), None)
+        } else {
+            explain_error(msg.clone(), site)
+        };
         let _ = app.emit(
             EVENT_PROGRESS,
             DownloadProgress {
@@ -990,7 +1074,8 @@ pub async fn media_download_start(
             success: false,
             canceled: false,
             file_path: None,
-            error: Some(if msg.is_empty() { "Download failed".into() } else { msg }),
+            error: Some(error),
+            login_site,
         });
     }
 
@@ -1023,6 +1108,7 @@ pub async fn media_download_start(
             canceled: false,
             file_path: None,
             error: Some(msg),
+            login_site: None,
         });
     };
 
@@ -1041,6 +1127,7 @@ pub async fn media_download_start(
         canceled: false,
         file_path: Some(resolved),
         error: None,
+        login_site: None,
     })
 }
 

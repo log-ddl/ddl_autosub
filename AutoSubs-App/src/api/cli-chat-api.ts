@@ -32,6 +32,16 @@ export interface ProjectAssetItem {
   modifiedSec: number;
 }
 
+/** The editor project a workspace folder belongs to (one folder per project). */
+export interface WorkspaceProject {
+  editor: string;
+  name: string | null;
+  /** Tells apart projects with the same name: Resolve id, .prproj path, CapCut draft id. */
+  id: string | null;
+  /** Timeline / sequence name older builds keyed the folder by; moved in on first use. */
+  legacyName?: string | null;
+}
+
 export interface WorkspaceInfo {
   path: string;
   globalPath: string;
@@ -75,26 +85,34 @@ export async function getCliModels(
 
 export async function ensureCliWorkspace(
   workspacePath?: string | null,
-  projectName?: string | null,
+  project?: WorkspaceProject | null,
 ): Promise<WorkspaceInfo> {
   return invoke<WorkspaceInfo>("cli_ensure_workspace", {
     workspacePath: workspacePath || null,
-    projectName: projectName || null,
+    project: project || null,
   });
 }
 
 export async function saveCliMemory(
   workspacePath: string | null | undefined,
   content: string,
-  projectName?: string | null,
+  project?: WorkspaceProject | null,
   globalContent?: string,
 ): Promise<WorkspaceInfo> {
   return invoke<WorkspaceInfo>("cli_save_memory", {
     workspacePath: workspacePath || null,
-    projectName: projectName || null,
+    project: project || null,
     content,
     globalContent: globalContent !== undefined ? globalContent : null,
   });
+}
+
+/** Copies a project asset into the template library, or a template into a project. Returns the new path. */
+export async function copyCliAsset(
+  source: string,
+  destinationDir: string,
+): Promise<string> {
+  return invoke<string>("cli_copy_asset", { source, destinationDir });
 }
 
 export async function cancelCliTextTask(requestId: string): Promise<boolean> {
@@ -109,7 +127,7 @@ export async function runCliTextTask(params: {
   effort?: string;
   sessionKey?: string;
   workingDirectory?: string;
-  projectName?: string;
+  project?: WorkspaceProject | null;
   /** Editor and project for the AutoSubs MCP tools. */
   editTarget?: EditTarget;
   /** Let the MCP tools edit the timeline (Turbo); otherwise read-only. */
@@ -155,7 +173,7 @@ export async function runCliTextTask(params: {
         sessionKey: params.sessionKey || null,
         requestId,
         workingDirectory: params.workingDirectory || null,
-        projectName: params.projectName || null,
+        project: params.project || null,
         editTarget: params.editTarget ?? null,
         allowEdits: params.allowEdits ?? false,
       },

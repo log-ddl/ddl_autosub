@@ -1,5 +1,5 @@
 import type { EditTarget } from "@/api/ai-edit-api";
-import type { WorkspaceInfo } from "@/api/cli-chat-api";
+import type { WorkspaceInfo, WorkspaceProject } from "@/api/cli-chat-api";
 
 /**
  * Everything the AI Edit tab needs to know about one editor. Each editor has
@@ -12,8 +12,10 @@ export interface EditorAdapter {
   target: EditTarget | null;
   /** What a conversation is bound to (draft id, timeline or sequence name). */
   projectId: string | null;
-  /** Human-readable project name, also used for the workspace folder. */
+  /** Human-readable name of what the conversation is bound to. */
   projectName: string | null;
+  /** The editor project whose asset folder this conversation uses. */
+  workspaceProject: WorkspaceProject | null;
   /** Shown in the empty chat ("Điều khiển trực tiếp ..."). */
   title: string;
   /** Re-read the editor after an edit so the UI shows the new state. */

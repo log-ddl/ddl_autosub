@@ -4519,6 +4519,8 @@ local handlers = {
     AddMarkers = function(req) return ai_edit.add_markers(req) end,
     UpdateClip = function(req) return ai_edit.update_clip(req) end,
     DeleteClips = function(req) return ai_edit.delete_clips(req) end,
+    SplitClips = function(req) return ai_edit.split_clips(req) end,
+    RemoveRanges = function(req) return ai_edit.remove_ranges(req) end,
 
     JumpToTime = function(req)
         JumpToTime(req.seconds)
@@ -4541,6 +4543,40 @@ local handlers = {
         return { message = "Server shutting down" }, { quit = true }
     end,
 }
+
+-- Standard-alphabet base64 with '=' padding, pure Lua (the sandbox has no
+-- bit ops). Works on whole 3-byte groups and joins once at the end: the
+-- per-bit string version this replaced took seconds on a large timeline
+-- snapshot, all of it spent before the app could see the response.
+local B64_DIGITS = {}
+do
+    local alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    for i = 1, 64 do
+        B64_DIGITS[i - 1] = alphabet:sub(i, i)
+    end
+end
+
+local function base64_encode(data)
+    local D, floor = B64_DIGITS, math.floor
+    local out, n = {}, #data
+    local i = 1
+    while i + 2 <= n do
+        local a, b, c = data:byte(i, i + 2)
+        local v = a * 65536 + b * 256 + c
+        out[#out + 1] = D[floor(v / 262144)] .. D[floor(v / 4096) % 64] .. D[floor(v / 64) % 64] .. D[v % 64]
+        i = i + 3
+    end
+    local rest = n - i + 1
+    if rest == 2 then
+        local a, b = data:byte(i, i + 1)
+        local v = a * 65536 + b * 256
+        out[#out + 1] = D[floor(v / 262144)] .. D[floor(v / 4096) % 64] .. D[floor(v / 64) % 64] .. "="
+    elseif rest == 1 then
+        local v = data:byte(i) * 65536
+        out[#out + 1] = D[floor(v / 262144)] .. D[floor(v / 4096) % 64] .. "=="
+    end
+    return table.concat(out)
+end
 
 -- Write an ack / response for a request into Fusion.prefs. Rust polls the
 -- prefs file on disk; SetPrefs + SavePrefs is the only channel back that the
@@ -4577,7 +4613,7 @@ local function bridge_respond(id, body_json)
     local safe = body_json:gsub("[\128-\255]", function(c)
         return string.format("\\u%04x", 0xE000 + c:byte())
     end)
-    bridge_write("Global.AutoSubsBridge.Response", id .. ":" .. AutoSubs_base64(safe))
+    bridge_write("Global.AutoSubsBridge.Response", id .. ":" .. base64_encode(safe))
 end
 
 -- Claim a mailbox request so only one loop handles it. A raced takeover or
@@ -4594,6 +4630,19 @@ local function bridge_claim(req_id, instance_id)
     if ok and type(claim) == "string" and claim ~= mine
         and claim:sub(-(#req_id + 1)) == ":" .. req_id then
         return false -- another loop already claimed this request
+    end
+    -- Owner is decided last-writer-wins at launch, so at most one loop holds
+    -- it: that loop can take the request without the settle wait, which
+    -- otherwise adds 150 ms to every call. A loop that sees a foreign Owner
+    -- is about to exit and leaves the request to the owner. Only loops with
+    -- no owner recorded (older launchers) fall back to the timed claim.
+    local own_ok, owner = pcall(fusion.GetPrefs, fusion, "Global.AutoSubsBridge.Owner")
+    if own_ok and type(owner) == "string" and owner ~= "" then
+        if owner ~= instance_id then
+            return false
+        end
+        pcall(fusion.SetPrefs, fusion, key, mine)
+        return true
     end
     pcall(fusion.SetPrefs, fusion, key, mine)
     bmd.wait(0.15)
@@ -4802,7 +4851,7 @@ function StartServer()
         for _, name in ipairs({
             "autosubs_core", "resolve_env", "caption_template_version",
             "caption_style", "font_fallback", "dkjson", "version",
-            "timecode", "bootstrap"
+            "timecode", "bootstrap", "ai_edit"
         }) do
             AutoSubs_loaded[name] = nil
         end

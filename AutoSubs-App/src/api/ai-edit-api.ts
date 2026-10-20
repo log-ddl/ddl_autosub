@@ -5,6 +5,8 @@ export interface EditTarget {
   integration: "davinci" | "capcut" | "premiere";
   /** CapCut draft id; DaVinci and Premiere always edit the open timeline. */
   draftId?: string | null;
+  /** Transcript open in the app, which the agent's get_transcript reads first. */
+  transcriptFile?: string | null;
 }
 
 export interface ActionOutcome {
@@ -18,7 +20,8 @@ export interface ActionOutcome {
 
 /**
  * Run one timeline action (build_storyboard, add_marker, add_text,
- * update_segment, delete_segment). The same Rust code serves the MCP tools.
+ * update_segment, delete_segment, split_clips, remove_ranges). The same Rust
+ * code serves the MCP tools.
  */
 export async function executeTimelineAction(
   target: EditTarget,

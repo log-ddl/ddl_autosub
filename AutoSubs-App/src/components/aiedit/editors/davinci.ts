@@ -10,12 +10,26 @@ const TARGET: EditTarget = { integration: "davinci", draftId: null };
 export function useDavinciAdapter(): EditorAdapter {
   const { timelineInfo, refresh } = useResolve();
   const name = timelineInfo?.name || null;
+  // One asset folder per project; older bridges report no project, so the
+  // timeline name stands in for it.
+  const projectName = timelineInfo?.projectName || name;
+  const projectKey = timelineInfo?.projectId || null;
+  const workspaceProject = React.useMemo(
+    () => ({
+      editor: "davinci",
+      name: projectName,
+      id: projectKey,
+      legacyName: name,
+    }),
+    [projectName, projectKey, name],
+  );
 
   return React.useMemo(
     () => ({
       target: TARGET,
       projectId: name,
       projectName: name,
+      workspaceProject,
       title: "DaVinci Resolve",
       refreshAfterEdit: refresh,
       buildPrompt: async (userSystemPrompt, workspaceInfo, useTools) => {
@@ -29,6 +43,6 @@ export function useDavinciAdapter(): EditorAdapter {
         return buildDavinciPrompt(name ?? undefined, snapshot, userSystemPrompt, workspaceInfo, useTools);
       },
     }),
-    [name, refresh],
+    [name, workspaceProject, refresh],
   );
 }

@@ -25,10 +25,16 @@ export function workspaceSection(workspaceInfo: WorkspaceInfo | null): string[] 
 Để tránh lộn xộn giữa các dự án, bạn PHẢI lưu đúng loại file vào các thư mục chuẩn sau của Project **${workspaceInfo.projectSlug}**:
 1. **Thư mục gốc của Project hiện tại**: \`${workspaceInfo.path}\`
    - \`${workspaceInfo.motionGraphicsDir}\`: Nơi tạo các mini-project Motion Graphic / Remotion / HTML5 (mỗi cảnh tạo 1 thư mục con riêng).
+     Mỗi thư mục con phải xem trước được ngay trong app (người dùng bấm "Xem preview"):
+     • Không cần build: có \`index.html\` ở gốc thư mục con. Được dùng \`.ts\`/\`.tsx\` (app tự dịch), \`import "./style.css"\`, JSON, ảnh, và import tên gói như \`"three"\`, \`"gsap"\` (tự tải từ esm.sh). Viết \`<script type="module" src="./main.ts">\`.
+     • Cần bundler (Remotion, Vite, React lớn): có \`package.json\` với script \`"dev"\` nhận cờ \`--port\`. App tự cài thư viện và chạy nó.
+     • Hoạt ảnh phải tự chạy khi mở trang và nên lặp lại, khung hình 16:9 vừa khít cửa sổ.
    - \`${workspaceInfo.aiBrollDir}\`: Nơi lưu video hoặc ảnh B-Roll do AI tạo ra hoặc tải về cho riêng video này.
    - \`${workspaceInfo.exportsDir}\`: Nơi xuất các file video thành phẩm (\`.mp4\`, \`.mov\`) đã render xong để đẩy vào Timeline của trình dựng đang kết nối.
    - \`${workspaceInfo.path}/visual-plan.json\`: File lưu kịch bản phân cảnh Visual Plan của dự án.
+   - Mọi file bạn tạo (kể cả file tạm, file render) CHỈ được ghi bên trong thư mục Project này. Mỗi project trên DaVinci / Premiere / CapCut có thư mục riêng, không dùng chung.
 2. **Kho mẫu Motion Graphic dùng chung (Global Templates)**: \`${workspaceInfo.templatesDir}\`
+   - CHỈ ĐỌC. Không tạo hay sửa file ở đây. Muốn dùng một template thì chép nó sang \`${workspaceInfo.motionGraphicsDir}\` rồi sửa bản chép. Chỉ người dùng mới lưu template mới (nút "Lưu template").
 3. **Danh sách Assets hiện có trong Project**:
 ${assetSummary}`,
     );
@@ -73,16 +79,52 @@ export const STORYBOARD_DOC = `**Import, Cắt ghép (Cut/Split), Thay thế, Ch
 // how to use them; the tool schemas carry the parameters and editor limits.
 export function toolsSection(editorName: string): string {
   return `### Công cụ dựng phim (MCP server \`autosubs\`)
-Bạn có các tool của MCP server \`autosubs\` để thao tác trực tiếp lên timeline ${editorName}: \`get_timeline\`, \`build_storyboard\`, \`add_marker\`, \`add_text\`, \`update_clip\`, \`delete_clips\`.
+Bạn có các tool của MCP server \`autosubs\` để thao tác trực tiếp lên timeline ${editorName}: \`get_timeline\`, \`get_transcript\`, \`build_storyboard\`, \`add_marker\`, \`add_text\`, \`update_clip\`, \`delete_clips\`, \`split_clips\`, \`remove_ranges\`, \`apply_actions\`.
 - Dùng các tool này thay vì viết khối \`timeline-action\`, sửa file project hay gọi cổng HTTP. KHÔNG đọc mã nguồn của ứng dụng AutoSubs.
 - Thời gian luôn tính bằng giây từ đầu timeline. Cần id của clip thì gọi \`get_timeline\`.
+- Cần biết video nói gì (chọn chỗ chèn B-roll, đặt marker theo nội dung, cắt câu nói hỏng, cắt khoảng lặng / từ đệm) thì gọi \`get_transcript\` (thêm \`words: true\` để có thời gian từng chữ, \`minPauseSec\` để liệt kê khoảng lặng), rồi cắt bằng \`remove_ranges\`.
+- \`remove_ranges\` mặc định dồn timeline (ripple): truyền TẤT CẢ các đoạn cần cắt trong MỘT lần gọi, theo thời gian hiện tại. Sau khi cắt, thời gian phía sau đã đổi; muốn cắt tiếp thì đọc lại \`get_transcript\` / \`get_timeline\` trước.
+- Đã có kế hoạch nhiều bước (đặt hết B-roll, thêm hết chữ, marker, rồi cắt) thì gom vào MỘT lần gọi \`apply_actions\` (mỗi phần tử là \`{ "tool": "<tên tool>", "args": {...} }\`, chạy theo thứ tự) thay vì gọi từng tool, vì mỗi lần gọi tool tốn một lượt suy nghĩ. Đặt \`split_clips\`, di chuyển clip và \`remove_ranges\` ở cuối vì chúng đổi id clip và dời thời gian phía sau; không dùng lại id mà bước trước đã thay.
 - Mỗi tool trả về kết quả. Nếu báo lỗi hoặc chỉ làm được một phần, đọc thông báo, chỉnh tham số rồi gọi lại.
-- Kết quả tool đã cho biết đặt/sửa được bao nhiêu. KHÔNG gọi lại \`get_timeline\` chỉ để kiểm tra; chỉ gọi khi tool báo lỗi, chỉ làm được một phần, hoặc cần id clip mới cho bước sửa tiếp theo.`;
+- Kết quả tool đã cho biết đặt/sửa được bao nhiêu. KHÔNG gọi lại \`get_timeline\` chỉ để kiểm tra; chỉ gọi khi tool báo lỗi, chỉ làm được một phần, hoặc cần id clip mới cho bước sửa tiếp theo.
+
+${DOWNLOAD_TOOLS_DOC}`;
 }
+
+// The download tools work in Manual runs too (they never touch the timeline),
+// so both the tools section and the manual actions section carry this.
+export const DOWNLOAD_TOOLS_DOC = `### Tải video và bài báo (MCP server \`autosubs\`)
+- \`inspect_media\`: xem một link video (tiêu đề, độ dài, độ phân giải) mà chưa tải. Dùng được với YouTube, TikTok, Facebook, Instagram, X, Vimeo, trang báo và hầu hết trang có video nhúng.
+- \`download_media\`: tải video về thư mục \`ai-broll\` của project và trả về đường dẫn file để đưa vào \`build_storyboard\`. Làm B-roll thì truyền \`startSec\` / \`endSec\` để chỉ tải đúng đoạn cần, nhanh hơn rất nhiều so với tải cả video.
+- \`save_article\`: lưu một bài báo / bài viết (chữ thành \`article.md\`, ảnh trong \`images/\`) vào thư mục \`articles\` của project, để nghiên cứu nội dung hoặc lấy ảnh minh họa.
+- Nếu tool báo cần đăng nhập, nói với người dùng đăng nhập trang đó từ nút tài khoản ở tab Download rồi thử lại. Chỉ tải nội dung mà người dùng có quyền sử dụng.`;
+
+export const SPLIT_DOC = `**Cắt đôi clip tại một thời điểm** (\`split_clips\`, như dao cắt Razor):
+- \`atSec\`: thời điểm cắt (giây từ đầu timeline).
+- \`segmentIds\` (tùy chọn): chỉ cắt các clip này (kèm audio đi liền). Bỏ trống là cắt mọi clip nằm dưới \`atSec\` trên mọi track.
+\`\`\`timeline-action
+{
+  "action": "split_clips",
+  "summary": "Cắt đôi timeline tại 01:05",
+  "atSec": 65
+}
+\`\`\``;
+
+export const REMOVE_RANGES_DOC = `**Cắt bỏ các đoạn thời gian trên mọi track** (\`remove_ranges\`: khoảng lặng, từ đệm, câu nói hỏng):
+- \`ranges\`: danh sách \`{ "start": giây, "end": giây }\` theo thời gian HIỆN TẠI của timeline. Lấy thời gian từ transcript (gọi tool \`get_transcript\`, có \`words\` và \`minPauseSec\`).
+- \`ripple\` (tùy chọn, mặc định \`true\`): dồn các clip phía sau lại cho liền. Vì vậy hãy gộp TẤT CẢ các đoạn vào MỘT lệnh.
+\`\`\`timeline-action
+{
+  "action": "remove_ranges",
+  "summary": "Cắt 2 khoảng lặng",
+  "ranges": [{ "start": 12.4, "end": 13.6 }, { "start": 40.1, "end": 41.0 }],
+  "ripple": true
+}
+\`\`\``;
 
 // The command docs, numbered in the order this editor's prompt lists them.
 export function actionsSection(docs: string[]): string {
-  return [RULES_HEADER, ...docs.map((doc, i) => `${i + 1}. ${doc}`)].join("\n\n");
+  return [RULES_HEADER, ...docs.map((doc, i) => `${i + 1}. ${doc}`), DOWNLOAD_TOOLS_DOC].join("\n\n");
 }
 
 export function userAndMemorySections(

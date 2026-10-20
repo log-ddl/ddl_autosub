@@ -6,7 +6,9 @@ export interface TimelineActionCommand {
     | "add_marker"
     | "add_text"
     | "update_segment"
-    | "delete_segment";
+    | "delete_segment"
+    | "split_clips"
+    | "remove_ranges";
   summary?: string;
   mode?: "replace" | "insert" | "overlay" | "append";
   targetVideoTrack?: number;
@@ -39,6 +41,8 @@ export interface TimelineActionCommand {
   opacity?: number;
   segmentIds?: string[];
   ripple?: boolean;
+  atSec?: number;
+  ranges?: Array<{ start: number; end: number }>;
   template?: string;
   track?: string;
   texts?: Array<{ text: string; start: number; end: number }>;
@@ -61,6 +65,11 @@ export const AI_EDIT_QUICK_STARTERS = [
     title: "Tạo hiệu ứng Punch-in Zoom",
     prompt:
       "Hãy giúp tôi zoom nhẹ (1.18x) vào clip đầu tiên trên timeline để tạo điểm nhấn mở đầu (hook).",
+  },
+  {
+    title: "Cắt khoảng lặng & từ đệm",
+    prompt:
+      "Đọc transcript của timeline, tìm các khoảng lặng dài hơn 0.7 giây và các từ đệm (ờ, à, ừm, um, uh), rồi cắt bỏ chúng và dồn timeline lại cho liền mạch.",
   },
   {
     title: "Chèn Motion Graphic 3s",
@@ -172,11 +181,18 @@ export function formatModelParts(
 // "autosubs/add_marker", ...); matched on the part after the server name.
 const AUTOSUBS_TOOL_NAMES: Record<string, string> = {
   get_timeline: "Đọc Timeline",
+  get_transcript: "Đọc Transcript",
   build_storyboard: "Đặt clip lên Timeline",
   add_marker: "Đặt Marker",
   add_text: "Thêm chữ",
   update_clip: "Chỉnh clip",
   delete_clips: "Xóa clip",
+  split_clips: "Cắt đôi clip",
+  remove_ranges: "Cắt bỏ đoạn",
+  apply_actions: "Áp nhiều thao tác",
+  inspect_media: "Xem link video",
+  download_media: "Tải video",
+  save_article: "Lưu bài báo",
 };
 
 function autosubsToolLabel(rawTool: string): string | undefined {

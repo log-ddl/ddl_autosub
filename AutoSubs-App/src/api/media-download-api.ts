@@ -16,11 +16,19 @@ export interface DownloadProgress {
   message: string
 }
 
+/** A site the app can sign in to for downloads (YouTube, Instagram, ...). */
+export interface SiteLogin {
+  key: string
+  name: string
+}
+
 export interface DownloadResult {
   success: boolean
   canceled: boolean
   filePath: string | null
   error: string | null
+  /** Set when the failure was a login wall or bot check that signing in fixes. */
+  loginSite?: SiteLogin | null
 }
 
 export interface DownloadOptions {
@@ -114,4 +122,29 @@ export async function checkDownloaderVersion(): Promise<DownloaderVersionCheck> 
 
 export async function updateDownloader(): Promise<string> {
   return invoke<string>("media_download_update")
+}
+
+/** The sites the app can sign in to for downloads. */
+export async function listLoginSites(): Promise<SiteLogin[]> {
+  return invoke<SiteLogin[]>("site_session_sites")
+}
+
+/** Open a site's sign-in window; downloads from it then use that account. */
+export async function signInToSite(site: string): Promise<void> {
+  await invoke("site_session_login", { site })
+}
+
+/** What `article_snapshot` saved: the article as markdown plus its images. */
+export interface ArticleSnapshot {
+  title: string
+  folder: string
+  markdownPath: string
+  images: string[]
+  textChars: number
+  warnings: string[]
+}
+
+/** Save a web article (text as article.md, plus images/) in a new folder under `outputDirectory`. */
+export async function saveArticle(url: string, outputDirectory: string): Promise<ArticleSnapshot> {
+  return invoke<ArticleSnapshot>("article_snapshot", { url, outputDirectory })
 }

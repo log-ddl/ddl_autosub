@@ -39,7 +39,9 @@ const RESOLVE_OFFLINE_MESSAGE: &str = "DaVinci Resolve is not running or the Aut
 /// How long to wait for the Lua side to ack a fresh request before declaring
 /// the bridge offline.
 const ACK_TIMEOUT: Duration = Duration::from_secs(2);
-const POLL_INTERVAL: Duration = Duration::from_millis(50);
+/// Fusion.prefs is a few tens of KB, so reading it this often is cheap and
+/// shaves the wait after Lua answers off every request.
+const POLL_INTERVAL: Duration = Duration::from_millis(20);
 
 /// While a previous handler is still running (Rust timed out on it but Lua
 /// kept going — it has no cancellation), a new request sits in the mailbox

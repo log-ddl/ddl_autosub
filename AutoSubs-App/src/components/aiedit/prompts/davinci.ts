@@ -2,6 +2,8 @@ import type { WorkspaceInfo } from "@/api/cli-chat-api";
 import {
   actionsSection,
   intro,
+  REMOVE_RANGES_DOC,
+  SPLIT_DOC,
   STORYBOARD_DOC,
   toolsSection,
   userAndMemorySections,
@@ -45,8 +47,9 @@ const DAVINCI_ADD_TEXT_DOC = `**Thêm chữ / tiêu đề lên Timeline DaVinci*
 \`\`\``;
 
 const DAVINCI_UPDATE_DOC = `**Chỉnh một clip trên DaVinci** (\`update_segment\` theo \`id\` trong danh sách clip ở trên):
-- Chỉ đổi được: \`zoom\`, \`panX\`, \`panY\`, \`rotation\`, \`opacity\` (0-100) và \`text\` (nội dung chữ của clip Text+).
-- API của Resolve **không** dời hay đổi độ dài clip, không tạo keyframe, không đổi âm lượng. Muốn dời clip, hãy xóa rồi đặt lại bằng \`build_storyboard\`.
+- Đổi được: \`startSec\` (dời clip), \`durationSec\` (đổi độ dài), \`zoom\`, \`panX\`, \`panY\`, \`rotation\`, \`opacity\` (0-100) và \`text\` (nội dung chữ của clip Text+).
+- Dời hoặc đổi độ dài sẽ dựng lại clip từ media: clip có id mới, giữ transform nhưng mất color grade và hiệu ứng Fusion; audio đi liền cũng dời theo; chỗ mới phải đang trống.
+- API của Resolve **không** tạo keyframe và không đổi âm lượng.
 \`\`\`timeline-action
 {
   "action": "update_segment",
@@ -67,6 +70,8 @@ const DAVINCI_DELETE_DOC = `**Xóa clip khỏi DaVinci** (\`delete_segment\`):
   "ripple": true
 }
 \`\`\``;
+
+const DAVINCI_CUT_NOTE = `- **Giới hạn của Resolve**: clip bị cắt được dựng lại từ media nên mất color grade và hiệu ứng Fusion; title, generator và clip đổi tốc độ không cắt được. Khi ripple, track không có clip nào trong đoạn cắt sẽ không được dồn (kết quả sẽ báo).`;
 
 /** What GetTimelineSnapshot (ai_edit.lua) returns for the open Resolve timeline. */
 export interface DavinciTimelineSnapshot {
@@ -124,7 +129,7 @@ ${DAVINCI_HTTP_NOTES}`}`;
 }
 
 const DAVINCI_HTTP_NOTES = `- Cổng HTTP của AutoSubs (app chuyển tiếp vào script AutoSubs đang chạy trong Resolve): \`http://127.0.0.1:56002\` (gửi HTTP POST JSON \`{"func": "<FunctionName>", ...}\`).
-- Các hàm có sẵn trên cổng \`:56002\`: \`GetTimelineSnapshot\`, \`GetTimelineInfo\`, \`GetTimelineSelection\`, \`BuildStoryboard\`, \`AddMarkers\`, \`AddSubtitles\`, \`UpdateClip\`, \`DeleteClips\`, \`JumpToTime\`, \`ResolveRpc\`.
+- Các hàm có sẵn trên cổng \`:56002\`: \`GetTimelineSnapshot\`, \`GetTimelineInfo\`, \`GetTimelineSelection\`, \`BuildStoryboard\`, \`AddMarkers\`, \`AddSubtitles\`, \`UpdateClip\`, \`DeleteClips\`, \`SplitClips\`, \`RemoveRanges\`, \`JumpToTime\`, \`ResolveRpc\`.
 - TUYỆT ĐỐI KHÔNG chạy grep/find quét thư mục \`target/\` hay \`node_modules/\`.`;
 
 /** Prompt for a conversation bound to DaVinci Resolve. */
@@ -147,6 +152,8 @@ export function buildDavinciPrompt(
           DAVINCI_ADD_TEXT_DOC,
           DAVINCI_UPDATE_DOC,
           DAVINCI_DELETE_DOC,
+          `${SPLIT_DOC}\n${DAVINCI_CUT_NOTE}`,
+          `${REMOVE_RANGES_DOC}\n${DAVINCI_CUT_NOTE}`,
         ]),
     ...userAndMemorySections(userSystemPrompt, workspaceInfo),
   ].join("\n\n");

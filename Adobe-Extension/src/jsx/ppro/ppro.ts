@@ -172,6 +172,10 @@ export function getActiveSequenceInfo(): string {
       hasActiveSequence: true,
       name: sequence.name,
       id: sequence.sequenceID,
+      // AI Edit keeps one asset folder per project; the path tells apart
+      // projects with the same name.
+      projectName: app.project ? String(app.project.name).replace(/\.prproj$/i, "") : "",
+      projectPath: app.project ? String(app.project.path) : "",
       durationSeconds: durationSeconds,
       timebase: timebase,
       width: frameWidth || 1920,

@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useTranslation } from "react-i18next";
 import {
   ArrowRight,
   Bot,
@@ -111,6 +112,7 @@ export function AiEditPromptBox({
   onToggleAutoApply,
   textareaRef,
 }: AiEditPromptBoxProps) {
+  const { t } = useTranslation();
   const slashMatch = /^\/([^\s]*)$/.exec(draft);
   const slashCommands = AI_EDIT_SLASH_COMMANDS.filter(
     (s) => !slashMatch?.[1] || s.name.includes(slashMatch[1].toLowerCase()),
@@ -215,7 +217,7 @@ export function AiEditPromptBox({
                   <DropdownMenuItem onClick={onOpenAssetsDialog}>
                     <Layers className="size-3.5 mr-2 text-primary" />
                     <span className="flex-1 truncate">
-                      Kho Asset AI (Motion / B-Roll)
+                      {t("aiEdit.assets.menuItem")}
                     </span>
                     {assetCount > 0 && (
                       <span className="ml-2 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">

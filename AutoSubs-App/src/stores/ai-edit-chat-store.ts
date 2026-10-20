@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { ContentCliAdapter } from "@/api/cli-chat-api";
+import type { PreviewTarget } from "@/api/preview-api";
 
 export interface ContentMessage {
   id: string;
@@ -8,6 +9,8 @@ export interface ContentMessage {
   content: string;
   thinking?: string;
   steps?: string[];
+  /** Motion graphics the agent wrote or changed during this reply. */
+  previews?: PreviewTarget[];
   createdAt: number;
 }
 

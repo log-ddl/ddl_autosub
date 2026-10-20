@@ -974,8 +974,8 @@
   },
   "download": {
     "title": "Download video",
-    "subtitle": "Paste a video link and save an MP4.",
-    "urlLabel": "Video URL",
+    "subtitle": "Paste a YouTube, TikTok, Facebook or Instagram link.",
+    "urlLabel": "Video or article link",
     "folder": "Save to",
     "chooseFolder": "Choose a folder…",
     "trim": "Trim (optional)",
@@ -1007,14 +1007,23 @@
     },
     "update": {
       "checking": "Checking the downloader for updates…",
-      "title": "The downloader needs updating",
-      "body": "YouTube changes how it serves video every few months. An out-of-date downloader stops working without a clear reason, so update it before downloading.",
-      "installed": "Installed",
-      "available": "New",
-      "action": "Update now",
       "updating": "Updating…",
-      "skip": "Continue without updating",
-      "current": "Downloader is up to date ({{version}})"
+      "current": "Downloader is up to date ({{version}})",
+      "check": "Check for downloader updates",
+      "checkFailed": "Could not check for updates",
+      "updated": "Downloader updated to {{version}}",
+      "failed": "Could not update the downloader"
+    },
+    "signIn": "Sign in to {{site}}",
+    "accounts": {
+      "title": "Accounts",
+      "hint": "Sign in for posts that need an account."
+    },
+    "article": {
+      "save": "Save article",
+      "saving": "Saving article…",
+      "done": "Article saved with {{count}} images",
+      "failed": "Could not save the article"
     }
   },
   "appUpdate": {
@@ -1026,5 +1035,12 @@
     "action": "Update and restart",
     "skip": "Continue on this version",
     "resolveNote": "After the restart, run Workspace → Scripts → AutoSubs again in DaVinci Resolve to reconnect."
+  },
+  "aiEdit": {
+    "assets": {
+      "button": "Asset",
+      "tooltip": "Open the project's assets (Motion Graphics, AI B-Roll, Exports, Templates)",
+      "menuItem": "Asset (Motion / B-Roll)"
+    }
   }
 }

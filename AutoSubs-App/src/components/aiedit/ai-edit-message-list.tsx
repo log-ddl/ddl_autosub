@@ -7,6 +7,7 @@ import {
   Copy,
   Film,
   Loader2,
+  MonitorPlay,
   Play,
   Sparkles,
   Terminal,
@@ -16,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ContentCliAdapter } from "@/api/cli-chat-api";
 import type { ContentConversation } from "@/stores/ai-edit-chat-store";
+import type { PreviewTarget } from "@/api/preview-api";
 import {
   AI_EDIT_QUICK_STARTERS,
   cliLabel,
@@ -37,6 +39,7 @@ export interface AiEditMessageListProps {
   activeStepList: string[];
   onSendPrompt: (overridePrompt?: string) => void;
   onExecuteTimelineAction: (cmd: TimelineActionCommand) => void;
+  onOpenPreview: (target: PreviewTarget) => void;
   endRef: React.RefObject<HTMLDivElement>;
 }
 
@@ -155,6 +158,7 @@ export function AiEditMessageList({
   activeStepList,
   onSendPrompt,
   onExecuteTimelineAction,
+  onOpenPreview,
   endRef,
 }: AiEditMessageListProps) {
   const [copiedId, setCopiedId] = React.useState("");
@@ -273,6 +277,38 @@ export function AiEditMessageList({
                         Áp dụng lại
                       </Button>
                     </div>
+                  ))}
+                </div>
+              )}
+
+              {message.previews && message.previews.length > 0 && (
+                <div className="space-y-1.5 pt-1">
+                  {message.previews.map((target) => (
+                    <button
+                      key={target.path}
+                      type="button"
+                      onClick={() => onOpenPreview(target)}
+                      className="flex w-full items-center justify-between gap-3 rounded-xl border border-border/60 bg-muted/30 px-3.5 py-2.5 text-left text-xs hover:bg-muted/60 transition-colors"
+                      title={target.path}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                          <MonitorPlay className="size-3.5" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="font-medium text-foreground truncate">
+                            {target.name}
+                          </div>
+                          <div className="text-[11px] text-muted-foreground">
+                            {target.kind === "dev" ? "Dev server" : "HTML/TS"}
+                          </div>
+                        </div>
+                      </div>
+                      <span className="flex shrink-0 items-center gap-1 rounded-lg bg-secondary px-2.5 py-1 text-xs font-medium text-secondary-foreground">
+                        <Play className="size-3" />
+                        Xem preview
+                      </span>
+                    </button>
                   ))}
                 </div>
               )}

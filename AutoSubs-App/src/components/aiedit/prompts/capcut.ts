@@ -3,6 +3,8 @@ import type { CapCutTimelineSnapshot } from "@/api/capcut-api";
 import {
   actionsSection,
   intro,
+  REMOVE_RANGES_DOC,
+  SPLIT_DOC,
   STORYBOARD_DOC,
   toolsSection,
   userAndMemorySections,
@@ -133,6 +135,8 @@ export function buildCapCutPrompt(
           CAPCUT_ADD_TEXT_DOC,
           UPDATE_SEGMENT_DOC,
           DELETE_SEGMENT_DOC,
+          SPLIT_DOC,
+          REMOVE_RANGES_DOC,
         ]),
     ...userAndMemorySections(userSystemPrompt, workspaceInfo),
   ].join("\n\n");

@@ -11,8 +11,8 @@ pub fn tool(name: &str, description: impl Into<String>, schema: Value) -> Value 
     json!({ "name": name, "description": description.into(), "inputSchema": schema })
 }
 
-/// The tools for one session: `get_timeline` always, the edit tools only when
-/// the run may edit (Turbo).
+/// The tools for one session: the read tools (`get_timeline`,
+/// `get_transcript`) always, the edit tools only when the run may edit (Turbo).
 pub fn tool_definitions(editor: Editor, allow_edits: bool) -> Vec<Value> {
     let snapshot_fields = match editor {
         Editor::Davinci => davinci::SNAPSHOT_FIELDS,
@@ -29,15 +29,131 @@ pub fn tool_definitions(editor: Editor, allow_edits: bool) -> Vec<Value> {
             snapshot_fields
         ),
         json!({ "type": "object", "properties": {} }),
-    )];
+    ), transcript_tool()];
     if allow_edits {
-        tools.extend(match editor {
+        let edits = match editor {
             Editor::Davinci => davinci::edit_tools(),
             Editor::Capcut => capcut::edit_tools(),
             Editor::Premiere => premiere::edit_tools(),
-        });
+        };
+        let names: Vec<&str> = edits.iter().filter_map(|t| t["name"].as_str()).collect();
+        let batch = apply_actions_tool(&names);
+        tools.extend(edits);
+        tools.push(batch);
     }
     tools
+}
+
+/// `apply_actions`: several of the edit tools above in one call, so a
+/// planned edit costs one model turn instead of one per step.
+fn apply_actions_tool(edit_tools: &[&str]) -> Value {
+    tool(
+        "apply_actions",
+        "Run several edits in one call, in order: each entry is one of the edit tools with the same args \
+         it takes on its own. Use it once you have a plan (place all the B-roll, add all the titles and \
+         markers) instead of calling the tools one by one. Every entry is checked first, so a bad one \
+         applies nothing; then the batch stops at the first edit that fails (continueOnError to go on), \
+         and the result reports each entry. Entries run against the timeline as the previous ones left \
+         it: split_clips, update_clip moves and remove_ranges change clip ids and ripple cuts shift later \
+         times, so put those last, give all cut spans in one remove_ranges, and never reuse an id an \
+         earlier entry replaced.",
+        json!({
+            "type": "object",
+            "properties": {
+                "actions": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 100,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "tool": { "type": "string", "enum": edit_tools },
+                            "args": { "type": "object", "description": "The arguments that tool takes" }
+                        },
+                        "required": ["tool", "args"]
+                    }
+                },
+                "continueOnError": { "type": "boolean", "description": "Keep going after a failed edit (default false)" }
+            },
+            "required": ["actions"]
+        }),
+    )
+}
+
+/// `get_transcript`, the same for every editor.
+fn transcript_tool() -> Value {
+    tool(
+        "get_transcript",
+        "Read what is said on the timeline: the transcript AutoSubs made of it, one line per subtitle \
+         ([start-end] speaker: text, seconds from the timeline start). Reads the transcript open in the \
+         app, else the newest; the result lists the others by filename. Use words for per-word timings \
+         (to cut a filler word or a bad take precisely) and minPauseSec to list silences, e.g. 0.7, \
+         then cut them with remove_ranges.",
+        json!({
+            "type": "object",
+            "properties": {
+                "file": { "type": "string", "description": "A filename from the list of other transcripts" },
+                "fromSec": { "type": "number", "description": "Only segments ending after this time" },
+                "toSec": { "type": "number", "description": "Only segments starting before this time" },
+                "words": { "type": "boolean", "description": "Include per-word timings" },
+                "minPauseSec": { "type": "number", "description": "List pauses between words at least this long" }
+            }
+        }),
+    )
+}
+
+/// `split_clips`; `note` is appended for editor-specific limits.
+pub fn split_tool(editor_name: &str, note: &str) -> Value {
+    tool(
+        "split_clips",
+        format!(
+            "Cut clips on the {} timeline in two at atSec (a razor cut). Splits the clips listed in \
+             segmentIds, or every clip under atSec on every track when segmentIds is omitted. The pieces \
+             get new ids: call get_timeline before editing one of them.{}",
+            editor_name, note
+        ),
+        json!({
+            "type": "object",
+            "properties": {
+                "atSec": { "type": "number", "description": "Seconds from the timeline start" },
+                "segmentIds": { "type": "array", "items": { "type": "string" } }
+            },
+            "required": ["atSec"]
+        }),
+    )
+}
+
+/// `remove_ranges`; `note` is appended for editor-specific limits.
+pub fn remove_ranges_tool(editor_name: &str, note: &str) -> Value {
+    tool(
+        "remove_ranges",
+        format!(
+            "Cut time spans out of the {} timeline on every track: silences, filler words, a bad take. \
+             Clips crossing a span are split at its edges and the part inside is deleted. With ripple \
+             (the default) everything after moves left to close the gap, so give all spans in one call, \
+             in the timeline's current times, and re-read times with get_timeline/get_transcript before \
+             a second call.{}",
+            editor_name, note
+        ),
+        json!({
+            "type": "object",
+            "properties": {
+                "ranges": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "start": { "type": "number", "description": "Seconds from the timeline start" },
+                            "end": { "type": "number", "description": "Seconds from the timeline start" }
+                        },
+                        "required": ["start", "end"]
+                    }
+                },
+                "ripple": { "type": "boolean", "description": "Close the gaps (default true)" }
+            },
+            "required": ["ranges"]
+        }),
+    )
 }
 
 /// `build_storyboard`; `note` is appended for editor-specific limits.
@@ -151,8 +267,8 @@ mod tests {
 
     #[test]
     fn manual_mode_is_read_only() {
-        assert_eq!(names(&tool_definitions(Editor::Davinci, false)), ["get_timeline"]);
-        assert_eq!(names(&tool_definitions(Editor::Capcut, false)), ["get_timeline"]);
+        assert_eq!(names(&tool_definitions(Editor::Davinci, false)), ["get_timeline", "get_transcript"]);
+        assert_eq!(names(&tool_definitions(Editor::Capcut, false)), ["get_timeline", "get_transcript"]);
     }
 
     #[test]
@@ -160,14 +276,21 @@ mod tests {
         let davinci = tool_definitions(Editor::Davinci, true);
         let capcut = tool_definitions(Editor::Capcut, true);
         let premiere = tool_definitions(Editor::Premiere, true);
-        let all = ["get_timeline", "build_storyboard", "add_marker", "add_text", "update_clip", "delete_clips"];
+        let all = [
+            "get_timeline", "get_transcript", "build_storyboard", "add_marker", "add_text", "update_clip",
+            "delete_clips", "split_clips", "remove_ranges", "apply_actions",
+        ];
         assert_eq!(names(&davinci), all);
         assert_eq!(names(&capcut), all);
         assert_eq!(names(&premiere), all);
-        let ripple = |tools: &[Value]| tools[5]["inputSchema"]["properties"].get("ripple").is_some();
+        let ripple = |tools: &[Value]| tools[6]["inputSchema"]["properties"].get("ripple").is_some();
         assert!(ripple(&davinci));
         assert!(!ripple(&capcut));
-        assert!(capcut[4]["inputSchema"]["properties"].get("zoomEnd").is_some());
-        assert!(davinci[4]["inputSchema"]["properties"].get("zoomEnd").is_none());
+        assert!(capcut[5]["inputSchema"]["properties"].get("zoomEnd").is_some());
+        assert!(davinci[5]["inputSchema"]["properties"].get("zoomEnd").is_none());
+        assert!(davinci[5]["inputSchema"]["properties"].get("startSec").is_some());
+        assert!(premiere[5]["inputSchema"]["properties"].get("volume").is_some());
+        let batch_tools = &davinci[9]["inputSchema"]["properties"]["actions"]["items"]["properties"]["tool"]["enum"];
+        assert_eq!(batch_tools, &json!(all[2..9]));
     }
 }

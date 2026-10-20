@@ -2,6 +2,8 @@ import type { WorkspaceInfo } from "@/api/cli-chat-api";
 import {
   actionsSection,
   intro,
+  REMOVE_RANGES_DOC,
+  SPLIT_DOC,
   STORYBOARD_DOC,
   toolsSection,
   userAndMemorySections,
@@ -10,7 +12,7 @@ import {
 
 // System prompt for a conversation bound to Adobe Premiere Pro.
 
-const PREMIERE_STORYBOARD_NOTE = `- **Giới hạn của Premiere**: clip luôn được đặt nối tiếp sau clip cuối cùng trên track (\`mode\` được coi là \`"append"\`), và \`effect\` không được áp khi đặt clip. Muốn zoom/pan thì gọi \`update_segment\` sau khi đặt.`;
+const PREMIERE_STORYBOARD_NOTE = `- **Lưu ý với Premiere**: \`replace\` ghi đè cả video lẫn audio đi kèm; \`insert\` chỉ đẩy lùi Video Track đích và Audio Track cùng số; \`overlay\` chỉ đặt video (không kèm audio của B-roll).`;
 
 const PREMIERE_MARKER_DOC = `**Đặt Marker lên Sequence Premiere** (\`add_marker\`):
 - \`markers\`: danh sách marker, mỗi phần tử gồm:
@@ -46,7 +48,8 @@ const PREMIERE_ADD_TEXT_DOC = `**Thêm chữ lên Sequence Premiere** (\`add_tex
 const PREMIERE_UPDATE_DOC = `**Chỉnh một clip trên Premiere** (\`update_segment\` theo \`id\` trong danh sách clip ở trên):
 - Đổi được: \`startSec\` (dời clip), \`durationSec\` (đổi độ dài), \`zoom\` (1.0 = 100%), \`panX\` / \`panY\` (-1..1, 0 = giữa khung), \`rotation\` (độ), \`opacity\` (0-100).
 - Truyền \`zoomEnd\` / \`panXEnd\` / \`panYEnd\` để tạo keyframe động từ đầu đến cuối clip.
-- Không đổi được âm lượng và nội dung caption.
+- \`volume\`: âm lượng của clip audio (hoặc audio đi liền với clip video): \`1.0\` = giữ nguyên, \`0.5\` ≈ -6 dB, \`0\` = tắt tiếng.
+- Không đổi được nội dung caption.
 \`\`\`timeline-action
 {
   "action": "update_segment",
@@ -143,6 +146,8 @@ export function buildPremierePrompt(
           PREMIERE_ADD_TEXT_DOC,
           PREMIERE_UPDATE_DOC,
           PREMIERE_DELETE_DOC,
+          SPLIT_DOC,
+          REMOVE_RANGES_DOC,
         ]),
     ...userAndMemorySections(userSystemPrompt, workspaceInfo),
   ].join("\n\n");

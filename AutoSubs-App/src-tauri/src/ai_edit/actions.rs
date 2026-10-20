@@ -43,6 +43,10 @@ pub struct EditTarget {
     pub editor: Editor,
     /// CapCut draft id; ignored for DaVinci and Premiere, which edit the open timeline.
     pub draft_id: Option<String>,
+    /// Transcript open in the app (a file in the Transcripts folder), which
+    /// `get_transcript` reads when the agent names none.
+    #[serde(default)]
+    pub transcript_file: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -103,6 +107,33 @@ pub struct SegmentUpdate {
     pub text: Option<String>,
 }
 
+/// A span of the timeline, in seconds from its start.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
+pub struct TimeRange {
+    pub start: f64,
+    pub end: f64,
+}
+
+/// Sort `ranges`, drop empty or invalid ones and merge overlapping ones, so
+/// every editor gets disjoint spans in timeline order.
+pub fn normalize_ranges(ranges: &[TimeRange]) -> Vec<TimeRange> {
+    let mut valid: Vec<TimeRange> = ranges
+        .iter()
+        .filter(|r| r.start.is_finite() && r.end.is_finite())
+        .map(|r| TimeRange { start: r.start.max(0.0), end: r.end })
+        .filter(|r| r.end > r.start)
+        .collect();
+    valid.sort_by(|a, b| a.start.total_cmp(&b.start));
+    let mut merged: Vec<TimeRange> = Vec::new();
+    for r in valid {
+        match merged.last_mut() {
+            Some(last) if r.start <= last.end => last.end = last.end.max(r.end),
+            _ => merged.push(r),
+        }
+    }
+    merged
+}
+
 /// One timeline edit. The JSON shape is what the agent writes, both as MCP
 /// tool arguments and in ```timeline-action blocks.
 #[derive(Debug, Clone, Deserialize)]
@@ -137,6 +168,25 @@ pub enum TimelineAction {
         #[serde(default)]
         ripple: bool,
     },
+    /// Cut clips in two at `at_sec`: the given clips, or every clip under it.
+    #[serde(rename_all = "camelCase")]
+    SplitClips {
+        at_sec: f64,
+        #[serde(default)]
+        segment_ids: Vec<String>,
+    },
+    /// Cut out time spans on every track (silences, filler words, a bad take).
+    #[serde(rename_all = "camelCase")]
+    RemoveRanges {
+        ranges: Vec<TimeRange>,
+        /// Close the gaps so later clips move left (default true).
+        #[serde(default = "default_true")]
+        ripple: bool,
+    },
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -219,6 +269,27 @@ pub async fn execute(target: &EditTarget, action: TimelineAction) -> Result<Acti
                 Editor::Premiere => premiere::delete_segments(segment_ids, ripple).await,
             }
         }
+        TimelineAction::SplitClips { at_sec, segment_ids } => {
+            if !at_sec.is_finite() || at_sec <= 0.0 {
+                return Err("split_clips needs atSec > 0 (seconds from the timeline start).".into());
+            }
+            match target.editor {
+                Editor::Davinci => davinci::split_clips(at_sec, segment_ids).await,
+                Editor::Capcut => capcut::split_clips(draft, at_sec, segment_ids).await,
+                Editor::Premiere => premiere::split_clips(at_sec, segment_ids).await,
+            }
+        }
+        TimelineAction::RemoveRanges { ranges, ripple } => {
+            let ranges = normalize_ranges(&ranges);
+            if ranges.is_empty() {
+                return Err("remove_ranges needs at least one range with end > start >= 0.".into());
+            }
+            match target.editor {
+                Editor::Davinci => davinci::remove_ranges(ranges, ripple).await,
+                Editor::Capcut => capcut::remove_ranges(draft, ranges, ripple).await,
+                Editor::Premiere => premiere::remove_ranges(ranges, ripple).await,
+            }
+        }
     }
 }
 
@@ -293,6 +364,31 @@ mod tests {
     }
 
     #[test]
+    fn parses_cut_actions() {
+        match parse(json!({ "action": "split_clips", "atSec": 12.5 })) {
+            TimelineAction::SplitClips { at_sec, segment_ids } => {
+                assert_eq!(at_sec, 12.5);
+                assert!(segment_ids.is_empty());
+            }
+            other => panic!("{:?}", other),
+        }
+        match parse(json!({ "action": "remove_ranges", "ranges": [{ "start": 1, "end": 2 }] })) {
+            TimelineAction::RemoveRanges { ranges, ripple } => {
+                assert_eq!(ranges.len(), 1);
+                assert!(ripple, "ripple defaults to true");
+            }
+            other => panic!("{:?}", other),
+        }
+    }
+
+    #[test]
+    fn normalizes_ranges() {
+        let r = |start, end| TimeRange { start, end };
+        let out = normalize_ranges(&[r(5.0, 6.0), r(1.0, 2.0), r(1.5, 3.0), r(4.0, 4.0), r(-1.0, 0.5)]);
+        assert_eq!(out, vec![r(0.0, 0.5), r(1.0, 3.0), r(5.0, 6.0)]);
+    }
+
+    #[test]
     fn rejects_unknown_action() {
         assert!(serde_json::from_value::<TimelineAction>(json!({ "action": "explode" })).is_err());
     }
@@ -302,6 +398,7 @@ mod tests {
         // An editor without a backend must fail loudly, not fall through to Resolve.
         let ok: EditTarget = serde_json::from_value(json!({ "integration": "capcut", "draftId": "d" })).unwrap();
         assert_eq!(ok.editor, Editor::Capcut);
+        assert!(ok.transcript_file.is_none());
         assert!(serde_json::from_value::<EditTarget>(json!({ "integration": "aftereffects" })).is_err());
     }
 }

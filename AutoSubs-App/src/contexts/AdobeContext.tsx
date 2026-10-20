@@ -63,7 +63,8 @@ function toTimelineInfo(data: any): TimelineInfo {
           label: `V${i + 1}`,
         }))
       : [],
-    projectName: data.projectName || ""
+    projectName: data.projectName || "",
+    projectId: data.projectPath || ""
   };
 }
 

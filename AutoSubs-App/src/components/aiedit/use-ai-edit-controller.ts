@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { listen } from "@tauri-apps/api/event";
 import {
   ensureCliWorkspace,
+  copyCliAsset,
   getCliModels,
   getCliRuntimeStatus,
   runCliTextTask,
@@ -18,6 +19,7 @@ import {
   type ContentMessage,
 } from "@/stores/ai-edit-chat-store";
 import { useIntegration } from "@/contexts/IntegrationContext";
+import { useSubtitleDocument } from "@/contexts/SubtitleDocumentContext";
 import {
   cliLabel,
   extractTimelineActions,
@@ -25,12 +27,16 @@ import {
   type TimelineActionCommand,
 } from "./ai-edit-helpers";
 import { useEditorAdapter } from "./editors";
+import { useAiEditPreview } from "./ai-edit-preview-panel";
+import { listPreviewCandidates } from "@/api/preview-api";
 
 export function useAiEditController() {
   const { selectedIntegration } = useIntegration();
   // Everything editor-specific (target, project, snapshot, prompt, refresh)
   // lives in ./editors/<editor>.ts.
   const editor = useEditorAdapter(selectedIntegration);
+  // The transcript open in the app is the one get_transcript reads by default.
+  const { currentSubtitleDocumentFilename } = useSubtitleDocument();
 
   // Store selectors
   const conversations = useAiEditChatStore((s) => s.conversations);
@@ -99,6 +105,7 @@ export function useAiEditController() {
     title: string;
   } | null>(null);
   const [renameDraft, setRenameDraft] = React.useState("");
+  const preview = useAiEditPreview();
 
   const abortControllersRef = React.useRef(new Map<string, AbortController>());
   const endRef = React.useRef<HTMLDivElement>(null);
@@ -147,6 +154,7 @@ export function useAiEditController() {
 
   const activeProjectId = editor.projectId;
   const activeProjectName = editor.projectName;
+  const workspaceProject = editor.workspaceProject;
 
   const contextMismatch = React.useMemo(() => {
     if (
@@ -227,13 +235,13 @@ export function useAiEditController() {
     try {
       const info = await ensureCliWorkspace(
         activeConversation?.workspacePath ?? null,
-        activeProjectName,
+        workspaceProject,
       );
       setWorkspaceInfo(info);
     } catch {
       // ignore
     }
-  }, [activeConversation?.workspacePath, activeProjectName]);
+  }, [activeConversation?.workspacePath, workspaceProject]);
 
   React.useEffect(() => {
     void refreshWorkspace();
@@ -340,13 +348,72 @@ export function useAiEditController() {
     });
   }
 
+  /** This project's motion graphics; templates open from the asset library. */
+  async function listPreviewTargets() {
+    const dir = workspaceInfo?.motionGraphicsDir;
+    return dir ? listPreviewCandidates(dir).catch(() => []) : [];
+  }
+
+  async function copyAsset(
+    asset: import("@/api/cli-chat-api").ProjectAssetItem,
+    destinationDir: string | undefined,
+    done: string,
+  ) {
+    if (!destinationDir) return;
+    try {
+      await copyCliAsset(asset.path, destinationDir);
+      await refreshWorkspace();
+      toast.success(done);
+    } catch (err: any) {
+      toast.error(err?.message || String(err));
+    }
+  }
+
+  function handleSaveAsTemplate(
+    asset: import("@/api/cli-chat-api").ProjectAssetItem,
+  ) {
+    return copyAsset(
+      asset,
+      workspaceInfo?.templatesDir,
+      `Đã lưu "${asset.name}" vào Global Templates`,
+    );
+  }
+
+  function handleUseTemplate(
+    asset: import("@/api/cli-chat-api").ProjectAssetItem,
+  ) {
+    return copyAsset(
+      asset,
+      workspaceInfo?.motionGraphicsDir,
+      `Đã chép "${asset.name}" vào project`,
+    );
+  }
+
+  async function handlePreviewAsset(
+    asset: import("@/api/cli-chat-api").ProjectAssetItem,
+  ) {
+    // The asset list doesn't know whether a folder runs a dev server; ask.
+    const dir =
+      asset.category === "templates"
+        ? workspaceInfo?.templatesDir
+        : workspaceInfo?.motionGraphicsDir;
+    const known = dir
+      ? (await listPreviewCandidates(dir).catch(() => [])).find(
+          (t) => t.path === asset.path,
+        )
+      : undefined;
+    preview.open(
+      known ?? { name: asset.name, path: asset.path, kind: "static" },
+    );
+  }
+
   async function handleSaveMemory() {
     setSavingMemory(true);
     try {
       const info = await saveCliMemory(
         activeConversation?.workspacePath ?? null,
         memoryDraft,
-        activeProjectName,
+        workspaceProject,
         globalMemoryDraft,
       );
       setWorkspaceInfo(info);
@@ -430,6 +497,8 @@ export function useAiEditController() {
     let streamed = "";
     let streamedThinking = "";
     let finalSteps: string[] = [];
+    // A little slack for filesystems with coarse mtimes.
+    const runStartSec = Math.floor(Date.now() / 1000) - 2;
     try {
       const output = await runCliTextTask({
         adapter: targetAdapter,
@@ -439,8 +508,10 @@ export function useAiEditController() {
         effort: selectedEfforts[targetAdapter] || undefined,
         sessionKey: `${convId}:${targetAdapter}`,
         workingDirectory: workspaceInfo?.path,
-        projectName: activeProjectName || undefined,
-        editTarget: editor.target ?? undefined,
+        project: workspaceProject,
+        editTarget: editor.target
+          ? { ...editor.target, transcriptFile: currentSubtitleDocumentFilename }
+          : undefined,
         // Turbo lets the agent edit through the MCP tools; Manual keeps them
         // read-only and the user applies timeline-action blocks.
         allowEdits: autoApplyActions,
@@ -466,15 +537,32 @@ export function useAiEditController() {
         },
       });
 
+      const previews = workspaceInfo?.motionGraphicsDir
+        ? await listPreviewCandidates(
+            workspaceInfo.motionGraphicsDir,
+            runStartSec,
+          ).catch(() => [])
+        : [];
       const assistantMsg: ContentMessage = {
         id: crypto.randomUUID(),
         role: "assistant",
         content: output,
         thinking: streamedThinking.trim() || undefined,
         steps: finalSteps.length > 0 ? finalSteps : undefined,
+        previews: previews.length > 0 ? previews : undefined,
         createdAt: Date.now(),
       };
       addMessage(convId, assistantMsg);
+
+      // Show the agent's latest edit in the open preview. A dev server
+      // hot-reloads on its own; the built-in server needs a reload.
+      if (
+        preview.target &&
+        preview.info?.kind === "static" &&
+        previews.some((p) => p.path === preview.target?.path)
+      ) {
+        preview.reload();
+      }
 
       // Refresh workspace assets in case AI created new motion graphics / B-roll files
       void refreshWorkspace();
@@ -605,8 +693,13 @@ export function useAiEditController() {
     handleAttachFile,
     handleInsertAssetPath,
     handleQuickPlaceAssetOnTimeline,
+    handlePreviewAsset,
+    listPreviewTargets,
+    handleSaveAsTemplate,
+    handleUseTemplate,
     handleSaveMemory,
     handleSendPrompt,
     handleStopRunning,
+    preview,
   };
 }

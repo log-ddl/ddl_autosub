@@ -10,8 +10,10 @@ use std::time::Duration;
 use serde_json::{json, Value};
 
 use crate::adobe_bridge;
-use crate::ai_edit::actions::{ActionOutcome, MarkerSpec, SegmentUpdate, StoryboardItem, TextSpec};
-use crate::ai_edit::mcp::tools::{delete_tool, marker_tool, storyboard_tool, text_item, tool};
+use crate::ai_edit::actions::{ActionOutcome, MarkerSpec, SegmentUpdate, StoryboardItem, TextSpec, TimeRange};
+use crate::ai_edit::mcp::tools::{
+    delete_tool, marker_tool, remove_ranges_tool, split_tool, storyboard_tool, text_item, tool,
+};
 
 /// Importing media runs once per item and is slow in Premiere.
 const PREMIERE_TIMEOUT: Duration = Duration::from_secs(300);
@@ -67,17 +69,6 @@ pub async fn build_storyboard(
     audio_path: Option<String>,
     items: Vec<StoryboardItem>,
 ) -> Result<ActionOutcome, String> {
-    let mut notes = Vec::new();
-    if mode.as_deref().is_some_and(|m| m != "append") {
-        notes.push(
-            "Premiere: clips are placed after the last clip on the track (append); \
-             replace/insert/overlay are not supported yet."
-                .to_string(),
-        );
-    }
-    if items.iter().any(|it| it.effect.is_some()) {
-        notes.push("Premiere: effect is not applied when placing; use update_clip afterwards.".into());
-    }
     let spec_items: Vec<Value> = items
         .iter()
         .map(|it| {
@@ -87,12 +78,16 @@ pub async fn build_storyboard(
                 "end": it.end,
                 "src_in": it.src_in,
                 "src_out": it.src_out,
+                "effect": it.effect.as_ref().map(|e| json!({
+                    "zoom": e.zoom, "pan_x": e.pan_x, "pan_y": e.pan_y, "rotation": e.rotation,
+                })),
             })
         })
         .collect();
     let reply = call_premiere(
         "BuildStoryboard",
         json!({
+            "mode": mode,
             "target_video_track": track,
             "default_still_secs": 3,
             "audio_path": audio_path,
@@ -102,10 +97,10 @@ pub async fn build_storyboard(
     .await?;
     let appended = reply.get("appended").and_then(|v| v.as_u64()).unwrap_or(0);
     let requested = reply.get("requested").and_then(|v| v.as_u64()).unwrap_or(items.len() as u64);
-    let mut lines = string_lines(&reply);
-    lines.extend(notes);
+    let lines = string_lines(&reply);
+    let used = reply.get("mode").and_then(|m| m.as_str()).unwrap_or("append");
     Ok(ActionOutcome {
-        message: format!("Placed {}/{} clip(s) on Premiere track V{}.", appended, requested, track),
+        message: format!("Placed {}/{} clip(s) on Premiere from track V{} ({}).", appended, requested, track, used),
         partial: appended < requested,
         lines,
     })
@@ -210,6 +205,42 @@ pub async fn delete_segments(ids: Vec<String>, ripple: bool) -> Result<ActionOut
     Ok(outcome)
 }
 
+pub async fn split_clips(at_sec: f64, ids: Vec<String>) -> Result<ActionOutcome, String> {
+    let reply = call_premiere("SplitClips", json!({ "atSec": at_sec, "ids": ids })).await?;
+    let split = reply.get("split").and_then(|v| v.as_u64()).unwrap_or(0);
+    let lines = string_lines(&reply);
+    Ok(ActionOutcome {
+        message: format!("Cut {} track(s) at {:.2}s in Premiere Pro.", split, at_sec),
+        partial: !lines.is_empty(),
+        lines,
+    })
+}
+
+pub async fn remove_ranges(ranges: Vec<TimeRange>, ripple: bool) -> Result<ActionOutcome, String> {
+    let total: f64 = ranges.iter().map(|r| r.end - r.start).sum();
+    let count = ranges.len();
+    let reply = call_premiere("RemoveRanges", json!({ "ranges": ranges, "ripple": ripple })).await?;
+    let deleted = reply.get("deleted").and_then(|v| v.as_u64()).unwrap_or(0);
+    let markers = reply.get("markersRemoved").and_then(|v| v.as_u64()).unwrap_or(0);
+    let problems = string_lines(&reply);
+    let partial = !problems.is_empty();
+    let mut lines = vec![format!("{} clip piece(s) deleted.", deleted)];
+    if markers > 0 {
+        lines.push(format!("{} marker(s) inside the spans were removed.", markers));
+    }
+    lines.extend(problems);
+    Ok(ActionOutcome {
+        message: format!(
+            "Removed {} span(s) ({:.2}s) from the Premiere sequence{}.",
+            count,
+            total,
+            if ripple { " and closed the gaps" } else { ", leaving gaps" }
+        ),
+        partial,
+        lines,
+    })
+}
+
 // ---------------------------------------------------------------------------
 // MCP tool schemas: what the agent is told Premiere can do
 // ---------------------------------------------------------------------------
@@ -224,8 +255,8 @@ pub fn edit_tools() -> Vec<Value> {
     vec![
         storyboard_tool(
             "Premiere Pro",
-            " Premiere: clips always go after the last clip on the track (mode is treated as append), \
-             and effect is not applied; set zoom/pan with update_clip afterwards.",
+            " Premiere: replace overwrites video and its audio; insert pushes only the target video \
+             track and the audio track with the same number; overlay places video only.",
         ),
         marker_tool(
             "Add markers to the active Premiere sequence. note goes into the marker comment.",
@@ -245,8 +276,9 @@ pub fn edit_tools() -> Vec<Value> {
             "update_clip",
             "Change a Premiere clip by id: move it (startSec), change its length (durationSec), set \
              zoom (1.0 = 100%), panX/panY (-1..1, 0 = centred), rotation (degrees) or opacity (0-100). \
-             zoomEnd/panXEnd/panYEnd add keyframes from clip start to end. Volume and caption text \
-             cannot be changed.",
+             zoomEnd/panXEnd/panYEnd add eased keyframes from clip start to end. volume sets the clip's audio \
+             (or a video clip's linked audio): 1.0 = unchanged, 0.5 = about -6 dB, 0 = silent. Caption \
+             text cannot be changed.",
             json!({
                 "type": "object",
                 "properties": {
@@ -257,12 +289,15 @@ pub fn edit_tools() -> Vec<Value> {
                     "panX": { "type": "number" }, "panXEnd": { "type": "number" },
                     "panY": { "type": "number" }, "panYEnd": { "type": "number" },
                     "rotation": { "type": "number" },
-                    "opacity": { "type": "number" }
+                    "opacity": { "type": "number" },
+                    "volume": { "type": "number", "description": "1.0 = unchanged" }
                 },
                 "required": ["segmentId"]
             }),
         ),
         delete_tool("Premiere Pro", true),
+        split_tool("Premiere Pro", ""),
+        remove_ranges_tool("Premiere Pro", " Markers inside a span are removed and later ones move left."),
     ]
 }
 

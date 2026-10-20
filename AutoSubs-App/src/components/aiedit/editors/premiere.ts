@@ -10,12 +10,26 @@ const TARGET: EditTarget = { integration: "premiere", draftId: null };
 export function usePremiereAdapter(): EditorAdapter {
   const { premiereTimeline, refresh } = useAdobe();
   const name = premiereTimeline?.name || null;
+  // One asset folder per project; older bridges report no project, so the
+  // timeline name stands in for it.
+  const projectName = premiereTimeline?.projectName || name;
+  const projectKey = premiereTimeline?.projectId || null;
+  const workspaceProject = React.useMemo(
+    () => ({
+      editor: "premiere",
+      name: projectName,
+      id: projectKey,
+      legacyName: name,
+    }),
+    [projectName, projectKey, name],
+  );
 
   return React.useMemo(
     () => ({
       target: TARGET,
       projectId: name,
       projectName: name,
+      workspaceProject,
       title: "Premiere Pro",
       refreshAfterEdit: refresh,
       buildPrompt: async (userSystemPrompt, workspaceInfo, useTools) => {
@@ -29,6 +43,6 @@ export function usePremiereAdapter(): EditorAdapter {
         return buildPremierePrompt(name ?? undefined, snapshot, userSystemPrompt, workspaceInfo, useTools);
       },
     }),
-    [name, refresh],
+    [name, workspaceProject, refresh],
   );
 }

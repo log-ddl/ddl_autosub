@@ -12,6 +12,21 @@
 
 import { aiEditBuildStoryboard } from "./ai-edit-storyboard";
 import {
+  applyTransform,
+  clipId,
+  createRazor,
+  eachClip,
+  findClip,
+  component,
+  frameSeconds,
+  num,
+  property,
+  secondsToTime,
+  setVolume,
+  snapToFrame,
+  trackAt,
+} from "./ai-edit-util";
+import {
   getSequenceStartSeconds,
   getTimeSeconds,
   importSRTFile,
@@ -25,20 +40,6 @@ function fail(error: string): string {
   return JSON.stringify({ success: false, error: error });
 }
 
-function secondsToTime(secs: number): any {
-  // @ts-ignore - Time is an ExtendScript global provided by the host.
-  var t = new Time();
-  t.ticks = String(Math.round(secs * TICKS_PER_SECOND));
-  return t;
-}
-
-function clipId(clip: any, kind: string, t: number, c: number): string {
-  try {
-    if (clip.nodeId) return String(clip.nodeId);
-  } catch (e) {}
-  return kind + (t + 1) + "_" + c;
-}
-
 function mediaPathOf(clip: any): string {
   try {
     if (clip.projectItem && typeof clip.projectItem.getMediaPath === "function") {
@@ -46,25 +47,6 @@ function mediaPathOf(clip: any): string {
     }
   } catch (e) {}
   return "";
-}
-
-/** The Motion / Opacity component of a clip, by its locale-independent matchName. */
-function component(clip: any, matchName: string): any {
-  if (!clip || !clip.components) return null;
-  for (var i = 0; i < clip.components.numItems; i++) {
-    var comp = clip.components[i];
-    if (comp && comp.matchName === matchName) return comp;
-  }
-  return null;
-}
-
-function property(comp: any, displayName: string): any {
-  if (!comp || !comp.properties) return null;
-  for (var i = 0; i < comp.properties.numItems; i++) {
-    var p = comp.properties[i];
-    if (p && p.displayName === displayName) return p;
-  }
-  return null;
 }
 
 function scaleOf(clip: any): number | null {
@@ -76,32 +58,6 @@ function scaleOf(clip: any): number | null {
     }
   } catch (e) {}
   return null;
-}
-
-/** Every clip on the sequence, with the track it sits on. */
-function eachClip(seq: any, fn: (clip: any, kind: string, t: number, c: number, track: any) => void): void {
-  var kinds = [
-    { kind: "V", tracks: seq.videoTracks },
-    { kind: "A", tracks: seq.audioTracks },
-  ];
-  for (var k = 0; k < kinds.length; k++) {
-    var tracks = kinds[k].tracks;
-    if (!tracks) continue;
-    for (var t = 0; t < tracks.numTracks; t++) {
-      var track = tracks[t];
-      for (var c = 0; c < track.clips.numItems; c++) {
-        fn(track.clips[c], kinds[k].kind, t, c, track);
-      }
-    }
-  }
-}
-
-function findClip(seq: any, id: string): any {
-  var found: any = null;
-  eachClip(seq, function (clip, kind, t, c) {
-    if (!found && clipId(clip, kind, t, c) === id) found = clip;
-  });
-  return found;
 }
 
 function getTimelineSnapshot(seq: any): string {
@@ -205,29 +161,6 @@ function addMarkers(seq: any, args: any): string {
   return JSON.stringify({ success: true, added: added, lines: lines });
 }
 
-/** Set a property now, or animate it from `from` to `to` across the clip. */
-function setAnimated(prop: any, clip: any, from: any, to: any): void {
-  if (to === undefined || to === null) {
-    if (prop.isTimeVarying && prop.isTimeVarying()) prop.setTimeVarying(false);
-    prop.setValue(from, true);
-    return;
-  }
-  // Keyframe times are in the clip's source time, so they run from its in-point.
-  var inSec = getTimeSeconds(clip.inPoint);
-  var outSec = inSec + (getTimeSeconds(clip.end) - getTimeSeconds(clip.start));
-  prop.setTimeVarying(true);
-  var t0 = secondsToTime(inSec);
-  var t1 = secondsToTime(outSec);
-  prop.addKey(t0);
-  prop.addKey(t1);
-  prop.setValueAtKey(t0, from, true);
-  prop.setValueAtKey(t1, to, true);
-}
-
-function num(v: any): boolean {
-  return typeof v === "number" && !isNaN(v);
-}
-
 function updateClip(seq: any, args: any): string {
   var clip = findClip(seq, String(args.segmentId || ""));
   if (!clip) return fail("No clip with id " + args.segmentId + " on the active sequence.");
@@ -252,35 +185,7 @@ function updateClip(seq: any, args: any): string {
     }
   }
 
-  var motion = component(clip, "AE.ADBE Motion");
-  var wantsMotion = num(args.zoom) || num(args.panX) || num(args.panY) || num(args.rotation);
-  if (wantsMotion && !motion) lines[lines.length] = "This clip has no Motion effect (audio clip?).";
-  if (motion) {
-    var scale = property(motion, "Scale");
-    if (scale && num(args.zoom)) {
-      setAnimated(scale, clip, args.zoom * 100, num(args.zoomEnd) ? args.zoomEnd * 100 : null);
-      updated[updated.length] = num(args.zoomEnd) ? "zoom keyframes" : "zoom";
-    }
-    var pos = property(motion, "Position");
-    if (pos && (num(args.panX) || num(args.panY))) {
-      // Position is normalised (0.5, 0.5 = centre). panX/panY are offsets in
-      // the same -1..1 range CapCut uses, where +1 moves half a frame right/up.
-      var px = num(args.panX) ? args.panX : 0;
-      var py = num(args.panY) ? args.panY : 0;
-      var from = [0.5 + px / 2, 0.5 - py / 2];
-      var hasEnd = num(args.panXEnd) || num(args.panYEnd);
-      var to = hasEnd
-        ? [0.5 + (num(args.panXEnd) ? args.panXEnd : px) / 2, 0.5 - (num(args.panYEnd) ? args.panYEnd : py) / 2]
-        : null;
-      setAnimated(pos, clip, from, to);
-      updated[updated.length] = hasEnd ? "pan keyframes" : "pan";
-    }
-    var rot = property(motion, "Rotation");
-    if (rot && num(args.rotation)) {
-      setAnimated(rot, clip, args.rotation, null);
-      updated[updated.length] = "rotation";
-    }
-  }
+  applyTransform(clip, args, updated, lines);
 
   if (num(args.opacity)) {
     var opacity = property(component(clip, "AE.ADBE Opacity"), "Opacity");
@@ -291,7 +196,7 @@ function updateClip(seq: any, args: any): string {
       lines[lines.length] = "This clip has no Opacity effect.";
     }
   }
-  if (num(args.volume)) lines[lines.length] = "Premiere: volume is not supported and was ignored.";
+  if (num(args.volume) && setVolume(clip, args.volume, lines)) updated[updated.length] = "volume";
   if (typeof args.text === "string") lines[lines.length] = "Premiere: clip text cannot be edited by script; ignored.";
 
   return JSON.stringify({ success: true, updated: updated, lines: lines });
@@ -312,6 +217,198 @@ function deleteClips(seq: any, args: any): string {
     deleted++;
   }
   return JSON.stringify({ success: true, deleted: deleted, missing: missing });
+}
+
+/** Track kind and index of the clip with this id, or null. */
+function trackOf(seq: any, id: string): any {
+  var found: any = null;
+  eachClip(seq, function (clip, kind, t, c) {
+    if (!found && clipId(clip, kind, t, c) === id) found = { kind: kind, index: t, clip: clip };
+  });
+  return found;
+}
+
+function trackName(kind: string, index: number): string {
+  return kind + (index + 1);
+}
+
+/** Every track as { kind, index }. */
+function allTracks(seq: any): any[] {
+  var out: any[] = [];
+  for (var v = 0; seq.videoTracks && v < seq.videoTracks.numTracks; v++) out[out.length] = { kind: "V", index: v };
+  for (var a = 0; seq.audioTracks && a < seq.audioTracks.numTracks; a++) out[out.length] = { kind: "A", index: a };
+  return out;
+}
+
+// args: { atSec, ids? }  Razor the tracks holding the listed clips (and the
+// clips linked to them), or every track with a clip under atSec.
+function splitClips(seq: any, args: any): string {
+  var at = snapToFrame(seq, Number(args.atSec));
+  var tolerance = Math.max(frameSeconds(seq) / 2, 0.001);
+  var ids: string[] = args && args.ids ? args.ids : [];
+  var tracks: any[] = [];
+  var lines: string[] = [];
+  if (ids.length > 0) {
+    var seen: any = {};
+    var add = function (kind: string, index: number) {
+      var key = kind + index;
+      if (!seen[key]) {
+        seen[key] = true;
+        tracks[tracks.length] = { kind: kind, index: index };
+      }
+    };
+    for (var i = 0; i < ids.length; i++) {
+      var hit = trackOf(seq, String(ids[i]));
+      if (!hit) {
+        lines[lines.length] = "No clip with id " + ids[i] + ".";
+        continue;
+      }
+      add(hit.kind, hit.index);
+      try {
+        var linked = hit.clip.getLinkedItems ? hit.clip.getLinkedItems() : null;
+        for (var l = 0; linked && l < linked.numItems; l++) {
+          var other = trackOf(seq, String(linked[l].nodeId));
+          if (other) add(other.kind, other.index);
+        }
+      } catch (e) {}
+    }
+  } else {
+    tracks = allTracks(seq);
+  }
+
+  var razor = createRazor(seq);
+  var split = 0;
+  for (var t = 0; t < tracks.length; t++) {
+    var track = trackAt(tracks[t].kind, tracks[t].index);
+    var spanning = false;
+    for (var c = 0; track && c < track.clips.numItems; c++) {
+      var s = getTimeSeconds(track.clips[c].start);
+      var e = getTimeSeconds(track.clips[c].end);
+      if (s + tolerance < at && at < e - tolerance) spanning = true;
+    }
+    if (!spanning) continue;
+    if (razor(tracks[t].kind, tracks[t].index, at)) split++;
+    else lines[lines.length] = "Premiere did not cut " + trackName(tracks[t].kind, tracks[t].index) + ".";
+  }
+  if (split === 0 && lines.length === 0) return fail("No clip spans " + at + "s, so nothing was split.");
+  return JSON.stringify({ success: true, split: split, lines: lines });
+}
+
+/**
+ * Move every clip starting at or after `from` left by `dur`, earliest first,
+ * so each lands in the gap the previous move (or the cut) left. A linked
+ * partner may already have moved with its clip, so each one's position is
+ * read again before moving it. Returns how many did not end up in place.
+ */
+function shiftLeft(seq: any, from: number, dur: number, tolerance: number): number {
+  var todo: any[] = [];
+  eachClip(seq, function (clip, kind, t, c) {
+    var s = getTimeSeconds(clip.start);
+    if (s >= from - tolerance) todo[todo.length] = { id: clipId(clip, kind, t, c), want: s - dur, start: s };
+  });
+  todo.sort(function (a, b) {
+    return a.start - b.start;
+  });
+  var stuck = 0;
+  for (var i = 0; i < todo.length; i++) {
+    var clip = findClip(app.project.activeSequence, todo[i].id);
+    if (!clip) continue;
+    var now = getTimeSeconds(clip.start);
+    if (Math.abs(now - todo[i].want) > tolerance) {
+      try {
+        clip.move(secondsToTime(todo[i].want - now));
+      } catch (e) {}
+    }
+  }
+  for (var j = 0; j < todo.length; j++) {
+    var moved = findClip(app.project.activeSequence, todo[j].id);
+    if (moved && Math.abs(getTimeSeconds(moved.start) - todo[j].want) > tolerance) stuck++;
+  }
+  return stuck;
+}
+
+/** Drop markers inside [a, b) and move later ones left by b - a. */
+function rippleMarkers(seq: any, a: number, b: number, tolerance: number): number {
+  var removed = 0;
+  try {
+    var all: any[] = [];
+    var m = seq.markers.getFirstMarker();
+    while (m) {
+      all[all.length] = m;
+      m = seq.markers.getNextMarker(m);
+    }
+    for (var i = 0; i < all.length; i++) {
+      var at = getTimeSeconds(all[i].start);
+      if (at >= a - tolerance && at < b - tolerance) {
+        seq.markers.deleteMarker(all[i]);
+        removed++;
+      } else if (at >= b - tolerance) {
+        var end = getTimeSeconds(all[i].end);
+        all[i].start = secondsToTime(at - (b - a));
+        if (end > at) all[i].end = secondsToTime(end - (b - a));
+      }
+    }
+  } catch (e) {}
+  return removed;
+}
+
+// args: { ranges: [{ start, end }] (sorted, disjoint), ripple? }  Cut the
+// spans out of every track, last span first so earlier times stay valid.
+function removeRanges(seq: any, args: any): string {
+  var ranges: any[] = args && args.ranges ? args.ranges : [];
+  var ripple = !(args && args.ripple === false);
+  var tolerance = Math.max(frameSeconds(seq) / 2, 0.001);
+  var razor = createRazor(seq);
+  var lines: string[] = [];
+  var cut = 0;
+  var deleted = 0;
+  var markersRemoved = 0;
+  var stuck = 0;
+
+  for (var r = ranges.length - 1; r >= 0; r--) {
+    var a = snapToFrame(seq, Number(ranges[r].start));
+    var b = snapToFrame(seq, Number(ranges[r].end));
+    if (!(b - a > tolerance)) continue;
+    var tracks = allTracks(app.project.activeSequence);
+    for (var t = 0; t < tracks.length; t++) {
+      if (razor(tracks[t].kind, tracks[t].index, a)) cut++;
+      if (razor(tracks[t].kind, tracks[t].index, b)) cut++;
+    }
+    var inside: any[] = [];
+    eachClip(app.project.activeSequence, function (clip) {
+      var s = getTimeSeconds(clip.start);
+      var e = getTimeSeconds(clip.end);
+      if (s >= a - tolerance && e <= b + tolerance) inside[inside.length] = clip;
+    });
+    for (var i = 0; i < inside.length; i++) {
+      try {
+        inside[i].remove(false, true);
+        deleted++;
+      } catch (e) {}
+    }
+    var straddling = 0;
+    eachClip(app.project.activeSequence, function (clip) {
+      var s = getTimeSeconds(clip.start);
+      var e = getTimeSeconds(clip.end);
+      if (s < b - tolerance && e > a + tolerance) straddling++;
+    });
+    if (straddling > 0) {
+      lines[lines.length] = straddling + " clip(s) could not be cut at " + a + "-" + b + "s and were left in place.";
+      continue;
+    }
+    if (ripple) {
+      stuck += shiftLeft(app.project.activeSequence, b, b - a, tolerance);
+      markersRemoved += rippleMarkers(app.project.activeSequence, a, b, tolerance);
+    }
+  }
+  if (stuck > 0) lines[lines.length] = stuck + " clip move(s) did not land where expected; check the sequence.";
+  return JSON.stringify({
+    success: true,
+    cut: cut,
+    deleted: deleted,
+    markersRemoved: markersRemoved,
+    lines: lines,
+  });
 }
 
 /**
@@ -344,6 +441,10 @@ export function aiEdit(requestJson: string): string {
         return updateClip(seq, args);
       case "DeleteClips":
         return deleteClips(seq, args);
+      case "SplitClips":
+        return splitClips(seq, args);
+      case "RemoveRanges":
+        return removeRanges(seq, args);
       default:
         return fail("Invalid function name");
     }

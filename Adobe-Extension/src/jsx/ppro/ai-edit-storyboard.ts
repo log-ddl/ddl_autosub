@@ -3,18 +3,25 @@
 // ==============================================================================
 //
 // AI Edit's own copy of the Slideshow placement (buildStoryboard in ppro.ts),
-// so the two features change independently: this is where replace / insert /
-// overlay modes and per-item effects for Premiere go, without touching the
-// Slideshow tab. It started as an exact copy; `spec` arrives already parsed.
+// so the two features change independently. On top of the Slideshow's append
+// it has the modes Resolve's BuildStoryboard has, and per-item effects:
+//   append  - after the last clip on the track (the Slideshow behaviour)
+//   replace - overwrite the track (video and its audio) from each start
+//   insert  - razor the target V/A tracks at the first start, push what is
+//             after right by the new clips' length, and place them in the gap
+//   overlay - video only, on the first free track above the target
+// `spec` arrives already parsed.
 //
 // spec: {
-//   items: [{ path, start, end?, src_in?, src_out? }],  // seconds, in play order
+//   items: [{ path, start, end?, src_in?, src_out?, effect? }],  // seconds, in play order
+//   mode?: "append" | "replace" | "insert" | "overlay",       // inferred when omitted
 //   audio_path?: string,
 //   target_video_track?: number,   // 1-based, default 1
 //   default_still_secs?: number,   // fallback clip length
 // }
 // Returns JSON: { success, lines, appended, requested } (or { success:false, error }).
 
+import { applyTransform, clipId, createRazor, eachClip, findClip, secondsToTime } from "./ai-edit-util";
 import { getTimeSeconds, TICKS_PER_SECOND } from "./ppro";
 
 export function aiEditBuildStoryboard(spec: any): string {
@@ -29,6 +36,7 @@ export function aiEditBuildStoryboard(spec: any): string {
     var audioPath = spec && typeof spec.audio_path === "string" ? spec.audio_path : "";
     var defaultStill = spec && spec.default_still_secs > 0 ? spec.default_still_secs : 3;
     var targetTrack = spec && spec.target_video_track > 0 ? Math.floor(spec.target_video_track) : 1;
+    var rawMode = spec && typeof spec.mode === "string" ? spec.mode.toLowerCase() : "";
 
     var lines: string[] = [];
 
@@ -277,6 +285,108 @@ export function aiEditBuildStoryboard(spec: any): string {
       return total;
     }
 
+    /** The media's own length in seconds, or 0 when Premiere won't say. */
+    function mediaSeconds(mp: any): number {
+      try {
+        var len = getTimeSeconds(mp.getOutPoint(1)) - getTimeSeconds(mp.getInPoint(1));
+        if (len > 0) return len;
+      } catch (e) {}
+      return 0;
+    }
+
+    /** Whether `track` has a clip overlapping [startFrames, endFrames). */
+    function occupied(track: any, startFrames: number, endFrames: number): boolean {
+      for (var i = 0; track && i < track.clips.numItems; i++) {
+        try {
+          var s = timeToFrames(track.clips[i].start);
+          var e = timeToFrames(track.clips[i].end);
+          if (s < endFrames && e > startFrames) return true;
+        } catch (err) {}
+      }
+      return false;
+    }
+
+    /**
+     * First video track at or above `minIndex` (0-based) free over the span,
+     * adding a track through the QE DOM when every one is taken. -1 if none.
+     */
+    function freeVideoTrack(minIndex: number, startFrames: number, endFrames: number): number {
+      var s0 = seq();
+      for (var t = minIndex; t < s0.videoTracks.numTracks; t++) {
+        if (!occupied(s0.videoTracks[t], startFrames, endFrames)) return t;
+      }
+      try {
+        app.enableQE();
+        // @ts-ignore - qe is the QE DOM global, enabled above.
+        var qeSeq: any = qe.project.getActiveSequence();
+        var before = s0.videoTracks.numTracks;
+        qeSeq.addTracks(1, before, 0);
+        if (seq().videoTracks.numTracks > before) return seq().videoTracks.numTracks - 1;
+      } catch (e) {}
+      return -1;
+    }
+
+    /** Ids of every audio clip, to spot the ones a placement adds. */
+    function audioIds(): any {
+      var ids: any = {};
+      eachClip(seq(), function (clip, kind, t, c) {
+        if (kind === "A") ids[clipId(clip, kind, t, c)] = true;
+      });
+      return ids;
+    }
+
+    /** Remove the audio clips that are not in `before` (overlay is video only). */
+    function dropNewAudio(before: any): void {
+      var added: any[] = [];
+      eachClip(seq(), function (clip, kind, t, c) {
+        if (kind === "A" && !before[clipId(clip, kind, t, c)]) added[added.length] = clip;
+      });
+      for (var i = 0; i < added.length; i++) {
+        try {
+          added[i].remove(false, true);
+        } catch (e) {}
+      }
+    }
+
+    /**
+     * Open a gap of `lenFrames` at `atFrames` on V`vIdx` and the audio track
+     * with the same index: razor them there, then move every clip from that
+     * point right, latest first so nothing is moved onto a clip.
+     */
+    function openGap(vIdx: number, atFrames: number, lenFrames: number): void {
+      var atSec = frameSecs(atFrames);
+      var razor = createRazor(seq());
+      razor("V", vIdx, atSec);
+      var s0 = seq();
+      var hasAudio = s0.audioTracks && vIdx < s0.audioTracks.numTracks;
+      if (hasAudio) razor("A", vIdx, atSec);
+      var todo: any[] = [];
+      var kinds = hasAudio ? ["V", "A"] : ["V"];
+      for (var k = 0; k < kinds.length; k++) {
+        var track = kinds[k] === "V" ? s0.videoTracks[vIdx] : s0.audioTracks[vIdx];
+        for (var c = 0; c < track.clips.numItems; c++) {
+          var start = timeToFrames(track.clips[c].start);
+          if (start >= atFrames) {
+            todo[todo.length] = { id: clipId(track.clips[c], kinds[k], vIdx, c), want: start + lenFrames, start: start };
+          }
+        }
+      }
+      todo.sort(function (a, b) {
+        return b.start - a.start;
+      });
+      for (var i = 0; i < todo.length; i++) {
+        var clip = findClip(seq(), todo[i].id);
+        if (!clip) continue;
+        // A linked partner may already have moved with its clip.
+        var now = timeToFrames(clip.start);
+        if (now !== todo[i].want) {
+          try {
+            clip.move(secondsToTime(frameSecs(todo[i].want - now)));
+          } catch (e) {}
+        }
+      }
+    }
+
     // The last placement error, surfaced in the result so a silent failure in
     // Premiere is diagnosable instead of just "Could not place".
     var lastPlaceErr = "";
@@ -336,12 +446,23 @@ export function aiEditBuildStoryboard(spec: any): string {
 
     var requested = 0;
     var appended = 0;
+    var trackEnd = trackEndFrames(videoTrackAt(vIndex));
+    var firstReq = items.length > 0 && items[0] && items[0].start > 0 ? toFrames(items[0].start) : 0;
+
+    // The same inference as Resolve's BuildStoryboard when no mode is given.
+    var mode = rawMode === "ripple" ? "insert" : rawMode === "broll" ? "overlay" : rawMode;
+    if (mode !== "replace" && mode !== "insert" && mode !== "overlay" && mode !== "append") {
+      if (targetTrack >= 2) mode = "overlay";
+      else if (trackEnd > 0 && firstReq > 0 && firstReq < trackEnd) mode = "replace";
+      else mode = "append";
+    }
+
     // Where the previous clip ended. Videos go in at their full length, so the
     // requested start times (which assume a still-length slot each) would
     // overlap; each clip starts at the later of its request and the cursor.
-    // It starts at the end of whatever is already on the track, so an existing
-    // edit is appended to rather than overwritten.
-    var cursorFrames = trackEndFrames(videoTrackAt(vIndex));
+    // Append starts at the end of whatever is already on the track, so an
+    // existing edit is appended to; the other modes start at the first request.
+    var cursorFrames = mode === "append" ? trackEnd : firstReq;
 
     for (var it = 0; it < items.length; it++) {
       var item = items[it];
@@ -389,9 +510,33 @@ export function aiEditBuildStoryboard(spec: any): string {
         if (seqFps > 0 && trimFrames < 1) trimFrames = 1;
       }
 
-      var startFrames = reqStartFrames > cursorFrames ? reqStartFrames : cursorFrames;
+      var startFrames = mode === "insert" || reqStartFrames < cursorFrames ? cursorFrames : reqStartFrames;
+
+      // Insert and overlay need the clip's length before it is placed. Insert
+      // also trims to it, so the clip fills exactly the gap it opened.
+      var plannedFrames = trimFrames;
+      if (plannedFrames <= 0) {
+        if (item && item.end > reqStart) plannedFrames = spanFrames;
+        else plannedFrames = toFrames(mediaSeconds(mp)) || spanFrames;
+      }
+      if (mode === "insert") trimFrames = plannedFrames;
+
+      var placeIndex = vIndex;
+      if (mode === "overlay") {
+        placeIndex = freeVideoTrack(vIndex < 1 ? 1 : vIndex, startFrames, startFrames + plannedFrames);
+        if (placeIndex < 0) {
+          lines[lines.length] =
+            "Skipped (no free video track above V" + (vIndex + 1) + "; add one in Premiere): " + baseNameOf(path);
+          if (rangeApplied) clearItemRange(mp, 0);
+          continue;
+        }
+      } else if (mode === "insert") {
+        openGap(vIndex, startFrames, plannedFrames);
+      }
+
       var audioBefore = audioClipCount();
-      var placed = placeClip(videoTrackAt(vIndex), mp, startFrames);
+      var audioBeforeIds = mode === "overlay" ? audioIds() : null;
+      var placed = placeClip(videoTrackAt(placeIndex), mp, startFrames);
 
       if (!placed) {
         lines[lines.length] =
@@ -405,7 +550,9 @@ export function aiEditBuildStoryboard(spec: any): string {
       // Placing on a video track normally carries the linked audio across. If
       // this build of Premiere didn't, put the audio on A1 so the clip's own
       // sound is not silently dropped. Stills have none to carry.
-      if (!still && audioClipCount() === audioBefore) {
+      if (audioBeforeIds) {
+        dropNewAudio(audioBeforeIds);
+      } else if (!still && audioClipCount() === audioBefore) {
         var s0 = seq();
         if (s0 && s0.audioTracks && s0.audioTracks.numTracks > 0) {
           placeClip(s0.audioTracks[0], mp, startFrames);
@@ -421,7 +568,17 @@ export function aiEditBuildStoryboard(spec: any): string {
         } catch (trimErr) {
           lines[lines.length] = "Placed but could not trim: " + baseNameOf(path);
         }
-        if (!still) trimAudioAt(startFrames, endFrames);
+        if (!still && !audioBeforeIds) trimAudioAt(startFrames, endFrames);
+      }
+
+      if (item && item.effect) {
+        var effectDone: string[] = [];
+        applyTransform(
+          placed,
+          { zoom: item.effect.zoom, panX: item.effect.pan_x, panY: item.effect.pan_y, rotation: item.effect.rotation },
+          effectDone,
+          lines,
+        );
       }
 
       // Read back where the clip REALLY ends and carry that forward. Premiere
@@ -442,13 +599,14 @@ export function aiEditBuildStoryboard(spec: any): string {
         (hasRange ? " src=" + srcIn + "-" + (srcOut || "end") +
           (srcFps > 0 ? "@" + srcFps : "") +
           (rangeApplied ? "" : " (in/out refused)") : "") +
-        " -> " + (endFrames - startFrames) + (seqFps > 0 ? "f @" : "s @") + startFrames;
+        " -> " + (endFrames - startFrames) + (seqFps > 0 ? "f @" : "s @") + startFrames +
+        (placeIndex !== vIndex ? " on V" + (placeIndex + 1) : "");
       cursorFrames = endFrames;
     }
 
     if (items.length > 0) {
       lines[lines.length] =
-        "Placed " + appended + " of " + items.length + " media on V" + (vIndex + 1) + ".";
+        "Placed " + appended + " of " + items.length + " media on V" + (vIndex + 1) + " (" + mode + ").";
     }
 
     // Optional voice-over on the last audio track at t=0.
@@ -475,6 +633,7 @@ export function aiEditBuildStoryboard(spec: any): string {
       lines: lines,
       appended: appended,
       requested: requested,
+      mode: mode,
     });
   } catch (e: any) {
     return JSON.stringify({ success: false, error: e.toString() });

@@ -31,6 +31,8 @@ export interface TimelineInfo {
     inputTracks: Track[];
     outputTracks: Track[];
     projectName: string;
+    /** Tells apart projects that share a name: Resolve project id, Premiere .prproj path. */
+    projectId?: string;
     // Only reported by servers new enough to include it; the AutoEdit actions
     // that read subtitles use this to offer a track picker.
     subtitleTracks?: Track[];

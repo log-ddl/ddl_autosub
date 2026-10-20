@@ -8,8 +8,10 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use crate::ai_edit::actions::{ActionOutcome, MarkerSpec, SegmentUpdate, StoryboardItem, TextSpec};
-use crate::ai_edit::mcp::tools::{delete_tool, marker_tool, storyboard_tool, text_item, tool};
+use crate::ai_edit::actions::{ActionOutcome, MarkerSpec, SegmentUpdate, StoryboardItem, TextSpec, TimeRange};
+use crate::ai_edit::mcp::tools::{
+    delete_tool, marker_tool, remove_ranges_tool, split_tool, storyboard_tool, text_item, tool,
+};
 use crate::resolve_bridge::send_resolve_payload;
 
 const RESOLVE_TIMEOUT: Duration = Duration::from_secs(300);
@@ -169,8 +171,6 @@ pub async fn add_text(
 pub async fn update_segment(u: SegmentUpdate) -> Result<ActionOutcome, String> {
     let mut ignored = Vec::new();
     for (name, given) in [
-        ("startSec", u.start_sec.is_some()),
-        ("durationSec", u.duration_sec.is_some()),
         ("zoomEnd", u.zoom_end.is_some()),
         ("panXEnd", u.pan_x_end.is_some()),
         ("panYEnd", u.pan_y_end.is_some()),
@@ -183,6 +183,8 @@ pub async fn update_segment(u: SegmentUpdate) -> Result<ActionOutcome, String> {
     let reply = call_resolve(json!({
         "func": "UpdateClip",
         "id": u.segment_id,
+        "startSec": u.start_sec,
+        "durationSec": u.duration_sec,
         "zoom": u.zoom,
         "panX": u.pan_x,
         "panY": u.pan_y,
@@ -197,6 +199,10 @@ pub async fn update_segment(u: SegmentUpdate) -> Result<ActionOutcome, String> {
         .map(|a| a.iter().filter_map(|s| s.as_str()).collect::<Vec<_>>().join(", "))
         .unwrap_or_default();
     let mut outcome = ActionOutcome::ok(format!("Updated the clip in Resolve ({}).", changed));
+    let new_id = reply.get("id").and_then(|v| v.as_str()).filter(|id| *id != u.segment_id);
+    if let Some(id) = new_id {
+        outcome.lines.push(format!("Moving rebuilt the clip, so its id is now {}.", id));
+    }
     if !ignored.is_empty() {
         outcome.partial = true;
         outcome.lines.push(format!(
@@ -219,6 +225,39 @@ pub async fn delete_segments(ids: Vec<String>, ripple: bool) -> Result<ActionOut
     Ok(outcome)
 }
 
+pub async fn split_clips(at_sec: f64, ids: Vec<String>) -> Result<ActionOutcome, String> {
+    let reply = call_resolve(json!({ "func": "SplitClips", "atSec": at_sec, "ids": ids })).await?;
+    let split = reply.get("split").and_then(|v| v.as_u64()).unwrap_or(0);
+    let lines = string_lines(&reply);
+    Ok(ActionOutcome {
+        message: format!("Split {} clip(s) at {:.2}s in Resolve.", split, at_sec),
+        partial: !lines.is_empty(),
+        lines,
+    })
+}
+
+pub async fn remove_ranges(ranges: Vec<TimeRange>, ripple: bool) -> Result<ActionOutcome, String> {
+    let total: f64 = ranges.iter().map(|r| r.end - r.start).sum();
+    let count = ranges.len();
+    let reply = call_resolve(json!({ "func": "RemoveRanges", "ranges": ranges, "ripple": ripple })).await?;
+    let cut = reply.get("cut").and_then(|v| v.as_u64()).unwrap_or(0);
+    let deleted = reply.get("deleted").and_then(|v| v.as_u64()).unwrap_or(0);
+    let mut lines = vec![format!("{} clip(s) cut at the span edges, {} piece(s) deleted.", cut, deleted)];
+    let problems = string_lines(&reply);
+    let partial = !problems.is_empty();
+    lines.extend(problems);
+    Ok(ActionOutcome {
+        message: format!(
+            "Removed {} span(s) ({:.2}s) from the Resolve timeline{}.",
+            count,
+            total,
+            if ripple { " and closed the gaps" } else { ", leaving gaps" }
+        ),
+        partial,
+        lines,
+    })
+}
+
 // ---------------------------------------------------------------------------
 // MCP tool schemas: what the agent is told Resolve can do
 // ---------------------------------------------------------------------------
@@ -230,6 +269,10 @@ pub const MARKER_COLORS: &[&str] = &[
     "Blue", "Cyan", "Green", "Yellow", "Red", "Pink", "Purple", "Fuchsia", "Rose", "Lavender", "Sky", "Mint",
     "Lemon", "Sand", "Cocoa", "Cream",
 ];
+
+/// What cutting costs in Resolve, appended to the split and remove tools.
+const REBUILD_NOTE: &str = " Resolve rebuilds a cut clip from its media: the pieces keep the transform but lose the \
+     color grade and Fusion effects, and titles, generators and speed-changed clips cannot be cut.";
 
 /// The edit tools, in the order the agent sees them.
 pub fn edit_tools() -> Vec<Value> {
@@ -260,13 +303,17 @@ pub fn edit_tools() -> Vec<Value> {
         ),
         tool(
             "update_clip",
-            "Change a Resolve clip by id: zoom, panX, panY, rotation, opacity (0-100), or the text of a \
-             Text+ clip. Resolve's API cannot move, retime, keyframe or change volume; to move a clip, \
-             delete it and place it again with build_storyboard.",
+            "Change a Resolve clip by id: move it (startSec) or change its length (durationSec), and set \
+             zoom, panX, panY, rotation, opacity (0-100) or the text of a Text+ clip. Moving or retiming \
+             rebuilds the clip from its media, so it gets a new id (in the result), keeps its transform \
+             but loses its color grade and Fusion effects; its linked audio moves with it, and the new \
+             spot must be free. Resolve cannot keyframe or change volume.",
             json!({
                 "type": "object",
                 "properties": {
                     "segmentId": { "type": "string" },
+                    "startSec": { "type": "number" },
+                    "durationSec": { "type": "number" },
                     "zoom": { "type": "number" },
                     "panX": { "type": "number" },
                     "panY": { "type": "number" },
@@ -278,6 +325,15 @@ pub fn edit_tools() -> Vec<Value> {
             }),
         ),
         delete_tool("DaVinci Resolve", true),
+        split_tool("DaVinci Resolve", REBUILD_NOTE),
+        remove_ranges_tool(
+            "DaVinci Resolve",
+            &format!(
+                "{} With ripple, a track with no clip inside a span is not moved; the result lists any \
+                 clips that did not move.",
+                REBUILD_NOTE
+            ),
+        ),
     ]
 }
 

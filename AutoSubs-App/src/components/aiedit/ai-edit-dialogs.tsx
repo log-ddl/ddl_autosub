@@ -1,8 +1,11 @@
 import * as React from "react";
 import {
+  BookmarkPlus,
+  CopyPlus,
   Film,
   Folder,
   Layers,
+  MonitorPlay,
   Paperclip,
   Play,
   Sparkles,
@@ -42,6 +45,11 @@ export interface AiEditDialogsProps {
   onAssetsOpenChange: (open: boolean) => void;
   onInsertAssetPath: (path: string) => void;
   onQuickPlaceOnTimeline: (asset: ProjectAssetItem) => void;
+  onPreviewAsset: (asset: ProjectAssetItem) => void;
+  /** Copy a project motion graphic into the shared templates. */
+  onSaveAsTemplate: (asset: ProjectAssetItem) => void;
+  /** Copy a template into this project's motion-graphics. */
+  onUseTemplate: (asset: ProjectAssetItem) => void;
 
   renameTarget: { id: string; title: string } | null;
   onClearRenameTarget: () => void;
@@ -69,6 +77,9 @@ export function AiEditDialogs({
   onAssetsOpenChange,
   onInsertAssetPath,
   onQuickPlaceOnTimeline,
+  onPreviewAsset,
+  onSaveAsTemplate,
+  onUseTemplate,
   renameTarget,
   onClearRenameTarget,
   renameDraft,
@@ -81,9 +92,11 @@ export function AiEditDialogs({
   const [assetCategory, setAssetCategory] = React.useState<string>("all");
 
   const assets = workspaceInfo?.assets || [];
+  // "All" is this project only; templates are a separate, shared library.
+  const projectAssets = assets.filter((a) => a.category !== "templates");
   const filteredAssets =
     assetCategory === "all"
-      ? assets
+      ? projectAssets
       : assets.filter((a) => a.category === assetCategory);
 
   return (
@@ -265,7 +278,7 @@ export function AiEditDialogs({
 
           <div className="flex items-center gap-1 rounded-lg bg-muted/50 p-1 text-xs">
             {[
-              { id: "all", label: `Tất cả (${assets.length})` },
+              { id: "all", label: `Tất cả (${projectAssets.length})` },
               { id: "motion-graphics", label: "Motion Graphics" },
               { id: "ai-broll", label: "B-Roll AI" },
               { id: "exports", label: "Exports (.mp4)" },
@@ -301,6 +314,10 @@ export function AiEditDialogs({
                 const isPlayableMedia = /\.(mp4|mov|webm|mkv|png|jpg|jpeg|webp)$/i.test(
                   item.name,
                 );
+                const isPreviewable =
+                  (item.category === "motion-graphics" ||
+                    item.category === "templates") &&
+                  (item.isDir || /\.html?$/i.test(item.name));
                 return (
                   <div
                     key={item.path}
@@ -337,6 +354,48 @@ export function AiEditDialogs({
                         <Paperclip className="size-3" />
                         @Chat
                       </Button>
+                      {item.category === "motion-graphics" && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-[11px] gap-1"
+                          onClick={() => onSaveAsTemplate(item)}
+                          title="Chép sang Global Templates để dùng cho project khác"
+                        >
+                          <BookmarkPlus className="size-3" />
+                          Lưu template
+                        </Button>
+                      )}
+                      {item.category === "templates" && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-[11px] gap-1"
+                          onClick={() => onUseTemplate(item)}
+                          title="Chép template này vào Motion Graphics của project hiện tại"
+                        >
+                          <CopyPlus className="size-3" />
+                          Dùng
+                        </Button>
+                      )}
+                      {isPreviewable && (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          className="h-7 px-2.5 text-[11px] gap-1"
+                          onClick={() => {
+                            onPreviewAsset(item);
+                            onAssetsOpenChange(false);
+                          }}
+                          title="Xem preview code AI đã viết"
+                        >
+                          <MonitorPlay className="size-3" />
+                          Preview
+                        </Button>
+                      )}
                       {isPlayableMedia && !item.isDir && (
                         <Button
                           type="button"

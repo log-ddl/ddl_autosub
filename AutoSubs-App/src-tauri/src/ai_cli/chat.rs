@@ -32,7 +32,7 @@ pub struct RunCliTextPayload {
     pub session_key: Option<String>,
     pub request_id: Option<String>,
     pub working_directory: Option<String>,
-    pub project_name: Option<String>,
+    pub project: Option<super::workspace::WorkspaceProject>,
     /// Editor and project for the AutoSubs MCP tools; None runs without them.
     pub edit_target: Option<EditTarget>,
     /// Whether the MCP tools may edit the timeline (Turbo) or only read it.
@@ -119,7 +119,7 @@ fn run_cli_blocking(
     let cwd_dir = resolve_workspace_dir(
         app,
         payload.working_directory.as_deref(),
-        payload.project_name.as_deref(),
+        payload.project.as_ref(),
     )?;
     let _ = fs::create_dir_all(&cwd_dir);
 
@@ -145,7 +145,7 @@ fn run_cli_blocking(
     let mcp_endpoint = payload
         .edit_target
         .clone()
-        .and_then(|target| mcp::open_session(target, payload.allow_edits));
+        .and_then(|target| mcp::open_session(target, payload.allow_edits, Some(cwd_dir.clone())));
 
     match adapter {
         "agy" => {

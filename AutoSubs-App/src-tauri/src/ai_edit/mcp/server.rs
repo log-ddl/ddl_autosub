@@ -12,6 +12,7 @@
 //! whether an edit worked and can correct itself.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
 use serde_json::{json, Value};
@@ -19,13 +20,18 @@ use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-use crate::ai_edit::actions::{execute, timeline_snapshot, EditTarget, TimelineAction};
+use crate::ai_edit::actions::{execute, timeline_snapshot, ActionOutcome, EditTarget, TimelineAction};
+use crate::ai_edit::media;
+use crate::ai_edit::transcript::{get_transcript, transcripts_dir, TranscriptArgs};
 use crate::ai_edit::mcp::tools::tool_definitions;
 
 /// Event the UI listens to so it can refresh and toast after an agent edit.
 pub const TIMELINE_CHANGED_EVENT: &str = "ai-edit-timeline-changed";
 
 const MAX_REQUEST_BYTES: usize = 8 * 1024 * 1024;
+
+/// Most edits one `apply_actions` call may carry.
+const MAX_BATCH_ACTIONS: usize = 100;
 
 struct Server {
     port: u16,
@@ -36,6 +42,8 @@ struct Server {
 struct Session {
     target: EditTarget,
     allow_edits: bool,
+    /// The run's project workspace, where the download tools save files.
+    workspace: Option<PathBuf>,
 }
 
 /// Where an agent run reaches the server: URL plus the Authorization header.
@@ -81,6 +89,7 @@ pub fn start(app: AppHandle) {
         };
         let _ = server().set(Server { port, token: uuid::Uuid::new_v4().simple().to_string() });
         tracing::info!("AI Edit MCP server listening on 127.0.0.1:{}", port);
+        open_debug_session();
         loop {
             let Ok((stream, _)) = listener.accept().await else {
                 continue;
@@ -94,11 +103,26 @@ pub fn start(app: AppHandle) {
     });
 }
 
+/// Dev builds only: with `AUTOSUBS_MCP_DEBUG` set, open a read-only CapCut
+/// session whose workspace is `<temp>/autosubs-mcp-debug` and print how to
+/// reach it, so the tools can be called with curl without an agent run.
+fn open_debug_session() {
+    if !cfg!(debug_assertions) || std::env::var_os("AUTOSUBS_MCP_DEBUG").is_none() {
+        return;
+    }
+    let workspace = std::env::temp_dir().join("autosubs-mcp-debug");
+    let _ = std::fs::create_dir_all(&workspace);
+    let target = EditTarget { editor: crate::ai_edit::actions::Editor::Capcut, draft_id: None, transcript_file: None };
+    if let Some(ep) = open_session(target, false, Some(workspace.clone())) {
+        println!("[mcp-debug] url={} token={} workspace={}", ep.url, ep.token, workspace.display());
+    }
+}
+
 /// Register a session for one agent run. None if the server is not running.
-pub fn open_session(target: EditTarget, allow_edits: bool) -> Option<McpEndpoint> {
+pub fn open_session(target: EditTarget, allow_edits: bool, workspace: Option<PathBuf>) -> Option<McpEndpoint> {
     let srv = server().get()?;
     let session = uuid::Uuid::new_v4().simple().to_string();
-    sessions().lock().ok()?.insert(session.clone(), Session { target, allow_edits });
+    sessions().lock().ok()?.insert(session.clone(), Session { target, allow_edits, workspace });
     Some(McpEndpoint {
         url: format!("http://127.0.0.1:{}/mcp/{}", srv.port, session),
         token: srv.token.clone(),
@@ -268,7 +292,13 @@ async fn handle_message(session: &Session, msg: &Value) -> Option<Value> {
             )
         }
         "ping" => rpc_result(id, json!({})),
-        "tools/list" => rpc_result(id, json!({ "tools": tool_definitions(session.target.editor, session.allow_edits) })),
+        "tools/list" => {
+            let mut tools = tool_definitions(session.target.editor, session.allow_edits);
+            if session.workspace.is_some() {
+                tools.extend(media::tools());
+            }
+            rpc_result(id, json!({ "tools": tools }))
+        }
         "tools/call" => {
             let name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
             let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
@@ -281,12 +311,22 @@ async fn handle_message(session: &Session, msg: &Value) -> Option<Value> {
 fn instructions(session: &Session) -> String {
     let mut s = format!(
         "Timeline tools for the {} project this conversation is bound to. Times are seconds from the \
-         start of the timeline. Call get_timeline to see clip ids, then edit; every edit tool reports \
+         start of the timeline. Call get_timeline to see clip ids and get_transcript to see what is said \
+         (with word timings for precise cuts), then edit; every edit tool reports \
          what it did, so read the result and fix anything that failed.",
         session.target.editor.display_name()
     );
+    if session.workspace.is_some() {
+        s.push_str(
+            " inspect_media, download_media and save_article fetch videos and web articles into the \
+             project workspace (ai-broll/, articles/); download_media returns a path build_storyboard takes.",
+        );
+    }
     if !session.allow_edits {
-        s.push_str(" This run is read-only (Manual mode): only get_timeline is available.");
+        s.push_str(
+            " This run is read-only (Manual mode): the timeline cannot be edited, only read; the \
+             download tools still work.",
+        );
     }
     s
 }
@@ -302,15 +342,33 @@ async fn call_tool(session: &Session, name: &str, mut args: Value) -> Value {
             Err(e) => tool_text(e, true),
         };
     }
+    if name == "get_transcript" {
+        let args = if args.is_object() { args } else { json!({}) };
+        let parsed: TranscriptArgs = match serde_json::from_value(args) {
+            Ok(a) => a,
+            Err(e) => return tool_text(format!("Invalid arguments for get_transcript: {}", e), true),
+        };
+        let Some(app) = app_handle().get() else {
+            return tool_text("The app is not ready yet; retry.", true);
+        };
+        return match transcripts_dir(app).and_then(|dir| get_transcript(&dir, &session.target, &parsed)) {
+            Ok(text) => tool_text(text, false),
+            Err(e) => tool_text(e, true),
+        };
+    }
 
-    let action = match name {
-        "build_storyboard" => "build_storyboard",
-        "add_marker" => "add_marker",
-        "add_text" => "add_text",
-        "update_clip" => "update_segment",
-        "delete_clips" => "delete_segment",
-        _ => return tool_text(format!("Unknown tool: {}", name), true),
-    };
+    if let Some(app) = app_handle().get() {
+        if let Some(result) = media::call(app, session.workspace.as_deref(), name, &args).await {
+            return match result {
+                Ok(text) => tool_text(text, false),
+                Err(e) => tool_text(e, true),
+            };
+        }
+    }
+
+    if name != "apply_actions" && edit_action_name(name).is_none() {
+        return tool_text(format!("Unknown tool: {}", name), true);
+    }
     if !session.allow_edits {
         return tool_text(
             "This conversation is in Manual mode, so the agent cannot edit the timeline. Describe the \
@@ -318,16 +376,14 @@ async fn call_tool(session: &Session, name: &str, mut args: Value) -> Value {
             true,
         );
     }
-    if !args.is_object() {
-        args = json!({});
-    }
-    args["action"] = json!(action);
-    let parsed: TimelineAction = match serde_json::from_value(args) {
-        Ok(a) => a,
-        Err(e) => return tool_text(format!("Invalid arguments for {}: {}", name, e), true),
+    let result = if name == "apply_actions" {
+        apply_actions(session, args).await
+    } else {
+        match parse_edit(name, args) {
+            Ok(action) => execute(&session.target, action).await,
+            Err(e) => Err(e),
+        }
     };
-
-    let result = execute(&session.target, parsed).await;
     if let Some(app) = app_handle().get() {
         let _ = app.emit(
             TIMELINE_CHANGED_EVENT,
@@ -353,6 +409,98 @@ async fn call_tool(session: &Session, name: &str, mut args: Value) -> Value {
     }
 }
 
+/// The `TimelineAction` tag behind an edit tool's name.
+fn edit_action_name(tool: &str) -> Option<&'static str> {
+    Some(match tool {
+        "build_storyboard" => "build_storyboard",
+        "add_marker" => "add_marker",
+        "add_text" => "add_text",
+        "update_clip" => "update_segment",
+        "delete_clips" => "delete_segment",
+        "split_clips" => "split_clips",
+        "remove_ranges" => "remove_ranges",
+        _ => return None,
+    })
+}
+
+/// The timeline action behind an edit tool, with the tool's arguments.
+fn parse_edit(name: &str, mut args: Value) -> Result<TimelineAction, String> {
+    let action = edit_action_name(name).ok_or_else(|| format!("Unknown tool: {}", name))?;
+    if !args.is_object() {
+        args = json!({});
+    }
+    args["action"] = json!(action);
+    serde_json::from_value(args).map_err(|e| format!("Invalid arguments for {}: {}", name, e))
+}
+
+/// Run several edits in one tool call, in order. Every entry is checked
+/// before the first one runs, so a typo never leaves a half-applied batch;
+/// at run time the batch stops at the first edit that fails unless
+/// `continueOnError` is set. Saves the agent a model turn per edit.
+async fn apply_actions(session: &Session, args: Value) -> Result<ActionOutcome, String> {
+    let entries = args
+        .get("actions")
+        .and_then(|a| a.as_array())
+        .filter(|a| !a.is_empty())
+        .ok_or("apply_actions needs a non-empty actions array.")?;
+    if entries.len() > MAX_BATCH_ACTIONS {
+        return Err(format!(
+            "apply_actions takes at most {} actions; split them over several calls.",
+            MAX_BATCH_ACTIONS
+        ));
+    }
+    let continue_on_error = args.get("continueOnError").and_then(|v| v.as_bool()).unwrap_or(false);
+
+    let mut planned = Vec::with_capacity(entries.len());
+    for (i, entry) in entries.iter().enumerate() {
+        let tool = entry.get("tool").and_then(|t| t.as_str()).unwrap_or("");
+        if tool == "apply_actions" {
+            return Err(format!("Action {}: apply_actions cannot be nested.", i + 1));
+        }
+        let args = entry.get("args").cloned().unwrap_or_else(|| json!({}));
+        let action = parse_edit(tool, args).map_err(|e| format!("Action {}: {}. Nothing was applied.", i + 1, e))?;
+        planned.push((tool.to_string(), action));
+    }
+
+    let total = planned.len();
+    let (mut done, mut failed) = (0, 0);
+    let mut partial = false;
+    let mut lines = Vec::new();
+    for (i, (tool, action)) in planned.into_iter().enumerate() {
+        match execute(&session.target, action).await {
+            Ok(outcome) => {
+                done += 1;
+                partial |= outcome.partial;
+                lines.push(format!("{}. {}: {}", i + 1, tool, outcome.message));
+                lines.extend(outcome.lines.into_iter().map(|l| format!("   {}", l)));
+            }
+            Err(e) => {
+                failed += 1;
+                lines.push(format!("{}. {}: FAILED: {}", i + 1, tool, e));
+                if !continue_on_error {
+                    if i + 1 < total {
+                        lines.push(format!("Stopped; actions {}-{} were not run.", i + 2, total));
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    if done == 0 {
+        return Err(format!("No action in the batch was applied.\n{}", lines.join("\n")));
+    }
+    Ok(ActionOutcome {
+        message: format!(
+            "Applied {}/{} action(s){}.",
+            done,
+            total,
+            if failed > 0 { format!(", {} failed", failed) } else { String::new() }
+        ),
+        partial: partial || done < total,
+        lines,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -360,7 +508,7 @@ mod tests {
     use crate::ai_edit::actions::Editor;
 
     fn session(editor: Editor, allow_edits: bool) -> Session {
-        Session { target: EditTarget { editor, draft_id: None }, allow_edits }
+        Session { target: EditTarget { editor, draft_id: None, transcript_file: None }, allow_edits, workspace: None }
     }
 
     #[tokio::test]
@@ -421,7 +569,7 @@ mod tests {
         assert!(list.starts_with("HTTP/1.1 200 OK"), "{}", list);
         let body: Value = serde_json::from_str(list.split("\r\n\r\n").nth(1).unwrap()).unwrap();
         assert_eq!(body["id"], json!(7));
-        assert_eq!(body["result"]["tools"].as_array().unwrap().len(), 6);
+        assert_eq!(body["result"]["tools"].as_array().unwrap().len(), 10);
 
         let note = http(post("/mcp/s1", &token, &json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }))).await;
         assert!(note.starts_with("HTTP/1.1 202 Accepted"), "{}", note);
@@ -437,5 +585,33 @@ mod tests {
     async fn read_only_session_refuses_edits() {
         let result = call_tool(&session(Editor::Davinci, false), "add_marker", json!({ "markers": [] })).await;
         assert_eq!(result["isError"], json!(true));
+        let batch = call_tool(&session(Editor::Davinci, false), "apply_actions", json!({ "actions": [] })).await;
+        assert_eq!(batch["isError"], json!(true));
+    }
+
+    #[tokio::test]
+    async fn batch_is_checked_before_anything_runs() {
+        let s = session(Editor::Davinci, true);
+        let err = apply_actions(&s, json!({ "actions": [] })).await.unwrap_err();
+        assert!(err.contains("non-empty"), "{}", err);
+
+        // The second entry is bad, so the first (which would reach Resolve)
+        // never runs.
+        let err = apply_actions(
+            &s,
+            json!({ "actions": [
+                { "tool": "add_marker", "args": { "markers": [{ "atSec": 1 }] } },
+                { "tool": "update_clip", "args": {} }
+            ] }),
+        )
+        .await
+        .unwrap_err();
+        assert!(err.starts_with("Action 2: Invalid arguments for update_clip"), "{}", err);
+
+        let err = apply_actions(&s, json!({ "actions": [{ "tool": "get_timeline" }] })).await.unwrap_err();
+        assert!(err.contains("Unknown tool: get_timeline"), "{}", err);
+
+        let err = apply_actions(&s, json!({ "actions": [{ "tool": "apply_actions" }] })).await.unwrap_err();
+        assert!(err.contains("cannot be nested"), "{}", err);
     }
 }

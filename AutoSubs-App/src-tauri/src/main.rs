@@ -34,6 +34,8 @@ mod capcut;
 mod autoedit;
 mod media_scan;
 mod media_download;
+mod site_session;
+mod article;
 mod process_ext;
 mod cli;
 mod ai_cli;
@@ -474,8 +476,13 @@ fn main() {
             ai_cli::runtime::cli_get_models,
             ai_cli::workspace::cli_ensure_workspace,
             ai_cli::workspace::cli_save_memory,
+            ai_cli::workspace::cli_copy_asset,
             ai_cli::chat::cli_run_text_task,
             ai_cli::chat::cli_cancel_text_task,
+            ai_cli::preview::preview_start,
+            ai_cli::preview::preview_stop,
+            ai_cli::preview::preview_logs,
+            ai_cli::preview::preview_candidates,
             audio_preprocess::extract_audio_peaks,
             cli::cli_command_status,
             cli::install_cli_command,
@@ -491,7 +498,10 @@ fn main() {
             media_download::media_download_version_check,
             media_download::media_download_analyze,
             media_download::media_download_start,
-            media_download::media_download_cancel
+            media_download::media_download_cancel,
+            site_session::site_session_sites,
+            site_session::site_session_login,
+            article::article_snapshot
         ])
         .build(tauri::generate_context!())
         .expect("error while building Tauri application")
@@ -532,6 +542,9 @@ fn main() {
                     if let Ok(mut should_cancel) = crate::transcription_api::SHOULD_CANCEL.lock() {
                         *should_cancel = true;
                     }
+
+                    // A preview dev server is a separate process tree; don't orphan it.
+                    crate::ai_cli::preview::shutdown();
 
                     // The Lua bridge stays resident in Resolve after it is
                     // started from Workspace > Scripts, so reopening the app
