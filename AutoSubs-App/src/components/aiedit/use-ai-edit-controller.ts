@@ -18,7 +18,7 @@ import {
   updateCapCutSegment,
   type CapCutTimelineSnapshot,
 } from "@/api/capcut-api";
-import { buildStoryboard } from "@/api/resolve-api";
+import { addTimelineMarkers, buildStoryboard } from "@/api/resolve-api";
 import {
   useAiEditChatStore,
   type ContentMessage,
@@ -27,12 +27,12 @@ import { useIntegration } from "@/contexts/IntegrationContext";
 import { useCapCut } from "@/contexts/CapCutContext";
 import { useResolve } from "@/contexts/ResolveContext";
 import {
-  buildEditorContextPrompt,
   cliLabel,
   extractTimelineActions,
   mergeStepEvent,
   type TimelineActionCommand,
 } from "./ai-edit-helpers";
+import { buildEditorContextPrompt } from "./ai-edit-prompts";
 
 export function useAiEditController() {
   const { selectedIntegration } = useIntegration();
@@ -329,6 +329,21 @@ export function useAiEditController() {
             toast.success(
               `Đã đặt ${res.appended} clip vào Track V${trackIdx} DaVinci`,
             );
+            await refreshResolve();
+          }
+        } else if (cmd.action === "add_marker" && cmd.markers?.length) {
+          if (selectedIntegration === "capcut") {
+            toast.error("Đặt marker trên CapCut chưa được hỗ trợ");
+          } else {
+            const lines = await addTimelineMarkers(cmd.markers);
+            const placed = lines.filter((l) => l.startsWith("Added")).length;
+            if (placed === cmd.markers.length) {
+              toast.success(cmd.summary || `Đã đặt ${placed} marker trên DaVinci`);
+            } else {
+              toast.warning(`Đã đặt ${placed}/${cmd.markers.length} marker trên DaVinci`, {
+                description: lines.filter((l) => !l.startsWith("Added")).join("\n"),
+              });
+            }
             await refreshResolve();
           }
         } else if (
