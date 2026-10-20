@@ -1,0 +1,13 @@
+{
+  "name": "remotion-starter",
+  "private": true,
+  "scripts": {
+    "dev": "remotion studio src/index.ts --no-open"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.443",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "remotion": "4.0.443"
+  }
+}

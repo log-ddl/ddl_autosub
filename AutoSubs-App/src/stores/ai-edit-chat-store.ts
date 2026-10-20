@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { ContentCliAdapter } from "@/api/cli-chat-api";
 import type { PreviewTarget } from "@/api/preview-api";
+import type { WorkspaceProject } from "@/api/cli-chat-api";
 
 export interface ContentMessage {
   id: string;
@@ -25,6 +26,8 @@ export interface ContentConversation {
   boundIntegration?: string | null;
   boundProjectId?: string | null;
   boundProjectName?: string | null;
+  /** Editor project whose asset folder this conversation uses, fixed at its first message. */
+  boundWorkspace?: WorkspaceProject | null;
   systemPrompt: string;
   pinned: boolean;
   customTitle: boolean;
@@ -57,6 +60,7 @@ interface AiEditChatState {
     integration: string,
     projectId: string | null,
     projectName: string | null,
+    workspace: WorkspaceProject | null,
   ) => void;
   setConversationSystemPrompt: (
     conversationId: string,
@@ -140,6 +144,7 @@ export const useAiEditChatStore = create<AiEditChatState>()(
                   boundIntegration: null,
                   boundProjectId: null,
                   boundProjectName: null,
+                  boundWorkspace: null,
                   updatedAt: Date.now(),
                 }
               : c,
@@ -197,19 +202,23 @@ export const useAiEditChatStore = create<AiEditChatState>()(
         integration,
         projectId,
         projectName,
+        workspace,
       ) =>
         set((state) => ({
-          conversations: state.conversations.map((conversation) =>
-            conversation.id === conversationId &&
-            !conversation.boundIntegration
-              ? {
-                  ...conversation,
-                  boundIntegration: integration,
-                  boundProjectId: projectId,
-                  boundProjectName: projectName,
-                }
-              : conversation,
-          ),
+          conversations: state.conversations.map((conversation) => {
+            if (conversation.id !== conversationId) return conversation;
+            const next = { ...conversation };
+            if (!next.boundIntegration) {
+              next.boundIntegration = integration;
+              next.boundProjectId = projectId;
+              next.boundProjectName = projectName;
+            }
+            // Conversations from before workspaces were per project get one now.
+            if (!next.boundWorkspace && workspace) {
+              next.boundWorkspace = workspace;
+            }
+            return next;
+          }),
         })),
       setConversationSystemPrompt: (conversationId, systemPrompt) =>
         set((state) => ({

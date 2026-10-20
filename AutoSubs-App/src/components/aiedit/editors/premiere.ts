@@ -15,12 +15,16 @@ export function usePremiereAdapter(): EditorAdapter {
   const projectName = premiereTimeline?.projectName || name;
   const projectKey = premiereTimeline?.projectId || null;
   const workspaceProject = React.useMemo(
-    () => ({
-      editor: "premiere",
-      name: projectName,
-      id: projectKey,
-      legacyName: name,
-    }),
+    () =>
+      // Nothing read from the editor yet: no folder, rather than a shared one.
+      projectName
+        ? {
+            editor: "premiere",
+            name: projectName,
+            id: projectKey,
+            legacyName: name,
+          }
+        : null,
     [projectName, projectKey, name],
   );
 

@@ -34,11 +34,14 @@ export function useCapCutAdapter(active: boolean): EditorAdapter {
       target: { integration: "capcut", draftId: selectedDraftId || null },
       projectId: snapshot?.draftId || selectedDraftId || null,
       projectName: snapshot?.draftName || null,
-      workspaceProject: {
-        editor: "capcut",
-        name: snapshot?.draftName || null,
-        id: snapshot?.draftId || selectedDraftId || null,
-      },
+      workspaceProject:
+        snapshot?.draftId || selectedDraftId
+          ? {
+              editor: "capcut",
+              name: snapshot?.draftName || null,
+              id: snapshot?.draftId || selectedDraftId || null,
+            }
+          : null,
       title: `CapCut (${snapshot?.draftName || "Chưa chọn"})`,
       refreshAfterEdit: async () => {
         await refresh();

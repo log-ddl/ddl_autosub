@@ -1,0 +1,11 @@
+{
+  "name": "autosubs-remotion-kit",
+  "private": true,
+  "description": "Remotion libraries shared by every AI Edit motion graphic. Installed once by AutoSubs; projects link to its node_modules.",
+  "dependencies": {
+    "@remotion/cli": "4.0.443",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "remotion": "4.0.443"
+  }
+}

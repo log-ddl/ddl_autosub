@@ -154,7 +154,12 @@ export function useAiEditController() {
 
   const activeProjectId = editor.projectId;
   const activeProjectName = editor.projectName;
-  const workspaceProject = editor.workspaceProject;
+  // A conversation keeps the project it started in, so switching to an old
+  // conversation shows that project's assets, not the open project's.
+  const workspaceProject =
+    activeConversation?.boundWorkspace ?? editor.workspaceProject;
+  // An editor is connected but hasn't told us its project yet.
+  const projectUnknown = Boolean(editor.target) && !workspaceProject;
 
   const contextMismatch = React.useMemo(() => {
     if (
@@ -166,21 +171,32 @@ export function useAiEditController() {
     }
     const isDiffIntegration =
       activeConversation.boundIntegration !== selectedIntegration;
+    const bound = activeConversation.boundWorkspace;
+    const open = editor.workspaceProject;
     const isDiffProject =
-      Boolean(activeConversation.boundProjectId) &&
-      Boolean(activeProjectId) &&
-      activeConversation.boundProjectId !== activeProjectId;
+      (Boolean(activeConversation.boundProjectId) &&
+        Boolean(activeProjectId) &&
+        activeConversation.boundProjectId !== activeProjectId) ||
+      (Boolean(bound) &&
+        Boolean(open) &&
+        (bound!.editor !== open!.editor ||
+          (bound!.id || bound!.name) !== (open!.id || open!.name)));
     if (!isDiffIntegration && !isDiffProject) return null;
     return {
       boundIntegration: activeConversation.boundIntegration,
       boundProjectId: activeConversation.boundProjectId ?? null,
       boundProjectName:
-        activeConversation.boundProjectName ||
+        [activeConversation.boundWorkspace?.name, activeConversation.boundProjectName]
+          .filter(Boolean)
+          .join(" · ") ||
         activeConversation.boundProjectId ||
         "Mặc định",
       currentIntegration: selectedIntegration,
       currentProjectId: activeProjectId,
-      currentProjectName: activeProjectName || "Chưa chọn",
+      currentProjectName:
+        [editor.workspaceProject?.name, activeProjectName]
+          .filter(Boolean)
+          .join(" · ") || "Chưa chọn",
     };
   }, [
     activeConversation,
@@ -188,6 +204,7 @@ export function useAiEditController() {
     selectedIntegration,
     activeProjectId,
     activeProjectName,
+    editor.workspaceProject,
   ]);
 
   // Auto-resize textarea height cleanly
@@ -232,6 +249,10 @@ export function useAiEditController() {
   }, [loadModels]);
 
   const refreshWorkspace = React.useCallback(async () => {
+    if (projectUnknown) {
+      setWorkspaceInfo(null);
+      return;
+    }
     try {
       const info = await ensureCliWorkspace(
         activeConversation?.workspacePath ?? null,
@@ -241,7 +262,7 @@ export function useAiEditController() {
     } catch {
       // ignore
     }
-  }, [activeConversation?.workspacePath, workspaceProject]);
+  }, [activeConversation?.workspacePath, workspaceProject, projectUnknown]);
 
   React.useEffect(() => {
     void refreshWorkspace();
@@ -461,6 +482,13 @@ export function useAiEditController() {
       return;
     }
 
+    if (projectUnknown) {
+      toast.error(
+        `Chưa đọc được project đang mở trong ${editor.title}. Hãy mở project và timeline rồi thử lại.`,
+      );
+      return;
+    }
+
     if (!overridePrompt) setDraft("");
 
     const convId = activeConversation.id;
@@ -472,6 +500,7 @@ export function useAiEditController() {
       selectedIntegration,
       activeProjectId,
       activeProjectName,
+      editor.workspaceProject,
     );
 
     const userMsg: ContentMessage = {
@@ -701,5 +730,6 @@ export function useAiEditController() {
     handleSendPrompt,
     handleStopRunning,
     preview,
+    workspaceProject,
   };
 }

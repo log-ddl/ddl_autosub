@@ -15,12 +15,16 @@ export function useDavinciAdapter(): EditorAdapter {
   const projectName = timelineInfo?.projectName || name;
   const projectKey = timelineInfo?.projectId || null;
   const workspaceProject = React.useMemo(
-    () => ({
-      editor: "davinci",
-      name: projectName,
-      id: projectKey,
-      legacyName: name,
-    }),
+    () =>
+      // Nothing read from the editor yet: no folder, rather than a shared one.
+      projectName
+        ? {
+            editor: "davinci",
+            name: projectName,
+            id: projectKey,
+            legacyName: name,
+          }
+        : null,
     [projectName, projectKey, name],
   );
 

@@ -126,10 +126,26 @@ pub fn resolve_workspace_dir(
             return Ok(PathBuf::from(trimmed));
         }
     }
+    check_project_known(project)?;
     let projects = global_workspace_root(app)?.join("projects");
     let dir = projects.join(project_rel_dir(project).0);
     adopt_legacy_dir(&projects, project, &dir);
     Ok(dir)
+}
+
+/// An editor with no project name would land in a shared `<editor>/untitled`
+/// folder and mix assets of unrelated projects, so refuse it.
+fn check_project_known(project: Option<&WorkspaceProject>) -> Result<(), String> {
+    let Some(p) = project else { return Ok(()) };
+    let editor = p.editor.as_deref().unwrap_or("").trim();
+    let named = p.name.as_deref().is_some_and(|n| !n.trim().is_empty())
+        || p.id.as_deref().is_some_and(|i| !i.trim().is_empty());
+    if !editor.is_empty() && editor != "standalone" && !named {
+        return Err(format!(
+            "Chưa đọc được project đang mở trong {editor}. Hãy mở project rồi thử lại."
+        ));
+    }
+    Ok(())
 }
 
 /// Folder names under `projects/` that belong to the current layout.
@@ -215,6 +231,7 @@ pub fn build_workspace_info(
     let templates_dir = global_dir.join("templates").join("motion-graphics");
     fs::create_dir_all(&templates_dir)
         .map_err(|e| format!("Failed to create global templates dir: {}", e))?;
+    crate::media::remotion::seed_starter(&templates_dir);
 
     let global_mem_path = global_dir.join("global-memory.md");
     if !global_mem_path.exists() {
@@ -399,6 +416,15 @@ mod tests {
         assert_ne!(a, c);
         assert!(a.starts_with("davinci"));
         assert_eq!(a, project_rel_dir(Some(&project("davinci", "My Film", "id-a"))).0);
+    }
+
+    #[test]
+    fn refuses_an_editor_without_a_project() {
+        let mut p = project("premiere", "", "");
+        p.name = None;
+        assert!(check_project_known(Some(&p)).is_err());
+        assert!(check_project_known(Some(&project("premiere", "Temp", ""))).is_ok());
+        assert!(check_project_known(None).is_ok());
     }
 
     #[test]

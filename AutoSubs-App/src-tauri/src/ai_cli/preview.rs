@@ -230,14 +230,19 @@ pub fn preview_logs() -> String {
 }
 
 #[tauri::command]
-pub async fn preview_start(path: String) -> Result<PreviewInfo, String> {
+pub async fn preview_start(app: tauri::AppHandle, path: String) -> Result<PreviewInfo, String> {
+    start_preview(Some(&app), path).await
+}
+
+/// `app` is only needed to link a Remotion project to the shared kit.
+async fn start_preview(app: Option<&tauri::AppHandle>, path: String) -> Result<PreviewInfo, String> {
     shutdown();
     if let Ok(mut l) = logs().lock() {
         l.clear();
     }
     match detect(Path::new(path.trim()))? {
         Target::Static { root, entry } => start_static(root, entry).await,
-        Target::Dev { root } => start_dev(root).await,
+        Target::Dev { root } => start_dev(app, root).await,
     }
 }
 
@@ -316,9 +321,17 @@ fn command_in(root: &Path, bin: &str, path_env: &str) -> Result<Command, String>
     Ok(cmd)
 }
 
-async fn start_dev(root: PathBuf) -> Result<PreviewInfo, String> {
+async fn start_dev(app: Option<&tauri::AppHandle>, root: PathBuf) -> Result<PreviewInfo, String> {
     let pm = package_manager(&root);
     let path_env = build_cli_path_env();
+
+    // Remotion projects share one installed kit (media::remotion) instead of
+    // an install per project.
+    if let Some(app) = app.filter(|_| !root.join("node_modules").exists() && crate::media::remotion::is_remotion_project(&root)) {
+        push_log("Linking the shared Remotion libraries (installing them on first use)...".to_string());
+        let (kit, _) = crate::media::remotion::ensure_kit(app).await?;
+        crate::media::remotion::link_kit(&kit, &root)?;
+    }
 
     if !root.join("node_modules").exists() {
         push_log(format!("$ {pm} install"));
@@ -738,7 +751,7 @@ mod tests {
         std::fs::write(root.join("src/style.css"), "body{margin:0}").unwrap();
 
         assert!(preview_candidates(dir.path().to_string_lossy().into(), 0).iter().any(|t| t.name == "intro card" && t.kind == "static"));
-        let info = preview_start(root.to_string_lossy().into()).await.unwrap();
+        let info = start_preview(None, root.to_string_lossy().into()).await.unwrap();
         let base = info.url.trim_end_matches("index.html").to_string();
         let get = |p: &str| {
             let url = format!("{base}{p}");

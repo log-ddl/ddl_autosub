@@ -21,7 +21,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::ai_edit::actions::{execute, timeline_snapshot, ActionOutcome, EditTarget, TimelineAction};
-use crate::ai_edit::mcp::tools::media;
+use crate::ai_edit::mcp::tools::{media, motion};
 use crate::ai_edit::mcp::tools::transcript::{get_transcript, transcripts_dir, TranscriptArgs};
 use crate::ai_edit::mcp::tools::tool_definitions;
 
@@ -296,6 +296,7 @@ async fn handle_message(session: &Session, msg: &Value) -> Option<Value> {
             let mut tools = tool_definitions(session.target.editor, session.allow_edits);
             if session.workspace.is_some() {
                 tools.extend(media::tools());
+                tools.extend(motion::tools());
             }
             rpc_result(id, json!({ "tools": tools }))
         }
@@ -318,8 +319,11 @@ fn instructions(session: &Session) -> String {
     );
     if session.workspace.is_some() {
         s.push_str(
-            " inspect_media, download_media and save_article fetch videos and web articles into the \
-             project workspace (ai-broll/, articles/); download_media returns a path build_storyboard takes.",
+            " inspect_media, download_media, save_article and remove_background fetch videos, web \
+             articles and remove image backgrounds into the project workspace (ai-broll/, articles/); \
+             download_media and remove_background return paths build_storyboard takes. \
+             render_motion renders a Remotion project from motion-graphics/ into exports/ and waits \
+             for the file.",
         );
     }
     if !session.allow_edits {
@@ -358,7 +362,12 @@ async fn call_tool(session: &Session, name: &str, args: Value) -> Value {
     }
 
     if let Some(app) = app_handle().get() {
-        if let Some(result) = media::call(app, session.workspace.as_deref(), name, &args).await {
+        let workspace = session.workspace.as_deref();
+        let result = match media::call(app, workspace, name, &args).await {
+            Some(r) => Some(r),
+            None => motion::call(app, workspace, name, &args).await,
+        };
+        if let Some(result) = result {
             return match result {
                 Ok(text) => tool_text(text, false),
                 Err(e) => tool_text(e, true),

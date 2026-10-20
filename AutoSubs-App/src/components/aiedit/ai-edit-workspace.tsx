@@ -71,6 +71,14 @@ export function AiEditWorkspace() {
             <span className="text-xs font-medium text-muted-foreground truncate max-w-md">
               {c.activeConversation?.title || "Cuộc trò chuyện mới"}
             </span>
+            {c.workspaceProject?.name && (
+              <span
+                className="shrink-0 truncate max-w-48 rounded-full bg-muted px-2 py-0.5 text-[10.5px] text-muted-foreground"
+                title="Project chứa asset của cuộc trò chuyện này"
+              >
+                {c.workspaceProject.name}
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-2 shrink-0">

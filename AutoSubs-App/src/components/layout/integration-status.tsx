@@ -123,6 +123,14 @@ export function IntegrationStatus() {
   const activeLabel = activeIntegration.connected
     ? activeIntegration.timelineName || activeIntegration.connectedText
     : t("titlebar.status.disconnected");
+  // Project first, then the timeline/sequence inside it: two projects can both
+  // have a "Sequence 01". CapCut drafts have no separate project name.
+  const activeProject =
+    activeIntegration.connected &&
+    activeIntegration.projectName &&
+    activeIntegration.projectName !== activeIntegration.timelineName
+      ? activeIntegration.projectName
+      : null;
 
   return (
     <div
@@ -151,8 +159,19 @@ export function IntegrationStatus() {
                 }`}
               />
             </span>
-            <span className={`truncate min-w-0 ${!activeIntegration.connected ? "text-gray-600 dark:text-gray-400" : ""}`}>
-              {activeLabel}
+            <span
+              className={`truncate min-w-0 ${!activeIntegration.connected ? "text-gray-600 dark:text-gray-400" : ""}`}
+              title={activeProject ? `${activeProject} · ${activeLabel}` : activeLabel}
+            >
+              {activeProject && (
+                <>
+                  <span className="font-medium">{activeProject}</span>
+                  <span className="text-muted-foreground"> · </span>
+                </>
+              )}
+              <span className={activeProject ? "text-muted-foreground" : ""}>
+                {activeLabel}
+              </span>
             </span>
             <ChevronDown className="size-3 opacity-50 shrink-0" />
           </Button>

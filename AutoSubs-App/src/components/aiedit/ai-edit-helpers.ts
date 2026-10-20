@@ -190,9 +190,11 @@ const AUTOSUBS_TOOL_NAMES: Record<string, string> = {
   split_clips: "Cắt đôi clip",
   remove_ranges: "Cắt bỏ đoạn",
   apply_actions: "Áp nhiều thao tác",
+  render_motion: "Render motion graphic",
   inspect_media: "Xem link video",
   download_media: "Tải video",
   save_article: "Lưu bài báo",
+  remove_background: "Tách nền ảnh",
 };
 
 function autosubsToolLabel(rawTool: string): string | undefined {

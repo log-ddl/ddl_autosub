@@ -120,7 +120,7 @@ export function AiEditSidebar({
                 </div>
                 <div className="text-[10.5px] text-muted-foreground/70 mt-0.5 truncate">
                   {conv.boundIntegration
-                    ? `${editorLabel(conv.boundIntegration, true)}${conv.boundProjectName ? ` (${conv.boundProjectName})` : ""} · `
+                    ? `${editorLabel(conv.boundIntegration, true)}${conv.boundWorkspace?.name || conv.boundProjectName ? ` (${[conv.boundWorkspace?.name, conv.boundProjectName].filter(Boolean).join(" · ")})` : ""} · `
                     : `${cliLabel(conv.adapter ?? defaultAdapter)} · `}
                   {conv.messages.length} tin
                 </div>
