@@ -51,6 +51,51 @@ pub struct CapCutTimelineSnapshot {
     pub fps: f64,
     pub duration_sec: f64,
     pub tracks: Vec<CapCutTimelineTrack>,
+    pub markers: Vec<CapCutTimelineMarker>,
+}
+
+/// A timeline marker, stored by CapCut in `time_marks.mark_items`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapCutTimelineMarker {
+    pub id: String,
+    pub title: String,
+    /// Hex color as CapCut stores it, e.g. "#00c1cd".
+    pub color: String,
+    pub start_sec: f64,
+    pub duration_sec: f64,
+}
+
+fn parse_markers(info: &Value) -> Vec<CapCutTimelineMarker> {
+    let mut markers: Vec<CapCutTimelineMarker> = info
+        .get("time_marks")
+        .and_then(|t| t.get("mark_items"))
+        .and_then(|v| v.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .map(|m| {
+                    let range = m.get("time_range");
+                    let us = |key: &str| {
+                        range
+                            .and_then(|r| r.get(key))
+                            .and_then(|v| v.as_i64())
+                            .unwrap_or(0)
+                    };
+                    CapCutTimelineMarker {
+                        id: m.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                        title: m.get("title").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                        color: m.get("color").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                        start_sec: us("start") as f64 / US_PER_SEC,
+                        duration_sec: us("duration") as f64 / US_PER_SEC,
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    // CapCut keeps them in insertion order; present them in timeline order.
+    markers.sort_by(|a, b| a.start_sec.total_cmp(&b.start_sec));
+    markers
 }
 
 fn parse_timeline_snapshot(draft: &CapCutDraftSummary, info: &Value) -> CapCutTimelineSnapshot {
@@ -322,6 +367,7 @@ fn parse_timeline_snapshot(draft: &CapCutDraftSummary, info: &Value) -> CapCutTi
         fps,
         duration_sec: max_end_sec,
         tracks: tracks_out,
+        markers: parse_markers(info),
     }
 }
 
@@ -577,4 +623,180 @@ pub async fn capcut_update_segment(
     info["duration"] = json!(max_end_us);
     save_draft_json(&draft, &info, max_end_us)?;
     Ok(parse_timeline_snapshot(&draft, &info))
+}
+
+/// The two marker colors CapCut Desktop was observed writing. Red-family names
+/// map to its red; everything else gets its default cyan.
+const CAPCUT_MARKER_CYAN: &str = "#00c1cd";
+const CAPCUT_MARKER_RED: &str = "#FC7265";
+
+fn capcut_marker_color(name: Option<&str>) -> &'static str {
+    match name.map(|n| n.trim().to_ascii_lowercase()).as_deref() {
+        Some("red" | "pink" | "rose" | "fuchsia") => CAPCUT_MARKER_RED,
+        _ => CAPCUT_MARKER_CYAN,
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapCutMarkerInput {
+    pub at_sec: f64,
+    pub color: Option<String>,
+    pub name: Option<String>,
+    pub duration_sec: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapCutAddMarkersResult {
+    pub added: usize,
+    /// Markers not added: invalid time, or one already starts on that frame.
+    pub skipped: usize,
+    pub snapshot: CapCutTimelineSnapshot,
+}
+
+/// Append `markers` to the draft's `time_marks.mark_items`, creating the list
+/// if the draft has none. Returns (added, skipped).
+fn add_marker_items(info: &mut Value, markers: &[CapCutMarkerInput]) -> (usize, usize) {
+    let fps = info
+        .get("fps")
+        .and_then(|v| v.as_f64())
+        .filter(|f| *f > 0.0)
+        .unwrap_or(30.0);
+    let frames_to_us = |frames: i64| (frames as f64 * US_PER_SEC / fps) as i64;
+
+    if !info["time_marks"].is_object() {
+        info["time_marks"] = json!({ "id": new_id(), "mark_items": [] });
+    }
+    if !info["time_marks"]["mark_items"].is_array() {
+        info["time_marks"]["mark_items"] = json!([]);
+    }
+    let items = info["time_marks"]["mark_items"]
+        .as_array_mut()
+        .expect("mark_items was just made an array");
+
+    let mut added = 0usize;
+    let mut skipped = 0usize;
+    for m in markers {
+        if !m.at_sec.is_finite() || m.at_sec < 0.0 {
+            skipped += 1;
+            continue;
+        }
+        let start_us = frames_to_us((m.at_sec * fps).round() as i64);
+        let taken = items.iter().any(|it| {
+            it.get("time_range")
+                .and_then(|r| r.get("start"))
+                .and_then(|v| v.as_i64())
+                == Some(start_us)
+        });
+        if taken {
+            skipped += 1;
+            continue;
+        }
+        let duration_frames = (m.duration_sec.unwrap_or(0.0).max(0.0) * fps).round() as i64;
+        let title = m
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .unwrap_or("Marker");
+        items.push(json!({
+            "id": new_id(),
+            "time_range": { "start": start_us, "duration": frames_to_us(duration_frames) },
+            "color": capcut_marker_color(m.color.as_deref()),
+            "title": title,
+        }));
+        added += 1;
+    }
+
+    (added, skipped)
+}
+
+/// Add timeline markers (`time_marks.mark_items`). Times snap to the draft's
+/// frame grid the way CapCut stores them; a marker on a frame that already has
+/// one is skipped, so re-applying the same command doesn't duplicate it.
+#[tauri::command]
+pub async fn capcut_add_markers(
+    preferred_draft_id: Option<String>,
+    markers: Vec<CapCutMarkerInput>,
+) -> Result<CapCutAddMarkersResult, String> {
+    let status = capcut_get_status(preferred_draft_id).await?;
+    let draft = status
+        .active_draft
+        .ok_or_else(|| "No CapCut project found.".to_string())?;
+    let text = fs::read_to_string(&draft.json_path)
+        .map_err(|e| format!("Failed to read {}: {}", draft.json_path, e))?;
+    let mut info: Value = serde_json::from_str(&text)
+        .map_err(|e| format!("Failed to parse {}: {}", draft.json_path, e))?;
+
+    let (added, skipped) = add_marker_items(&mut info, &markers);
+
+    if added > 0 {
+        let duration_us = info.get("duration").and_then(|v| v.as_i64()).unwrap_or(0);
+        save_draft_json(&draft, &info, duration_us)?;
+    }
+    Ok(CapCutAddMarkersResult {
+        added,
+        skipped,
+        snapshot: parse_timeline_snapshot(&draft, &info),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Shape copied from a draft CapCut Desktop saved with two markers.
+    fn draft_with_markers() -> Value {
+        json!({
+            "fps": 30.0,
+            "time_marks": {
+                "id": "E18D0A84-6792-4C7E-9AAE-87FD8D60E2A6",
+                "mark_items": [
+                    { "id": "4A0DC525", "time_range": { "start": 2366666, "duration": 0 },
+                      "color": "#00c1cd", "title": "Marker 02" },
+                    { "id": "B12A030C", "time_range": { "start": 700000, "duration": 0 },
+                      "color": "#00c1cd", "title": "Marker 01" }
+                ]
+            }
+        })
+    }
+
+    fn marker(at_sec: f64) -> CapCutMarkerInput {
+        CapCutMarkerInput { at_sec, color: None, name: None, duration_sec: None }
+    }
+
+    #[test]
+    fn parses_markers_in_timeline_order() {
+        let markers = parse_markers(&draft_with_markers());
+        let titles: Vec<_> = markers.iter().map(|m| m.title.as_str()).collect();
+        assert_eq!(titles, ["Marker 01", "Marker 02"]);
+        assert!((markers[0].start_sec - 0.7).abs() < 1e-9);
+    }
+
+    #[test]
+    fn snaps_to_frames_like_capcut() {
+        let mut info = json!({ "fps": 30.0, "time_marks": null });
+        let input = CapCutMarkerInput {
+            at_sec: 2.234,
+            color: Some("Red".into()),
+            name: Some("m".into()),
+            duration_sec: Some(2.233),
+        };
+        assert_eq!(add_marker_items(&mut info, &[input]), (1, 0));
+        let item = &info["time_marks"]["mark_items"][0];
+        // 67 frames at 30 fps, truncated to whole microseconds as CapCut writes it.
+        assert_eq!(item["time_range"]["start"], json!(2233333));
+        assert_eq!(item["time_range"]["duration"], json!(2233333));
+        assert_eq!(item["color"], json!(CAPCUT_MARKER_RED));
+        assert!(info["time_marks"]["id"].is_string());
+    }
+
+    #[test]
+    fn skips_taken_frames_and_bad_times() {
+        let mut info = draft_with_markers();
+        let (added, skipped) = add_marker_items(&mut info, &[marker(0.7), marker(-1.0), marker(5.0)]);
+        assert_eq!((added, skipped), (1, 2));
+        assert_eq!(info["time_marks"]["mark_items"].as_array().unwrap().len(), 3);
+    }
 }

@@ -465,6 +465,7 @@ fn main() {
             capcut::timeline::capcut_get_timeline_snapshot,
             capcut::timeline::capcut_delete_segment,
             capcut::timeline::capcut_update_segment,
+            capcut::timeline::capcut_add_markers,
             ai_cli::runtime::cli_get_status,
             ai_cli::runtime::cli_get_models,
             ai_cli::workspace::cli_ensure_workspace,

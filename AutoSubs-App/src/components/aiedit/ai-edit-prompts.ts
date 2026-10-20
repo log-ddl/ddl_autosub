@@ -70,7 +70,7 @@ const STORYBOARD_DOC = `**Import, Cắt ghép (Cut/Split), Thay thế, Chèn xen
 }
 \`\`\``;
 
-const MARKER_DOC = `**Đặt Marker lên Timeline** (\`add_marker\`):
+const DAVINCI_MARKER_DOC = `**Đặt Marker lên Timeline** (\`add_marker\`):
 - \`markers\`: danh sách marker, mỗi phần tử gồm:
   - \`atSec\`: Vị trí marker, tính bằng giây từ đầu timeline (ví dụ phút thứ 2 là \`120\`).
   - \`color\` (tùy chọn, mặc định \`"Blue"\`): một trong \`Blue\`, \`Cyan\`, \`Green\`, \`Yellow\`, \`Red\`, \`Pink\`, \`Purple\`, \`Fuchsia\`, \`Rose\`, \`Lavender\`, \`Sky\`, \`Mint\`, \`Lemon\`, \`Sand\`, \`Cocoa\`, \`Cream\`.
@@ -85,6 +85,24 @@ const MARKER_DOC = `**Đặt Marker lên Timeline** (\`add_marker\`):
   "markers": [
     { "atSec": 12.5, "color": "Red", "name": "Chèn B-roll", "note": "Cảnh xe chạy" },
     { "atSec": 45, "color": "Green", "name": "Hook 2" }
+  ]
+}
+\`\`\``;
+
+const CAPCUT_MARKER_DOC = `**Đặt Marker lên Timeline CapCut** (\`add_marker\`):
+- \`markers\`: danh sách marker, mỗi phần tử gồm:
+  - \`atSec\`: Vị trí marker, tính bằng giây từ đầu timeline (ví dụ phút thứ 2 là \`120\`).
+  - \`color\` (tùy chọn): CapCut chỉ có 2 màu: \`"Red"\` (đỏ) hoặc mặc định (xanh cyan).
+  - \`name\` (tùy chọn): Tiêu đề của marker. CapCut không có ô ghi chú riêng, hãy đưa nội dung cần ghi vào \`name\`.
+  - \`durationSec\` (tùy chọn): Độ dài vùng marker (giây). Bỏ trống là marker 1 điểm.
+- Marker trùng frame với marker đã có sẽ bị bỏ qua.
+\`\`\`timeline-action
+{
+  "action": "add_marker",
+  "summary": "Đánh dấu 2 điểm cần chèn B-roll",
+  "markers": [
+    { "atSec": 12.5, "color": "Red", "name": "Chèn B-roll: cảnh xe chạy" },
+    { "atSec": 45, "name": "Hook 2" }
   ]
 }
 \`\`\``;
@@ -144,6 +162,12 @@ function userAndMemorySections(
 }
 
 function capcutContext(snapshot: CapCutTimelineSnapshot): string {
+  const markerSummary = (snapshot.markers ?? [])
+    .map(
+      (m) =>
+        `  - "${m.title}" tại ${m.startSec.toFixed(2)}s${m.durationSec > 0 ? ` (dài ${m.durationSec.toFixed(2)}s)` : ""}`,
+    )
+    .join("\n");
   const trackSummary = snapshot.tracks
     .map((tr) => {
       const segs = tr.segments
@@ -165,6 +189,8 @@ function capcutContext(snapshot: CapCutTimelineSnapshot): string {
 - Tổng thời lượng: ${snapshot.durationSec.toFixed(2)}s
 - Chi tiết các Track trên Timeline:
 ${trackSummary || "(Timeline hiện đang trống)"}
+- Marker đang có trên Timeline:
+${markerSummary || "  (Chưa có marker nào)"}
 
 ### Quy chuẩn cấu trúc JSON của CapCut (Dùng ngay, TUYỆT ĐỐI KHÔNG quét mã nguồn dự án hay thư mục target/ node_modules/):
 - Đơn vị thời gian trong \`${snapshot.jsonPath}\` là **microseconds** (\`1s = 1_000_000\`).
@@ -193,7 +219,7 @@ export function buildDavinciPrompt(
     intro("DAVINCI"),
     davinciContext(timelineName),
     ...workspaceSection(workspaceInfo),
-    actionsSection([STORYBOARD_DOC, MARKER_DOC]),
+    actionsSection([STORYBOARD_DOC, DAVINCI_MARKER_DOC]),
     ...userAndMemorySections(userSystemPrompt, workspaceInfo),
   ].join("\n\n");
 }
@@ -208,7 +234,7 @@ export function buildCapCutPrompt(
     intro("CAPCUT"),
     ...(snapshot ? [capcutContext(snapshot)] : []),
     ...workspaceSection(workspaceInfo),
-    actionsSection([STORYBOARD_DOC, UPDATE_SEGMENT_DOC, DELETE_SEGMENT_DOC]),
+    actionsSection([STORYBOARD_DOC, CAPCUT_MARKER_DOC, UPDATE_SEGMENT_DOC, DELETE_SEGMENT_DOC]),
     ...userAndMemorySections(userSystemPrompt, workspaceInfo),
   ].join("\n\n");
 }

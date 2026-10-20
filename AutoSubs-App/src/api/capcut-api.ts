@@ -128,6 +128,16 @@ export interface CapCutTimelineSnapshot {
   fps: number;
   durationSec: number;
   tracks: CapCutTimelineTrack[];
+  markers: CapCutTimelineMarker[];
+}
+
+export interface CapCutTimelineMarker {
+  id: string;
+  title: string;
+  /** Hex color as CapCut stores it, e.g. "#00c1cd". */
+  color: string;
+  startSec: number;
+  durationSec: number;
 }
 
 export async function getCapCutTimelineSnapshot(
@@ -145,6 +155,31 @@ export async function deleteCapCutSegment(
   return invoke<CapCutTimelineSnapshot>("capcut_delete_segment", {
     preferredDraftId: preferredDraftId || null,
     segmentId,
+  });
+}
+
+export interface CapCutMarkerInput {
+  atSec: number;
+  /** Red, Pink, Rose or Fuchsia give CapCut's red; anything else its cyan. */
+  color?: string;
+  name?: string;
+  durationSec?: number;
+}
+
+export interface CapCutAddMarkersResult {
+  added: number;
+  /** Invalid times, or frames that already had a marker. */
+  skipped: number;
+  snapshot: CapCutTimelineSnapshot;
+}
+
+export async function addCapCutMarkers(
+  markers: CapCutMarkerInput[],
+  preferredDraftId?: string,
+): Promise<CapCutAddMarkersResult> {
+  return invoke<CapCutAddMarkersResult>("capcut_add_markers", {
+    preferredDraftId: preferredDraftId || null,
+    markers,
   });
 }
 

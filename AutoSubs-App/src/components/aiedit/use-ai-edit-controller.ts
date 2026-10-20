@@ -13,6 +13,7 @@ import {
 } from "@/api/cli-chat-api";
 import {
   buildCapCutStoryboard,
+  addCapCutMarkers,
   deleteCapCutSegment,
   getCapCutTimelineSnapshot,
   updateCapCutSegment,
@@ -333,7 +334,19 @@ export function useAiEditController() {
           }
         } else if (cmd.action === "add_marker" && cmd.markers?.length) {
           if (selectedIntegration === "capcut") {
-            toast.error("Đặt marker trên CapCut chưa được hỗ trợ");
+            const res = await addCapCutMarkers(
+              cmd.markers,
+              selectedDraftId || undefined,
+            );
+            setTimelineSnapshot(res.snapshot);
+            if (res.skipped === 0) {
+              toast.success(cmd.summary || `Đã đặt ${res.added} marker trên CapCut`);
+            } else {
+              toast.warning(
+                `Đã đặt ${res.added}/${cmd.markers.length} marker trên CapCut`,
+                { description: "Bỏ qua marker có thời gian sai hoặc trùng frame đã có marker." },
+              );
+            }
           } else {
             const lines = await addTimelineMarkers(cmd.markers);
             const placed = lines.filter((l) => l.startsWith("Added")).length;
