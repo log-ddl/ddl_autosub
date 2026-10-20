@@ -25,7 +25,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::resolve_bridge::{fusion_support_dir, mailbox_dir};
+use crate::bridges::davinci::bridge::{fusion_support_dir, mailbox_dir};
 
 const RESOURCES_PLACEHOLDER: &[u8] = b"[[__AUTOSUBS_RESOURCES_FOLDER__]]";
 const EXECUTABLE_PLACEHOLDER: &[u8] = b"[[__AUTOSUBS_APP_EXECUTABLE__]]";

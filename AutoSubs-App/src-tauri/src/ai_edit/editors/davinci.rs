@@ -12,7 +12,7 @@ use crate::ai_edit::actions::{ActionOutcome, MarkerSpec, SegmentUpdate, Storyboa
 use crate::ai_edit::mcp::tools::{
     delete_tool, marker_tool, remove_ranges_tool, split_tool, storyboard_tool, text_item, tool,
 };
-use crate::resolve_bridge::send_resolve_payload;
+use crate::bridges::davinci::bridge::send_resolve_payload;
 
 const RESOLVE_TIMEOUT: Duration = Duration::from_secs(300);
 

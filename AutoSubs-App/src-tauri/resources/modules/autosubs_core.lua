@@ -4653,7 +4653,7 @@ end
 function StartServer()
     -- File-mailbox loop: the desktop app drops request.lua in the shared
     -- mailbox directory; we ack it, run the handler, and write the response
-    -- into Fusion.prefs (see resolve_bridge.rs for the other side).
+    -- into Fusion.prefs (see bridges/davinci/bridge.rs for the other side).
     local quitServer = false
     local shouldReload = false
     -- Last handled request id lives in the AUTOSUBS_LAST_REQUEST_ID global

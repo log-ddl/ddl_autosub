@@ -2,6 +2,9 @@
 //! editor module (`editors/*.rs`) assembles its own list from them in
 //! `edit_tools()`, so the agent only sees what that editor supports.
 
+pub mod media;
+pub mod transcript;
+
 use serde_json::{json, Value};
 
 use crate::ai_edit::actions::Editor;

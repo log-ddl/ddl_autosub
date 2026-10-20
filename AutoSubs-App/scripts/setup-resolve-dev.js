@@ -24,8 +24,8 @@ function getResolveScriptsPath() {
     
     case 'linux':
       // Linux: the per-user tree. This matches fusion_support_dir() in
-      // src-tauri/src/resolve_bridge.rs and the directory the release build
-      // installs into via resolve_scripts.rs, so the dev launcher lands
+      // src-tauri/src/bridges/davinci/bridge.rs and the directory the release build
+      // installs into via bridges/davinci/scripts.rs, so the dev launcher lands
       // alongside the paths the app already knows about.
       //
       // Deliberately NOT /opt/resolve/Fusion/Scripts/Utility: that tree is

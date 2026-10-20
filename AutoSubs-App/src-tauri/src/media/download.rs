@@ -12,7 +12,7 @@
 //
 // v1 downloads video only (no audio/subtitle/thumbnail). Runs on a known site
 // (YouTube, Instagram, TikTok, ...) get the cookies of the app's own browser
-// session (see site_session.rs): a visitor's cookies get YouTube past its
+// session (see site_session.rs in this folder): a visitor's cookies get YouTube past its
 // "confirm you're not a bot" check, and a sign-in opens Instagram and the
 // other sites that want an account.
 
@@ -30,7 +30,7 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 
 use crate::process_ext::HiddenConsole;
-use crate::site_session::{self, Site, SiteLogin};
+use crate::media::site_session::{self, Site, SiteLogin};
 
 const EVENT_SETUP_PROGRESS: &str = "media-download-setup-progress";
 const EVENT_SETUP_DONE: &str = "media-download-setup-done";

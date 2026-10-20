@@ -81,7 +81,7 @@ pub async fn run_python_script(app: AppHandle, script_path: String) -> Result<()
     // Clear object handles held from the previous run so a long session
     // doesn't accumulate them inside Resolve. A failure here is not fatal —
     // Resolve may simply not be running yet, which the script itself reports.
-    let _ = crate::resolve_bridge::send_resolve_payload(
+    let _ = crate::bridges::davinci::bridge::send_resolve_payload(
         serde_json::json!({ "func": "ResetResolveRpc" }),
         std::time::Duration::from_secs(5),
     )

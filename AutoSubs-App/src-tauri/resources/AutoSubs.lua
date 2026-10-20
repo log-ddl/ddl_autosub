@@ -7,7 +7,7 @@
 -- bootstrap.lua, which we run via loadfile.
 --
 -- This file is a TEMPLATE. The AutoSubs app itself writes the installed copy
--- into the user's Resolve Scripts folder on startup (resolve_scripts.rs),
+-- into the user's Resolve Scripts folder on startup (bridges/davinci/scripts.rs),
 -- baking the real install paths into the [[...]] placeholders below. That way
 -- an app update refreshes the launcher without a reinstall.
 

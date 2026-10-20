@@ -21,8 +21,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::ai_edit::actions::{execute, timeline_snapshot, ActionOutcome, EditTarget, TimelineAction};
-use crate::ai_edit::media;
-use crate::ai_edit::transcript::{get_transcript, transcripts_dir, TranscriptArgs};
+use crate::ai_edit::mcp::tools::media;
+use crate::ai_edit::mcp::tools::transcript::{get_transcript, transcripts_dir, TranscriptArgs};
 use crate::ai_edit::mcp::tools::tool_definitions;
 
 /// Event the UI listens to so it can refresh and toast after an agent edit.
@@ -335,7 +335,7 @@ fn tool_text(text: impl Into<String>, is_error: bool) -> Value {
     json!({ "content": [{ "type": "text", "text": text.into() }], "isError": is_error })
 }
 
-async fn call_tool(session: &Session, name: &str, mut args: Value) -> Value {
+async fn call_tool(session: &Session, name: &str, args: Value) -> Value {
     if name == "get_timeline" {
         return match timeline_snapshot(&session.target).await {
             Ok(snapshot) => tool_text(snapshot.to_string(), false),

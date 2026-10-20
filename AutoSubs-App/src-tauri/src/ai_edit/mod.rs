@@ -2,12 +2,8 @@
 //!
 //! - `actions`: the action types and the single dispatch point.
 //! - `editors`: one backend per editor (DaVinci Resolve, CapCut, Premiere Pro).
-//! - `mcp`: the MCP transport and tool schemas.
-//! - `media`: the agent's download tools (videos, web articles).
-//! - `transcript`: `get_transcript`, the saved transcripts as the agent reads them.
+//! - `mcp`: the MCP transport and every tool the agent sees (`mcp/tools/`).
 
 pub mod actions;
 pub mod editors;
-pub mod media;
 pub mod mcp;
-pub mod transcript;

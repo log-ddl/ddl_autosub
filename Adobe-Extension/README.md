@@ -79,7 +79,7 @@ Key files:
 
 ## WebSocket connection
 
-The AutoSubs desktop app starts a WebSocket server from `AutoSubs-App/src-tauri/src/adobe_bridge.rs`.
+The AutoSubs desktop app starts a WebSocket server from `AutoSubs-App/src-tauri/src/bridges/adobe/bridge.rs`.
 
 The server listens on:
 

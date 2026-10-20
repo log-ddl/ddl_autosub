@@ -16,7 +16,7 @@ This document describes how AutoSubs integrates with DaVinci Resolve: architectu
 ```mermaid
 flowchart TD
     ReactFE[React Frontend] <-->|Tauri IPC| RustBE[Rust Backend]
-    RustBE <-->|HTTP POST :56002| resolve_bridge[resolve_bridge.rs]
+    RustBE <-->|HTTP POST :56002| resolve_bridge[bridges/davinci/bridge.rs]
     resolve_bridge <-->|HTTP| LuaServer[Lua Server on Port 56002]
     LuaServer <-->|Resolve API| Resolve[DaVinci Resolve]
     LuaServer <-->|Fusion API| Fusion[Fusion Page]
@@ -24,7 +24,7 @@ flowchart TD
 ```
 
 - **React Frontend**: UI for timeline selection, export settings, subtitle preview
-- **Rust Backend (`resolve_bridge.rs`)**: HTTP client that posts requests to the Lua server
+- **Rust Backend (`bridges/davinci/bridge.rs`)**: HTTP client that posts requests to the Lua server
 - **Lua Server (`autosubs_core.lua`)**: HTTP server running inside Resolve on port 56002
 - **Fusion Macro (`autoSubs-macro.setting`)**: Fusion template for animated captions with per-word highlighting
 
@@ -37,7 +37,7 @@ The frontend originally used `@tauri-apps/plugin-http` to POST directly to the L
 ```text
 React Frontend
   → invoke('resolve_bridge', { payload, timeoutSecs })
-  → Rust resolve_bridge.rs
+  → Rust bridges/davinci/bridge.rs
   → HTTP POST to http://127.0.0.1:56002/
   → Lua server (autosubs_core.lua)
   → Resolve/Fusion API

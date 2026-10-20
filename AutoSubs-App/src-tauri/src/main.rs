@@ -27,20 +27,16 @@ mod models;
 mod transcription_api;
 mod transcript_types;
 mod logging;
-mod resolve_bridge;
-mod resolve_scripts;
-mod adobe_bridge;
-mod capcut;
+mod bridges;
 mod autoedit;
-mod media_scan;
-mod media_download;
-mod site_session;
-mod article;
+mod media;
 mod process_ext;
 mod cli;
 mod ai_cli;
 mod ai_edit;
 
+use crate::bridges::{adobe::bridge as adobe_bridge, capcut, davinci::bridge as resolve_bridge};
+use crate::media::{article, download as media_download, scan as media_scan, site_session};
 use crate::process_ext::HiddenConsole; // keep above the cfg'd items below
 
 // Include integration-like tests that need crate visibility
@@ -342,7 +338,7 @@ fn main() {
             // for why it isn't declared in tauri.conf.json).
             create_main_window(app.handle())?;
 
-            crate::adobe_bridge::init_adobe_server(app.handle().clone());
+            crate::bridges::adobe::bridge::init_adobe_server(app.handle().clone());
 
             // Set window title to "AutoSubs" on Windows and Linux for taskbar display
             #[cfg(any(target_os = "windows", target_os = "linux"))]
@@ -434,7 +430,7 @@ fn main() {
             {
                 let handle = app.handle().clone();
                 std::thread::spawn(move || {
-                    resolve_scripts::install_resolve_scripts(&handle);
+                    bridges::davinci::scripts::install_resolve_scripts(&handle);
                 });
             }
 

@@ -13,8 +13,8 @@ use serde_json::{json, Value};
 use tauri::AppHandle;
 
 use crate::ai_edit::mcp::tools::tool;
-use crate::article;
-use crate::media_download::{self, DownloadRequest};
+use crate::media::article;
+use crate::media::download::{self as media_download, DownloadRequest};
 
 /// Most article text a `save_article` result carries; the file has all of it.
 const ARTICLE_PREVIEW_CHARS: usize = 6000;

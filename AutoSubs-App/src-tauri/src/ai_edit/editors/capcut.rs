@@ -10,12 +10,12 @@ use crate::ai_edit::actions::{ActionOutcome, MarkerSpec, SegmentUpdate, Storyboa
 use crate::ai_edit::mcp::tools::{
     delete_tool, marker_tool, remove_ranges_tool, split_tool, storyboard_tool, text_item, tool,
 };
-use crate::capcut::cut::{capcut_remove_ranges, capcut_split_segments};
-use crate::capcut::bridge::{append_text_track, capcut_get_status, save_draft_json, TextCue};
-use crate::capcut::storyboard::{
+use crate::bridges::capcut::cut::{capcut_remove_ranges, capcut_split_segments};
+use crate::bridges::capcut::bridge::{append_text_track, capcut_get_status, save_draft_json, TextCue};
+use crate::bridges::capcut::storyboard::{
     capcut_build_storyboard, CapCutBuildStoryboardSpec, CapCutStoryboardEffect, CapCutStoryboardItem,
 };
-use crate::capcut::timeline::{
+use crate::bridges::capcut::timeline::{
     capcut_add_markers, capcut_delete_segment, capcut_get_timeline_snapshot, capcut_update_segment,
     CapCutMarkerInput, CapCutUpdateSegmentArgs,
 };

@@ -12,7 +12,7 @@ use std::fs;
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use crate::capcut::bridge::{capcut_get_status, new_id, save_draft_json, US_PER_SEC};
+use crate::bridges::capcut::bridge::{capcut_get_status, new_id, save_draft_json, US_PER_SEC};
 
 /// What a cut did, for the agent.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]

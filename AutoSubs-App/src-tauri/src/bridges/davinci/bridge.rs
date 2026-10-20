@@ -99,7 +99,7 @@ pub(crate) fn mailbox_dir() -> Result<PathBuf, String> {
 }
 
 /// Per-user Resolve support directory — the parent of `Fusion/Profiles` (where
-/// we read prefs) and `Fusion/Scripts` (where resolve_scripts.rs installs the
+/// we read prefs) and `Fusion/Scripts` (where scripts.rs installs the
 /// launcher). None when Resolve's layout can't be determined.
 pub(crate) fn fusion_support_dir() -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
