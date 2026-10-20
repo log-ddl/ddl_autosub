@@ -60,8 +60,10 @@ flowchart TD
 * CapCut has no scripting API. The app reads and writes project folders under `com.lveditor.draft/` directly ([capcut/](AutoSubs-App/src-tauri/src/capcut)). Times are in microseconds.
 * After a write, the project must be reopened from CapCut Home to show the changes.
 
-### 4c. AI Edit (CLI Chat)
-* The AI Edit tab drives a local `agy` or `claude` CLI as a subprocess ([ai_cli/](AutoSubs-App/src-tauri/src/ai_cli)), with a per-project workspace from `ai_cli/workspace.rs`.
+### 4c. AI Edit (CLI Chat + MCP)
+* The AI Edit tab drives a local `agy` or `claude` CLI as a subprocess ([ai_cli/](AutoSubs-App/src-tauri/src/ai_cli)), with a per-project workspace from `ai_cli/workspace.rs`. Each conversation is bound to one editor; its system prompt comes from [ai-edit-prompts.ts](AutoSubs-App/src/components/aiedit/ai-edit-prompts.ts).
+* Timeline edits (`build_storyboard`, `add_marker`, `add_text`, `update_segment`, `delete_segment`) all run in [ai_edit/actions.rs](AutoSubs-App/src-tauri/src/ai_edit/actions.rs). DaVinci goes through the Lua endpoints in [ai_edit.lua](AutoSubs-App/src-tauri/resources/modules/ai_edit.lua); CapCut edits the draft JSON.
+* **Turbo** runs give the agent an MCP server ([ai_edit/mcp.rs](AutoSubs-App/src-tauri/src/ai_edit/mcp.rs)): 127.0.0.1, random port, per-run bearer token, one `/mcp/<session>` per run. Claude Code gets it via `--mcp-config`; `agy` only reads its own config, so the app runs `agy mcp add autosubs <url>` before each run. **Manual** runs get read-only tools and the agent writes ```timeline-action blocks the user applies.
 
 ### 5. Error Propagation Across the Boundary
 * **The Gotcha**: Because transcription and diarization run fully locally across multiple sub-crates, native C/C++ exceptions and ONNX load errors can easily crash the backend.

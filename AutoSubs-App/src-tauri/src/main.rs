@@ -423,6 +423,7 @@ fn main() {
             // so a freshly launched Lua script can't replay it before our first request.
             resolve_bridge::clear_stale_request();
             resolve_bridge::init_http_compat_proxy();
+            ai_edit::mcp::start(app.handle().clone());
 
             // Release builds install/refresh the Resolve launcher themselves so
             // app updates land it without a reinstall. Dev builds must not:

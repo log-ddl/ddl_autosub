@@ -187,6 +187,17 @@ const DAVINCI_DELETE_DOC = `**Xóa clip khỏi DaVinci** (\`delete_segment\`):
 }
 \`\`\``;
 
+// Turbo runs give the agent the AutoSubs MCP tools, so the prompt only says
+// how to use them; the tool schemas carry the parameters and editor limits.
+function toolsSection(editorName: string): string {
+  return `### Công cụ dựng phim (MCP server \`autosubs\`)
+Bạn có các tool của MCP server \`autosubs\` để thao tác trực tiếp lên timeline ${editorName}: \`get_timeline\`, \`build_storyboard\`, \`add_marker\`, \`add_text\`, \`update_clip\`, \`delete_clips\`.
+- Dùng các tool này thay vì viết khối \`timeline-action\`, sửa file project hay gọi cổng HTTP. KHÔNG đọc mã nguồn của ứng dụng AutoSubs.
+- Thời gian luôn tính bằng giây từ đầu timeline. Cần id của clip thì gọi \`get_timeline\`.
+- Mỗi tool trả về kết quả. Nếu báo lỗi hoặc chỉ làm được một phần, đọc thông báo, chỉnh tham số rồi gọi lại.
+- Sau khi sửa xong, gọi \`get_timeline\` để kiểm tra lại trước khi báo cho người dùng.`;
+}
+
 // The command docs, numbered in the order this editor's prompt lists them.
 function actionsSection(docs: string[]): string {
   return [RULES_HEADER, ...docs.map((doc, i) => `${i + 1}. ${doc}`)].join("\n\n");
@@ -215,7 +226,7 @@ function userAndMemorySections(
   return parts;
 }
 
-function capcutContext(snapshot: CapCutTimelineSnapshot): string {
+function capcutContext(snapshot: CapCutTimelineSnapshot, useTools: boolean): string {
   const markerSummary = (snapshot.markers ?? [])
     .map(
       (m) =>
@@ -244,9 +255,14 @@ function capcutContext(snapshot: CapCutTimelineSnapshot): string {
 - Chi tiết các Track trên Timeline:
 ${trackSummary || "(Timeline hiện đang trống)"}
 - Marker đang có trên Timeline:
-${markerSummary || "  (Chưa có marker nào)"}
+${markerSummary || "  (Chưa có marker nào)"}${useTools ? "" : `
 
-### Quy chuẩn cấu trúc JSON của CapCut (Dùng ngay, TUYỆT ĐỐI KHÔNG quét mã nguồn dự án hay thư mục target/ node_modules/):
+${capcutJsonGuide(snapshot)}`}`;
+}
+
+// How to edit the draft JSON by hand; only offered when the agent has no tools.
+function capcutJsonGuide(snapshot: CapCutTimelineSnapshot): string {
+  return `### Quy chuẩn cấu trúc JSON của CapCut (Dùng ngay, TUYỆT ĐỐI KHÔNG quét mã nguồn dự án hay thư mục target/ node_modules/):
 - Đơn vị thời gian trong \`${snapshot.jsonPath}\` là **microseconds** (\`1s = 1_000_000\`).
 - Để tạo **Keyframe động** (Zoom/Pan/Rotation/Volume) trên một \`segment\`, đặt \`"uniform_scale": {"on": true, "value": 1.0}\` và ghi mảng \`common_keyframes\` trên segment đó:
   - Các \`property_type\` chuẩn: \`"KFTypeScaleX"\` (tỉ lệ zoom), \`"KFTypePositionX"\`, \`"KFTypePositionY"\`, \`"KFTypeRotation"\`, \`"KFTypeVolume"\`.
@@ -302,14 +318,17 @@ ${markers || "  (Chưa có marker nào)"}`;
 function davinciContext(
   resolveTimelineName: string | undefined,
   snapshot: DavinciTimelineSnapshot | null,
+  useTools: boolean,
 ): string {
   return `### Ngữ cảnh DaVinci Resolve hiện tại:
 - Timeline đang mở: "${snapshot?.name || resolveTimelineName || "Current Timeline"}"
-${snapshot ? davinciTimelineSummary(snapshot) : "- (Chưa đọc được danh sách clip của timeline)"}
-- Cổng HTTP của AutoSubs (app chuyển tiếp vào script AutoSubs đang chạy trong Resolve): \`http://127.0.0.1:56002\` (gửi HTTP POST JSON \`{"func": "<FunctionName>", ...}\`).
+${snapshot ? davinciTimelineSummary(snapshot) : "- (Chưa đọc được danh sách clip của timeline)"}${useTools ? "" : `
+${DAVINCI_HTTP_NOTES}`}`;
+}
+
+const DAVINCI_HTTP_NOTES = `- Cổng HTTP của AutoSubs (app chuyển tiếp vào script AutoSubs đang chạy trong Resolve): \`http://127.0.0.1:56002\` (gửi HTTP POST JSON \`{"func": "<FunctionName>", ...}\`).
 - Các hàm có sẵn trên cổng \`:56002\`: \`GetTimelineSnapshot\`, \`GetTimelineInfo\`, \`GetTimelineSelection\`, \`BuildStoryboard\`, \`AddMarkers\`, \`AddSubtitles\`, \`UpdateClip\`, \`DeleteClips\`, \`JumpToTime\`, \`ResolveRpc\`.
 - TUYỆT ĐỐI KHÔNG chạy grep/find quét thư mục \`target/\` hay \`node_modules/\`.`;
-}
 
 /** Prompt for a conversation bound to DaVinci Resolve. */
 export function buildDavinciPrompt(
@@ -317,18 +336,21 @@ export function buildDavinciPrompt(
   snapshot: DavinciTimelineSnapshot | null,
   userSystemPrompt: string,
   workspaceInfo: WorkspaceInfo | null,
+  useTools: boolean,
 ): string {
   return [
     intro("DAVINCI"),
-    davinciContext(timelineName, snapshot),
+    davinciContext(timelineName, snapshot, useTools),
     ...workspaceSection(workspaceInfo),
-    actionsSection([
-      STORYBOARD_DOC,
-      DAVINCI_MARKER_DOC,
-      DAVINCI_ADD_TEXT_DOC,
-      DAVINCI_UPDATE_DOC,
-      DAVINCI_DELETE_DOC,
-    ]),
+    useTools
+      ? toolsSection("DaVinci Resolve")
+      : actionsSection([
+          STORYBOARD_DOC,
+          DAVINCI_MARKER_DOC,
+          DAVINCI_ADD_TEXT_DOC,
+          DAVINCI_UPDATE_DOC,
+          DAVINCI_DELETE_DOC,
+        ]),
     ...userAndMemorySections(userSystemPrompt, workspaceInfo),
   ].join("\n\n");
 }
@@ -338,18 +360,21 @@ export function buildCapCutPrompt(
   snapshot: CapCutTimelineSnapshot | null,
   userSystemPrompt: string,
   workspaceInfo: WorkspaceInfo | null,
+  useTools: boolean,
 ): string {
   return [
     intro("CAPCUT"),
-    ...(snapshot ? [capcutContext(snapshot)] : []),
+    ...(snapshot ? [capcutContext(snapshot, useTools)] : []),
     ...workspaceSection(workspaceInfo),
-    actionsSection([
-      STORYBOARD_DOC,
-      CAPCUT_MARKER_DOC,
-      CAPCUT_ADD_TEXT_DOC,
-      UPDATE_SEGMENT_DOC,
-      DELETE_SEGMENT_DOC,
-    ]),
+    useTools
+      ? toolsSection("CapCut")
+      : actionsSection([
+          STORYBOARD_DOC,
+          CAPCUT_MARKER_DOC,
+          CAPCUT_ADD_TEXT_DOC,
+          UPDATE_SEGMENT_DOC,
+          DELETE_SEGMENT_DOC,
+        ]),
     ...userAndMemorySections(userSystemPrompt, workspaceInfo),
   ].join("\n\n");
 }
@@ -361,8 +386,10 @@ export function buildEditorContextPrompt(
   davinciSnapshot: DavinciTimelineSnapshot | null,
   userSystemPrompt: string,
   workspaceInfo: WorkspaceInfo | null,
+  /** Turbo: the agent edits through MCP tools. Manual: it writes timeline-action blocks. */
+  useTools: boolean,
 ): string {
   return integration === "capcut"
-    ? buildCapCutPrompt(snapshot, userSystemPrompt, workspaceInfo)
-    : buildDavinciPrompt(resolveTimelineName, davinciSnapshot, userSystemPrompt, workspaceInfo);
+    ? buildCapCutPrompt(snapshot, userSystemPrompt, workspaceInfo, useTools)
+    : buildDavinciPrompt(resolveTimelineName, davinciSnapshot, userSystemPrompt, workspaceInfo, useTools);
 }

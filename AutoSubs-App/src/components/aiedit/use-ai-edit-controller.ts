@@ -1,6 +1,7 @@
 import * as React from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { toast } from "sonner";
+import { listen } from "@tauri-apps/api/event";
 import {
   ensureCliWorkspace,
   getCliModels,
@@ -334,6 +335,35 @@ export function useAiEditController() {
     ],
   );
 
+  // The agent edits through the MCP tools in the backend; mirror each edit
+  // here so the user sees it happen and the timeline view stays current.
+  React.useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    void listen<{ ok: boolean; partial: boolean; message: string }>(
+      "ai-edit-timeline-changed",
+      (event) => {
+        const { ok, partial, message } = event.payload;
+        if (!ok) toast.error(message);
+        else if (partial) toast.warning(message);
+        else toast.success(message);
+        if (selectedIntegration === "capcut") {
+          void refreshCapCut();
+          void loadTimelineSnapshot();
+        } else {
+          void refreshResolve();
+        }
+      },
+    ).then((fn) => {
+      if (disposed) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [selectedIntegration, refreshCapCut, loadTimelineSnapshot, refreshResolve]);
+
   async function handlePickWorkspace() {
     if (!activeConversation || providerLocked) return;
     const picked = await openDialog({
@@ -477,6 +507,7 @@ export function useAiEditController() {
       davinciSnapshot,
       activeConversation.systemPrompt,
       workspaceInfo,
+      autoApplyActions,
     );
 
     let streamed = "";
@@ -492,6 +523,13 @@ export function useAiEditController() {
         sessionKey: `${convId}:${targetAdapter}`,
         workingDirectory: workspaceInfo?.path,
         projectName: activeProjectName || undefined,
+        editTarget: {
+          integration: selectedIntegration === "capcut" ? "capcut" : "davinci",
+          draftId: selectedDraftId || null,
+        },
+        // Turbo lets the agent edit through the MCP tools; Manual keeps them
+        // read-only and the user applies timeline-action blocks.
+        allowEdits: autoApplyActions,
         signal: controller.signal,
         onChunk: (chunk) => {
           streamed += chunk;

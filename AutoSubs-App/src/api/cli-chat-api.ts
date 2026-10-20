@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { EditTarget } from "@/api/ai-edit-api";
 import { listen } from "@tauri-apps/api/event";
 
 export type ContentCliAdapter = "agy" | "claude";
@@ -109,6 +110,10 @@ export async function runCliTextTask(params: {
   sessionKey?: string;
   workingDirectory?: string;
   projectName?: string;
+  /** Editor and project for the AutoSubs MCP tools. */
+  editTarget?: EditTarget;
+  /** Let the MCP tools edit the timeline (Turbo); otherwise read-only. */
+  allowEdits?: boolean;
   onChunk?: (chunk: string) => void;
   onThinking?: (thinkingChunk: string) => void;
   onStep?: (stepInfo: string) => void;
@@ -151,6 +156,8 @@ export async function runCliTextTask(params: {
         requestId,
         workingDirectory: params.workingDirectory || null,
         projectName: params.projectName || null,
+        editTarget: params.editTarget ?? null,
+        allowEdits: params.allowEdits ?? false,
       },
     });
 

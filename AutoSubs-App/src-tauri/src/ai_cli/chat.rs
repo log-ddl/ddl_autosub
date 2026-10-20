@@ -17,6 +17,9 @@ use tauri::AppHandle;
 use crate::ai_cli::runtime::{build_cli_path_env, detect_cli_path};
 use crate::ai_cli::stream_parser::{handle_stream_json_event, StreamParseState};
 use crate::ai_cli::workspace::resolve_workspace_dir;
+use crate::ai_edit::actions::EditTarget;
+use crate::ai_edit::mcp::{self, McpEndpoint};
+use crate::process_ext::HiddenConsole;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -30,6 +33,11 @@ pub struct RunCliTextPayload {
     pub request_id: Option<String>,
     pub working_directory: Option<String>,
     pub project_name: Option<String>,
+    /// Editor and project for the AutoSubs MCP tools; None runs without them.
+    pub edit_target: Option<EditTarget>,
+    /// Whether the MCP tools may edit the timeline (Turbo) or only read it.
+    #[serde(default)]
+    pub allow_edits: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -133,6 +141,11 @@ fn run_cli_blocking(
     let mut args: Vec<String> = Vec::new();
     let mut stdin_text: Option<String> = None;
     let mut prompt_tmp_file: Option<PathBuf> = None;
+    let mut mcp_config_file: Option<PathBuf> = None;
+    let mcp_endpoint = payload
+        .edit_target
+        .clone()
+        .and_then(|target| mcp::open_session(target, payload.allow_edits));
 
     match adapter {
         "agy" => {
@@ -166,6 +179,9 @@ fn run_cli_blocking(
             if let Some(ref sid) = resume_session_id {
                 args.extend(["--conversation".into(), sid.clone()]);
             }
+            if let Some(ep) = &mcp_endpoint {
+                register_agy_mcp(&bin, ep);
+            }
         }
         "claude" => {
             args.extend([
@@ -184,7 +200,10 @@ fn run_cli_blocking(
             }
             if let Some(ref sid) = resume_session_id {
                 args.extend(["--resume".into(), sid.clone()]);
-            } else if let Some(sys) = payload
+            }
+            // Sent on every run, resumed or not: it carries the live timeline,
+            // which changes between messages.
+            if let Some(sys) = payload
                 .system_prompt
                 .as_deref()
                 .filter(|s| !s.trim().is_empty())
@@ -197,6 +216,13 @@ fn run_cli_blocking(
                         tmp.to_string_lossy().into_owned(),
                     ]);
                     prompt_tmp_file = Some(tmp);
+                }
+            }
+            if let Some(ep) = &mcp_endpoint {
+                let tmp = std::env::temp_dir().join(format!("autosubs-mcp-{}.json", ep.session));
+                if fs::write(&tmp, claude_mcp_config(ep).to_string()).is_ok() {
+                    args.extend(["--mcp-config".into(), tmp.to_string_lossy().into_owned()]);
+                    mcp_config_file = Some(tmp);
                 }
             }
             stdin_text = Some(payload.prompt.clone());
@@ -260,6 +286,12 @@ fn run_cli_blocking(
     if let Some(tmp) = prompt_tmp_file {
         let _ = fs::remove_file(tmp);
     }
+    if let Some(tmp) = mcp_config_file {
+        let _ = fs::remove_file(tmp);
+    }
+    if let Some(ep) = &mcp_endpoint {
+        mcp::close_session(&ep.session);
+    }
 
     if let (Some(key), Some(sid)) = (payload.session_key, parse_state.result_session_id.clone()) {
         if let Ok(mut map) = sessions_map().lock() {
@@ -308,4 +340,43 @@ fn run_cli_blocking(
         canceled: false,
         error,
     })
+}
+
+/// Name the AutoSubs MCP server is registered under in both CLIs.
+const MCP_SERVER_NAME: &str = "autosubs";
+
+/// `--mcp-config` file contents for Claude Code.
+fn claude_mcp_config(ep: &McpEndpoint) -> Value {
+    serde_json::json!({
+        "mcpServers": {
+            MCP_SERVER_NAME: {
+                "type": "http",
+                "url": ep.url,
+                "headers": { "Authorization": format!("Bearer {}", ep.token) }
+            }
+        }
+    })
+}
+
+/// Antigravity only reads MCP servers from its own config, so point its
+/// `autosubs` entry at this run's session ("add" also updates an existing one).
+fn register_agy_mcp(bin: &std::path::Path, ep: &McpEndpoint) {
+    let status = Command::new(bin)
+        .args([
+            "mcp",
+            "add",
+            "--header",
+            &format!("Authorization: Bearer {}", ep.token),
+            MCP_SERVER_NAME,
+            &ep.url,
+        ])
+        .env("PATH", build_cli_path_env())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .hidden()
+        .status();
+    if !matches!(status, Ok(s) if s.success()) {
+        tracing::warn!("Could not register the AutoSubs MCP server with agy: {:?}", status);
+    }
 }

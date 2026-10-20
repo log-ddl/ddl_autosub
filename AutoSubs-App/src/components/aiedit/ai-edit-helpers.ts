@@ -154,6 +154,22 @@ export function formatModelParts(
   return { name: effective, tier: "" };
 }
 
+// AutoSubs MCP tools, as the CLIs name them ("mcp__autosubs__add_marker",
+// "autosubs/add_marker", ...); matched on the part after the server name.
+const AUTOSUBS_TOOL_NAMES: Record<string, string> = {
+  get_timeline: "Đọc Timeline",
+  build_storyboard: "Đặt clip lên Timeline",
+  add_marker: "Đặt Marker",
+  add_text: "Thêm chữ",
+  update_clip: "Chỉnh clip",
+  delete_clips: "Xóa clip",
+};
+
+function autosubsToolLabel(rawTool: string): string | undefined {
+  const m = /autosubs(?:__|\/|\.|:)([a-z_]+)$/.exec(rawTool);
+  return m ? AUTOSUBS_TOOL_NAMES[m[1]] : undefined;
+}
+
 const FRIENDLY_TOOL_NAMES: Record<string, string> = {
   thinking: "Suy luận",
   run_command: "Chạy lệnh Terminal",
@@ -220,7 +236,7 @@ export function formatStepLabel(raw: string): {
     };
   }
 
-  let friendlyTool = FRIENDLY_TOOL_NAMES[rawTool];
+  let friendlyTool = autosubsToolLabel(rawTool) ?? FRIENDLY_TOOL_NAMES[rawTool];
   if (!friendlyTool) {
     for (const [k, v] of Object.entries(FRIENDLY_TOOL_NAMES)) {
       if (rawTool.startsWith(k)) {
