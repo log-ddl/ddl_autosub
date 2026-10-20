@@ -13,7 +13,7 @@ use futures_util::stream::{self, StreamExt};
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
-use crate::ai_edit::mcp::tools::tool;
+use crate::ai_edit::mcp::tools::{assets, tool};
 use crate::media::article;
 use crate::media::bg_remove::{self, BgMode, RemoveBgOptions};
 use crate::media::download::{self as media_download, DownloadRequest};
@@ -42,8 +42,8 @@ pub fn tools() -> Vec<Value> {
         ),
         tool(
             "download_media",
-            "Download videos into the project's ai-broll folder as MP4 and return their paths, ready \
-             for build_storyboard. For B-roll pass startSec/endSec to fetch only that section: it is \
+            "Download videos into the project's ai-broll folder as MP4 and return a short id (m12) \
+             and length for each, ready for build_storyboard. For B-roll pass startSec/endSec to fetch only that section: it is \
              much faster than the whole video. quality is a height such as 1080 (default best). For \
              several clips pass them all in items (up to 10) in ONE call: they download 4 at a time, \
              while separate calls run one after another. Only download what the user has the right \
@@ -236,7 +236,8 @@ async fn download_one(app: &AppHandle, dir: &Path, args: &Value) -> Result<Strin
                 let from = PathBuf::from(&p);
                 let to = dir.join(clip_file_name(&from, start, end));
                 match tokio::fs::rename(&from, &to).await {
-                    Ok(()) => Ok(format!("Saved {}", to.display())),
+                    // dir is <workspace>/ai-broll.
+                    Ok(()) => Ok(format!("Saved {}", assets::describe(dir.parent().unwrap_or(dir), &to))),
                     Err(e) => Err(format!("Downloaded {} but could not move it into ai-broll: {}", p, e)),
                 }
             }
@@ -370,13 +371,11 @@ async fn remove_background(
     )
     .await?;
 
-    Ok(format!(
-        "Saved transparent PNG to {} ({}x{}, {})",
-        outcome.output_path.display(),
-        outcome.width,
-        outcome.height,
-        outcome.method_used
-    ))
+    let saved = match workspace {
+        Some(ws) => assets::describe(ws, &outcome.output_path),
+        None => outcome.output_path.display().to_string(),
+    };
+    Ok(format!("Saved transparent PNG {} ({}x{}, {})", saved, outcome.width, outcome.height, outcome.method_used))
 }
 
 #[cfg(test)]

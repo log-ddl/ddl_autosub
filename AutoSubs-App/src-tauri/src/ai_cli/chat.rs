@@ -236,6 +236,13 @@ fn run_cli_blocking(
     cmd.args(&args)
         .current_dir(&cwd_dir)
         .env("PATH", build_cli_path_env())
+        // Claude Code: downloads and renders run for minutes, and its default
+        // MCP call limit (about a minute) reported them as timed out while
+        // the app kept working. And load every AutoSubs tool schema up front:
+        // with tool search on, the agent guessed the arguments of tools it had
+        // not loaded yet and burned turns on the rejections.
+        .env("MCP_TOOL_TIMEOUT", MCP_TOOL_TIMEOUT_MS)
+        .env("ENABLE_TOOL_SEARCH", "false")
         .stdin(if stdin_text.is_some() {
             Stdio::piped()
         } else {
@@ -341,6 +348,10 @@ fn run_cli_blocking(
         error,
     })
 }
+
+/// Longest a single MCP tool call may run (30 min): a batch download or a
+/// Remotion render, the slowest tools, finish well inside it.
+const MCP_TOOL_TIMEOUT_MS: &str = "1800000";
 
 /// Name the AutoSubs MCP server is registered under in both CLIs.
 const MCP_SERVER_NAME: &str = "autosubs";

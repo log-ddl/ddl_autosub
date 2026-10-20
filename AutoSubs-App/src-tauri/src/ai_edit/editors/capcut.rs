@@ -6,7 +6,7 @@
 
 use serde_json::{json, Value};
 
-use crate::ai_edit::actions::{ActionOutcome, MarkerSpec, SegmentUpdate, StoryboardItem, TextSpec, TimeRange};
+use crate::ai_edit::actions::{ActionOutcome, Editor, MarkerSpec, SegmentUpdate, StoryboardItem, TextSpec, TimeRange};
 use crate::ai_edit::mcp::tools::{
     delete_tool, marker_tool, remove_ranges_tool, split_tool, storyboard_tool, text_item, tool,
 };
@@ -56,11 +56,7 @@ pub async fn build_storyboard(
             .collect(),
     })
     .await?;
-    Ok(ActionOutcome {
-        message: format!("Placed {}/{} clip(s) on CapCut track V{}.", res.appended, res.requested, track),
-        partial: res.appended < res.requested,
-        lines: res.lines,
-    })
+    Ok(ActionOutcome::placed(Editor::Capcut, track, res.appended as u64, res.requested as u64, res.lines))
 }
 
 pub async fn add_markers(draft: Option<String>, markers: Vec<MarkerSpec>) -> Result<ActionOutcome, String> {

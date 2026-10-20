@@ -85,8 +85,12 @@ Bạn có các tool của MCP server \`autosubs\` để thao tác trực tiếp 
 - Thời gian luôn tính bằng giây từ đầu timeline. Cần id của clip thì gọi \`get_timeline\`.
 - Cần biết video nói gì (chọn chỗ chèn B-roll, đặt marker theo nội dung, cắt câu nói hỏng, cắt khoảng lặng / từ đệm) thì gọi \`get_transcript\` (thêm \`words: true\` để có thời gian từng chữ, \`minPauseSec\` để liệt kê khoảng lặng), rồi cắt bằng \`remove_ranges\`.
 - \`remove_ranges\` mặc định dồn timeline (ripple): truyền TẤT CẢ các đoạn cần cắt trong MỘT lần gọi, theo thời gian hiện tại. Sau khi cắt, thời gian phía sau đã đổi; muốn cắt tiếp thì đọc lại \`get_transcript\` / \`get_timeline\` trước.
+- Media có id ngắn (\`m12\`): \`download_media\`, \`render_motion\`, \`list_media\` đều trả id kèm độ dài. Truyền id vào \`path\` thay vì đường dẫn đầy đủ. Muốn dùng một thư mục (gói sound effect, nhạc) thì gọi \`list_media\` với \`folder\`.
+- Âm thanh (sound effect, nhạc): đưa thẳng vào \`items\` của \`build_storyboard\` với \`start\` là giây bạn chọn (cắt bằng \`srcIn\`/\`srcOut\` nếu cần). Tool tự đặt vào audio track trống, không đè clip khác và không làm xê dịch video. Không cần chọn track âm thanh.
+- Tải nhiều video thì gom hết vào MỘT lần \`download_media\` (\`items\`).
 - Đã có kế hoạch nhiều bước (đặt hết B-roll, thêm hết chữ, marker, rồi cắt) thì gom vào MỘT lần gọi \`apply_actions\` (mỗi phần tử là \`{ "tool": "<tên tool>", "args": {...} }\`, chạy theo thứ tự) thay vì gọi từng tool, vì mỗi lần gọi tool tốn một lượt suy nghĩ. Đặt \`split_clips\`, di chuyển clip và \`remove_ranges\` ở cuối vì chúng đổi id clip và dời thời gian phía sau; không dùng lại id mà bước trước đã thay.
-- Mỗi tool trả về kết quả. Nếu báo lỗi hoặc chỉ làm được một phần, đọc thông báo, chỉnh tham số rồi gọi lại.
+- Mỗi tool trả về kết quả và CHỈ liệt kê những gì lỗi. Không có dòng lỗi nghĩa là đã làm đúng hết, đừng kiểm tra lại. Nếu báo lỗi hoặc chỉ làm được một phần, đọc thông báo, chỉnh tham số rồi gọi lại.
+- Báo cáo cuối cho người dùng NGẮN (tối đa khoảng 10 dòng): đã làm gì, cái gì chưa được. Không chép lại kết quả từng tool.
 - Kết quả tool đã cho biết đặt/sửa được bao nhiêu. KHÔNG gọi lại \`get_timeline\` chỉ để kiểm tra; chỉ gọi khi tool báo lỗi, chỉ làm được một phần, hoặc cần id clip mới cho bước sửa tiếp theo.
 
 ${DOWNLOAD_TOOLS_DOC}`;

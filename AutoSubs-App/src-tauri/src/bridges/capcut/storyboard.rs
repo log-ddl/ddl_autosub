@@ -73,6 +73,11 @@ pub async fn capcut_build_storyboard(
         .unwrap_or(1080.0)
         .max(1.0);
 
+    // Audio-only items (sound effects, music) go on free audio tracks at
+    // their own start (place_audio_items); the rest is the picture placement.
+    let (audio_items, video_items): (Vec<CapCutStoryboardItem>, Vec<CapCutStoryboardItem>) =
+        spec.items.iter().cloned().partition(|it| is_audio_file(&it.path));
+
     let mut max_end_us = info.get("duration").and_then(|v| v.as_i64()).unwrap_or(0);
     let mut appended = 0usize;
     let mut lines = Vec::new();
@@ -103,8 +108,7 @@ pub async fn capcut_build_storyboard(
             let speed_id = new_id();
             let scm_id = new_id();
             let vs_id = new_id();
-            let last_item_end_sec = spec
-                .items
+            let last_item_end_sec = video_items
                 .iter()
                 .map(|it| it.end.unwrap_or(it.start + default_still))
                 .fold(0.0_f64, f64::max);
@@ -216,7 +220,7 @@ pub async fn capcut_build_storyboard(
     }
 
     // 2. Video / Photo Storyboard items
-    if !spec.items.is_empty() {
+    if !video_items.is_empty() {
         let target_v_track = spec.target_video_track.unwrap_or(1).max(1);
         let raw_mode = spec
             .mode
@@ -228,7 +232,7 @@ pub async fn capcut_build_storyboard(
         // Determine existing end time on target_v_track
         let existing_track_end_us = get_video_track_end_us(&info["tracks"], target_v_track);
         let first_req_start_us =
-            (spec.items[0].start.max(0.0) * US_PER_SEC).round() as i64;
+            (video_items[0].start.max(0.0) * US_PER_SEC).round() as i64;
 
         let effective_mode = match raw_mode.as_str() {
             "replace" | "overwrite" => "replace",
@@ -252,7 +256,7 @@ pub async fn capcut_build_storyboard(
         let mut cursor_us: i64 = 0;
         let mut cursor_seeded = false;
 
-        for item in &spec.items {
+        for item in &video_items {
             if !Path::new(&item.path).exists() {
                 lines.push(format!("Skipped missing file: {}", item.path));
                 continue;
@@ -575,6 +579,15 @@ pub async fn capcut_build_storyboard(
         }
     }
 
+    let audio_placed = place_audio_items(&mut info, &audio_items, &mut lines);
+    if !audio_items.is_empty() {
+        lines.push(format!(
+            "Placed {}/{} audio item(s) on free audio tracks.",
+            audio_placed,
+            audio_items.len()
+        ));
+    }
+
     // Recompute overall project duration across all tracks
     if let Some(tracks) = info.get("tracks").and_then(|v| v.as_array()) {
         for tr in tracks {
@@ -601,16 +614,142 @@ pub async fn capcut_build_storyboard(
 
     lines.push(format!(
         "Placed {}/{} clip(s) into CapCut project '{}'. Re-open the project in CapCut to view.",
-        appended,
+        appended + audio_placed,
         spec.items.len(),
         draft.name
     ));
 
     Ok(CapCutBuildStoryboardResult {
         lines,
-        appended,
+        appended: appended + audio_placed,
         requested: spec.items.len(),
     })
+}
+
+const AUDIO_EXTS: &[&str] = &["wav", "wave", "mp3", "m4a", "aac", "flac", "ogg", "aif", "aiff", "opus", "wma"];
+
+pub(crate) fn is_audio_file(path: &str) -> bool {
+    Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| AUDIO_EXTS.iter().any(|a| e.eq_ignore_ascii_case(a)))
+}
+
+/// Start and end (µs) of every segment on an audio track.
+fn audio_spans(track: &Value) -> Vec<(i64, i64)> {
+    track
+        .get("segments")
+        .and_then(|s| s.as_array())
+        .map(|segs| {
+            segs.iter()
+                .filter_map(|seg| {
+                    let r = seg.get("target_timerange")?;
+                    let s = r.get("start")?.as_i64()?;
+                    Some((s, s + r.get("duration")?.as_i64()?))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Index in `tracks` of the first audio track with nothing over
+/// [start, end), appending a new audio track when every one is taken.
+fn free_audio_track(tracks: &mut Vec<Value>, start: i64, end: i64) -> usize {
+    for (i, tr) in tracks.iter().enumerate() {
+        if tr.get("type").and_then(|t| t.as_str()) == Some("audio")
+            && !audio_spans(tr).iter().any(|(s, e)| *s < end && *e > start)
+        {
+            return i;
+        }
+    }
+    tracks.push(json!({
+        "attribute": 0,
+        "flag": 0,
+        "id": new_id(),
+        "is_default_name": true,
+        "name": "",
+        "segments": [],
+        "type": "audio"
+    }));
+    tracks.len() - 1
+}
+
+/// Put each audio item at its own start, trimmed to src_in/src_out (or
+/// start..end, or the rest of the file), on a free audio track. Returns how
+/// many were placed; problems go to `lines`.
+fn place_audio_items(info: &mut Value, items: &[CapCutStoryboardItem], lines: &mut Vec<String>) -> usize {
+    let mut placed = 0;
+    for item in items {
+        let path = Path::new(&item.path);
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "audio".into());
+        if !path.exists() {
+            lines.push(format!("Skipped missing file: {}", item.path));
+            continue;
+        }
+        let full = crate::media::probe::duration_secs(path);
+        let src_in = item.src_in.unwrap_or(0.0).max(0.0);
+        let start = item.start.max(0.0);
+        let mut len = match (item.src_out, item.end) {
+            (Some(o), _) if o > src_in => o - src_in,
+            (_, Some(e)) if e > start => e - start,
+            _ => match full {
+                Some(f) if f > src_in => f - src_in,
+                _ => {
+                    lines.push(format!("Skipped {}: could not read its length; pass srcOut or end.", name));
+                    continue;
+                }
+            },
+        };
+        if let Some(f) = full {
+            len = len.min((f - src_in).max(0.0));
+        }
+        if len <= 0.0 {
+            lines.push(format!("Skipped {}: srcIn is past the end of the file.", name));
+            continue;
+        }
+        let us = |secs: f64| (secs * US_PER_SEC).round() as i64;
+        let (start_us, len_us) = (us(start), us(len).max(1));
+        let mat_dur_us = full.map(us).unwrap_or(us(src_in) + len_us);
+
+        let (mat_id, speed_id, scm_id, vs_id) = (new_id(), new_id(), new_id(), new_id());
+        let materials = &mut info["materials"];
+        materials["audios"].as_array_mut().unwrap().push(json!({
+            "app_id": 0, "category_id": "", "category_name": "local", "check_flag": 1,
+            "duration": mat_dur_us, "effect_id": "", "Formula_id": "", "id": mat_id,
+            "local_material_id": "", "music_id": "", "name": name, "path": item.path,
+            "source_platform": 0, "type": "extract_music", "wave_points": []
+        }));
+        materials["speeds"].as_array_mut().unwrap().push(json!({
+            "curve_speed": null, "id": speed_id, "mode": 0, "speed": 1.0, "type": "speed"
+        }));
+        materials["sound_channel_mappings"].as_array_mut().unwrap().push(json!({
+            "audio_channel_mapping": 0, "id": scm_id, "is_config_open": false, "type": ""
+        }));
+        materials["vocal_separations"].as_array_mut().unwrap().push(json!({
+            "choice": 0, "id": vs_id, "production_path": "", "time_range": null, "type": "vocal_separation"
+        }));
+        let seg = json!({
+            "cartoon": false, "clip": null, "common_keyframes": [], "enable_adjust": false,
+            "enable_color_curves": true, "enable_color_wheels": true, "enable_lut": false,
+            "enable_smart_color_adjust": false, "extra_material_refs": [speed_id, scm_id, vs_id],
+            "group_id": "", "hdr_settings": null, "id": new_id(), "intensifies_audio": false,
+            "is_placeholder": false, "is_tone_modify": false, "keyframe_refs": [],
+            "last_nonzero_volume": 1.0, "material_id": mat_id, "render_index": 0, "reverse": false,
+            "source_timerange": { "duration": len_us, "start": us(src_in) },
+            "speed": 1.0,
+            "target_timerange": { "duration": len_us, "start": start_us },
+            "template_id": "", "template_scene": "default", "track_attribute": 0,
+            "track_render_index": 0, "uniform_scale": null, "visible": true, "volume": 1.0
+        });
+        let tracks = info["tracks"].as_array_mut().unwrap();
+        let idx = free_audio_track(tracks, start_us, start_us + len_us);
+        if let Some(segs) = tracks[idx].get_mut("segments").and_then(|s| s.as_array_mut()) {
+            segs.push(seg);
+            sort_segments_by_start(segs);
+        }
+        placed += 1;
+    }
+    placed
 }
 
 fn default_still_or(src_in: Option<f64>, src_out: Option<f64>, fallback: f64) -> f64 {

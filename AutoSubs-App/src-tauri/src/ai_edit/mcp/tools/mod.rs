@@ -2,6 +2,7 @@
 //! editor module (`editors/*.rs`) assembles its own list from them in
 //! `edit_tools()`, so the agent only sees what that editor supports.
 
+pub mod assets;
 pub mod media;
 pub mod motion;
 pub mod transcript;
@@ -26,8 +27,8 @@ pub fn tool_definitions(editor: Editor, allow_edits: bool) -> Vec<Value> {
     let mut tools = vec![tool(
         "get_timeline",
         format!(
-            "Read the open {} timeline: tracks with every clip (id, name, start and duration in seconds{}) \
-             and the markers. Call it when you need clip ids. Edit tools already report what they did, so \
+            "Read the open {} timeline: one line per clip (track, id, start-end in seconds, name{}, \
+             transform only when not default) and the markers. Call it when you need clip ids. Edit tools already report what they did, so \
              only re-read after an edit that failed or was partial.",
             editor.display_name(),
             snapshot_fields
@@ -82,6 +83,99 @@ fn apply_actions_tool(edit_tools: &[&str]) -> Value {
             "required": ["actions"]
         }),
     )
+}
+
+/// The snapshot as the agent reads it: one line per clip
+/// (`V1 id 0.00-4.00 name zoom=1.1`), one per marker. The JSON the UI uses is
+/// several times longer: on a long edit it overflowed what agy shows inline,
+/// so the agent paid a turn to read it back from a file.
+pub fn timeline_text(snapshot: &Value) -> String {
+    let num = |v: &Value, k: &str| v.get(k).and_then(|x| x.as_f64());
+    let text = |v: &Value, k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let short = |s: &str| {
+        let s = s.trim().replace('\n', " ");
+        if s.chars().count() > 48 {
+            format!("{}...", s.chars().take(45).collect::<String>())
+        } else {
+            s
+        }
+    };
+    let name = [text(snapshot, "name"), text(snapshot, "draftName")].into_iter().find(|n| !n.is_empty()).unwrap_or_default();
+    let mut out = format!(
+        "Timeline \"{}\", {} fps, {:.2}s long.",
+        name,
+        num(snapshot, "fps").map(|f| format!("{}", (f * 1000.0).round() / 1000.0)).unwrap_or_else(|| "?".into()),
+        num(snapshot, "durationSec").unwrap_or(0.0)
+    );
+
+    let mut counters: Vec<(char, usize)> = Vec::new();
+    let mut summary = Vec::new();
+    let mut lines = Vec::new();
+    for track in snapshot.get("tracks").and_then(|t| t.as_array()).into_iter().flatten() {
+        let kind = text(track, "trackType");
+        let letter = match kind.as_str() {
+            "audio" => 'A',
+            "subtitle" | "caption" => 'S',
+            "text" => 'T',
+            "effect" | "filter" | "sticker" => 'E',
+            _ => 'V',
+        };
+        let index = match track.get("index").and_then(|i| i.as_u64()) {
+            Some(i) => i as usize,
+            None => match counters.iter_mut().find(|(c, _)| *c == letter) {
+                Some((_, n)) => {
+                    *n += 1;
+                    *n
+                }
+                None => {
+                    counters.push((letter, 1));
+                    1
+                }
+            },
+        };
+        let label = format!("{}{}", letter, index);
+        let clips: Vec<&Value> = ["clips", "segments"]
+            .iter()
+            .filter_map(|k| track.get(*k).and_then(|c| c.as_array()))
+            .flatten()
+            .collect();
+        summary.push(format!("{}({})", label, clips.len()));
+        for clip in clips {
+            let start = num(clip, "startSec").unwrap_or(0.0);
+            let end = start + num(clip, "durationSec").unwrap_or(0.0);
+            let title = [text(clip, "text"), text(clip, "name")].into_iter().find(|n| !n.trim().is_empty()).unwrap_or_default();
+            let mut line = format!("{} {} {:.2}-{:.2} {}", label, text(clip, "id"), start, end, short(&title));
+            for (key, default) in [("zoom", 1.0), ("panX", 0.0), ("panY", 0.0), ("rotation", 0.0), ("opacity", 100.0)] {
+                if let Some(v) = num(clip, key).filter(|v| (v - default).abs() > 1e-6) {
+                    line.push_str(&format!(" {}={}", key, (v * 1000.0).round() / 1000.0));
+                }
+            }
+            lines.push(line);
+        }
+    }
+    out.push_str(&format!(" Tracks: {}.", if summary.is_empty() { "none".into() } else { summary.join(" ") }));
+    for line in lines {
+        out.push('\n');
+        out.push_str(&line);
+    }
+    let markers: Vec<String> = snapshot
+        .get("markers")
+        .and_then(|m| m.as_array())
+        .into_iter()
+        .flatten()
+        .map(|m| {
+            let mut s = format!("{:.2} {}", num(m, "atSec").unwrap_or(0.0), text(m, "color"));
+            let name = text(m, "name");
+            if !name.is_empty() {
+                s.push_str(&format!(" \"{}\"", short(&name)));
+            }
+            s
+        })
+        .collect();
+    if !markers.is_empty() {
+        out.push_str(&format!("\nMarkers: {}", markers.join("; ")));
+    }
+    out
 }
 
 /// `get_transcript`, the same for every editor.
@@ -176,7 +270,10 @@ pub fn storyboard_tool(editor_name: &str, note: &str) -> Value {
         format!(
             "Place video, image or audio files on the {} timeline. mode: replace (overwrite [start, end] \
              on the track), insert (ripple: split at start and push later clips right), overlay (put on \
-             a free track above), append (after the last clip). Tracks are created as needed.{}",
+             a free track above), append (after the last clip). Tracks are created as needed. Audio files \
+             (sound effects, music) can be mixed in: each goes exactly at its start on a free audio \
+             track, never over another clip, trimmed by srcIn/srcOut (or end), and does not move the \
+             video clips; the mode only applies to video and images.{}",
             editor_name, note
         ),
         json!({
@@ -190,7 +287,7 @@ pub fn storyboard_tool(editor_name: &str, note: &str) -> Value {
                     "items": {
                         "type": "object",
                         "properties": {
-                            "path": { "type": "string", "description": "Absolute file path" },
+                            "path": { "type": "string", "description": "Media id (m12) or absolute file path. Audio files go on free audio tracks at start" },
                             "start": { "type": "number", "description": "Timeline start, seconds" },
                             "end": { "type": "number", "description": "Timeline end, seconds" },
                             "srcIn": { "type": "number", "description": "Cut-in inside the source, seconds" },
@@ -294,6 +391,23 @@ mod tests {
         assert!(davinci[5]["inputSchema"]["properties"].get("zoomEnd").is_none());
         assert!(davinci[5]["inputSchema"]["properties"].get("startSec").is_some());
         assert!(premiere[5]["inputSchema"]["properties"].get("volume").is_some());
+
+        let text = timeline_text(&json!({
+            "name": "Seq", "fps": 23.976, "durationSec": 8.0,
+            "tracks": [
+                { "trackType": "video", "index": 1, "clips": [
+                    { "id": "a1", "name": "clip.mp4", "startSec": 0.0, "durationSec": 4.0, "zoom": 1.1 },
+                    { "id": "a2", "name": "two.mp4", "startSec": 4.0, "durationSec": 4.0, "zoom": 1.0 }
+                ] },
+                { "trackType": "audio", "segments": [{ "id": "s1", "name": "boom.wav", "startSec": 0.5, "durationSec": 1.0 }] }
+            ],
+            "markers": [{ "atSec": 4.0, "color": "Green", "name": "Cut" }]
+        }));
+        assert!(text.starts_with("Timeline \"Seq\", 23.976 fps, 8.00s long. Tracks: V1(2) A1(1)."), "{}", text);
+        assert!(text.contains("\nV1 a1 0.00-4.00 clip.mp4 zoom=1.1\n"), "{}", text);
+        assert!(text.contains("\nV1 a2 4.00-8.00 two.mp4\n"), "{}", text);
+        assert!(text.contains("\nA1 s1 0.50-1.50 boom.wav"), "{}", text);
+        assert!(text.ends_with("Markers: 4.00 Green \"Cut\""), "{}", text);
         let batch_tools = &davinci[9]["inputSchema"]["properties"]["actions"]["items"]["properties"]["tool"]["enum"];
         assert_eq!(batch_tools, &json!(all[2..9]));
     }

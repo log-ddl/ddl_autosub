@@ -191,6 +191,7 @@ const AUTOSUBS_TOOL_NAMES: Record<string, string> = {
   remove_ranges: "Cắt bỏ đoạn",
   apply_actions: "Áp nhiều thao tác",
   render_motion: "Render motion graphic",
+  list_media: "Xem thư mục media",
   inspect_media: "Xem link video",
   download_media: "Tải video",
   save_article: "Lưu bài báo",

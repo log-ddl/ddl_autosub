@@ -21,7 +21,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::ai_edit::actions::{execute, timeline_snapshot, ActionOutcome, EditTarget, TimelineAction};
-use crate::ai_edit::mcp::tools::{media, motion};
+use crate::ai_edit::mcp::tools::{assets, media, motion};
 use crate::ai_edit::mcp::tools::transcript::{get_transcript, transcripts_dir, TranscriptArgs};
 use crate::ai_edit::mcp::tools::tool_definitions;
 
@@ -297,6 +297,7 @@ async fn handle_message(session: &Session, msg: &Value) -> Option<Value> {
             if session.workspace.is_some() {
                 tools.extend(media::tools());
                 tools.extend(motion::tools());
+                tools.extend(assets::tools());
             }
             rpc_result(id, json!({ "tools": tools }))
         }
@@ -323,7 +324,8 @@ fn instructions(session: &Session) -> String {
              articles and remove image backgrounds into the project workspace (ai-broll/, articles/); \
              download_media and remove_background return paths build_storyboard takes. \
              render_motion renders a Remotion project from motion-graphics/ into exports/ and waits \
-             for the file.",
+             for the file. list_media lists a folder (a sound effect pack) with ids and lengths. Every \
+             file these tools return has a short id (m12); pass it as path instead of the full path.",
         );
     }
     if !session.allow_edits {
@@ -339,10 +341,16 @@ fn tool_text(text: impl Into<String>, is_error: bool) -> Value {
     json!({ "content": [{ "type": "text", "text": text.into() }], "isError": is_error })
 }
 
-async fn call_tool(session: &Session, name: &str, args: Value) -> Value {
+async fn call_tool(session: &Session, name: &str, mut args: Value) -> Value {
+    // Media ids (m12) in any path argument become their paths.
+    if let Some(ws) = session.workspace.as_deref() {
+        if let Err(e) = assets::resolve_ids(ws, &mut args) {
+            return tool_text(e, true);
+        }
+    }
     if name == "get_timeline" {
         return match timeline_snapshot(&session.target).await {
-            Ok(snapshot) => tool_text(snapshot.to_string(), false),
+            Ok(snapshot) => tool_text(crate::ai_edit::mcp::tools::timeline_text(&snapshot), false),
             Err(e) => tool_text(e, true),
         };
     }
@@ -365,7 +373,10 @@ async fn call_tool(session: &Session, name: &str, args: Value) -> Value {
         let workspace = session.workspace.as_deref();
         let result = match media::call(app, workspace, name, &args).await {
             Some(r) => Some(r),
-            None => motion::call(app, workspace, name, &args).await,
+            None => match motion::call(app, workspace, name, &args).await {
+                Some(r) => Some(r),
+                None => assets::call(workspace, name, &args),
+            },
         };
         if let Some(result) = result {
             return match result {

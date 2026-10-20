@@ -1590,16 +1590,27 @@ end
 
 -- Find a video track >= minTrack that has no clip overlapping [absIn, absOut),
 -- creating a new video track if all existing tracks >= minTrack are occupied.
-local function find_free_video_track(timeline, minTrack, absIn, absOut)
-    local existing = timeline:GetTrackCount("video")
+-- Audio tracks are added as stereo; older Resolve builds take no subtype.
+local function add_track(timeline, kind)
+    if kind == "audio" then
+        local ok, added = pcall(timeline.AddTrack, timeline, "audio", "stereo")
+        if ok and added then return true end
+    end
+    return timeline:AddTrack(kind) and true or false
+end
+
+-- First `kind` track at or above minTrack with nothing over [absIn, absOut),
+-- adding one when every track is taken.
+local function find_free_track(timeline, kind, minTrack, absIn, absOut)
+    local existing = timeline:GetTrackCount(kind)
     while existing < minTrack do
-        if not timeline:AddTrack("video") then
+        if not add_track(timeline, kind) then
             return existing
         end
         existing = existing + 1
     end
     for t = minTrack, existing do
-        local okList, list = pcall(timeline.GetItemListInTrack, timeline, "video", t)
+        local okList, list = pcall(timeline.GetItemListInTrack, timeline, kind, t)
         local occupied = false
         if okList and type(list) == "table" then
             for _, itm in ipairs(list) do
@@ -1615,10 +1626,90 @@ local function find_free_video_track(timeline, minTrack, absIn, absOut)
             return t
         end
     end
-    if timeline:AddTrack("video") then
-        return timeline:GetTrackCount("video")
+    if add_track(timeline, kind) then
+        return timeline:GetTrackCount(kind)
     end
     return existing
+end
+
+local function find_free_video_track(timeline, minTrack, absIn, absOut)
+    return find_free_track(timeline, "video", minTrack, absIn, absOut)
+end
+
+local AUDIO_EXTS = {
+    wav = true, mp3 = true, m4a = true, aac = true, flac = true, ogg = true,
+    aif = true, aiff = true, opus = true, wma = true,
+}
+
+local function is_audio_path(path)
+    local ext = tostring(path or ""):match("%.([%w]+)$")
+    return ext ~= nil and AUDIO_EXTS[ext:lower()] == true
+end
+
+-- Length of a media pool item in its own frames, or nil.
+local function media_frames(mpItem, fps)
+    local okFrames, framesProp = pcall(mpItem.GetClipProperty, mpItem, "Frames")
+    local frames = okFrames and tonumber(framesProp) or nil
+    if frames then return frames end
+    local okDur, durProp = pcall(mpItem.GetClipProperty, mpItem, "Duration")
+    if okDur and type(durProp) == "string" then
+        local hh, mm, ss, ff = durProp:match("^(%d+):(%d+):(%d+)[:;](%d+)$")
+        if hh then
+            return (tonumber(hh) * 3600 + tonumber(mm) * 60 + tonumber(ss)) * fps + tonumber(ff)
+        end
+    end
+    return nil
+end
+
+-- Place audio-only items (sound effects, music) exactly at their start, each
+-- on the first audio track free over its span from A2 up, adding tracks as
+-- needed, so nothing lands on another clip. One append per item, so the next
+-- item's free-track check sees it. Returns how many landed.
+local function place_audio_items(timeline, mediaIndex, items, fps, timelineStart, lines)
+    local placed = 0
+    for _, it in ipairs(items) do
+        local name = tostring(it.path):match("[^/\\]+$") or "audio"
+        local mpItem = import_media_once(mediaIndex, it.path)
+        if not mpItem then
+            lines[#lines + 1] = "Skipped (could not import): " .. name
+        else
+            local okFps, fpsProp = pcall(mpItem.GetClipProperty, mpItem, "FPS")
+            local srcFps = (okFps and tonumber(fpsProp)) or fps
+            local total = media_frames(mpItem, srcFps)
+            local startSec = math.max(0, tonumber(it.start) or 0)
+            local srcIn = math.max(0, tonumber(it.src_in) or 0)
+            local srcOut = tonumber(it.src_out)
+            local endSec = tonumber(it["end"])
+            local inF = math.floor(srcIn * srcFps + 0.5)
+            local outF
+            if srcOut and srcOut > srcIn then
+                outF = math.floor(srcOut * srcFps + 0.5)
+            elseif endSec and endSec > startSec then
+                outF = inF + math.floor((endSec - startSec) * srcFps + 0.5)
+            else
+                outF = total and math.floor(total) or (inF + math.floor(3 * srcFps + 0.5))
+            end
+            if total and outF > total then outF = math.floor(total) end
+            if outF <= inF then outF = inF + 1 end
+            local recIn = timelineStart + math.floor(startSec * fps + 0.5)
+            local recOut = recIn + math.max(1, math.floor((outF - inF) / srcFps * fps + 0.5))
+            local track = find_free_track(timeline, "audio", 2, recIn, recOut)
+            local appended = mediaPool:AppendToTimeline({ {
+                mediaPoolItem = mpItem,
+                startFrame = inF,
+                endFrame = outF,
+                recordFrame = recIn,
+                trackIndex = track,
+                mediaType = 2,
+            } })
+            if type(appended) == "table" and appended[1] then
+                placed = placed + 1
+            else
+                lines[#lines + 1] = "Could not place audio: " .. name
+            end
+        end
+    end
+    return placed
 end
 
 function BuildStoryboard(spec)
@@ -1633,10 +1724,20 @@ function BuildStoryboard(spec)
             error("spec must be a table", 0)
         end
 
-        local items = spec.items or {}
+        -- Audio-only items (sound effects, music) go to free audio tracks at
+        -- their own start and never move the video cursor; the rest is the
+        -- picture placement below.
+        local items, audioItems = {}, {}
+        for _, it in ipairs(spec.items or {}) do
+            if type(it) == "table" and is_audio_path(it.path) then
+                audioItems[#audioItems + 1] = it
+            else
+                items[#items + 1] = it
+            end
+        end
         local audioPath = spec.audio_path
         local hasAudio = type(audioPath) == "string" and #audioPath > 0
-        if #items == 0 and not hasAudio then
+        if #items == 0 and #audioItems == 0 and not hasAudio then
             result = { lines = { "Nothing to place." }, appended = 0, requested = 0 }
             return
         end
@@ -2000,7 +2101,20 @@ function BuildStoryboard(spec)
             end
         end
 
-        result = { lines = lines, appended = appendedCount, requested = requested }
+        local audioPlaced = 0
+        if #audioItems > 0 then
+            audioPlaced = place_audio_items(timeline, mediaIndex, audioItems, fps, timelineStart, lines)
+            lines[#lines + 1] = string.format("Placed %d of %d audio item(s) on free audio tracks.",
+                audioPlaced, #audioItems)
+        end
+
+        result = {
+            lines = lines,
+            appended = appendedCount + audioPlaced,
+            requested = requested + #audioItems,
+            audio_placed = audioPlaced,
+            audio_requested = #audioItems,
+        }
     end)
     if not ok then
         return make_error("Could not build slideshow", err)

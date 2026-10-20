@@ -204,6 +204,32 @@ impl ActionOutcome {
     pub fn ok(message: impl Into<String>) -> Self {
         Self { message: message.into(), lines: Vec::new(), partial: false }
     }
+
+    /// The result of a `build_storyboard`: one count line, plus only the
+    /// lines about something that went wrong. Per-clip "placed at frame N"
+    /// lines are dropped; on a long edit they would flood the agent's context
+    /// with nothing it needs to act on.
+    pub fn placed(editor: Editor, track: usize, appended: u64, requested: u64, lines: Vec<String>) -> Self {
+        const PROBLEMS: &[&str] = &["skipped", "could not", "warning", "refused", "no free", "failed", "missing"];
+        let lines: Vec<String> = lines
+            .into_iter()
+            .filter(|l| {
+                let l = l.to_ascii_lowercase();
+                PROBLEMS.iter().any(|p| l.contains(p))
+            })
+            .collect();
+        Self {
+            message: format!(
+                "Placed {}/{} item(s) in {} (picture from V{}, audio files on free audio tracks).",
+                appended,
+                requested,
+                editor.display_name(),
+                track
+            ),
+            partial: appended < requested,
+            lines,
+        }
+    }
 }
 
 /// The current timeline as JSON: tracks with their clips (id, name, start and

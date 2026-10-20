@@ -10,6 +10,9 @@
 //   insert  - razor the target V/A tracks at the first start, push what is
 //             after right by the new clips' length, and place them in the gap
 //   overlay - video only, on the first free track above the target
+// Audio-only items (sound effects, music) skip all of that: each goes in at
+// its own start on the first audio track free over its span from A2 up, a
+// track is added when all are taken, and they never move the video cursor.
 // `spec` arrives already parsed.
 //
 // spec: {
@@ -32,7 +35,7 @@ export function aiEditBuildStoryboard(spec: any): string {
 
     var sequence = app.project.activeSequence;
     var rootItem = app.project.rootItem;
-    var items: any[] = spec && spec.items ? spec.items : [];
+    var allItems: any[] = spec && spec.items ? spec.items : [];
     var audioPath = spec && typeof spec.audio_path === "string" ? spec.audio_path : "";
     var defaultStill = spec && spec.default_still_secs > 0 ? spec.default_still_secs : 3;
     var targetTrack = spec && spec.target_video_track > 0 ? Math.floor(spec.target_video_track) : 1;
@@ -41,6 +44,12 @@ export function aiEditBuildStoryboard(spec: any): string {
     var lines: string[] = [];
 
     var IMAGE_EXTS = ",jpg,jpeg,png,gif,bmp,webp,tif,tiff,heic,avif,psd,tga,";
+    var AUDIO_EXTS = ",wav,mp3,m4a,aac,flac,ogg,aif,aiff,opus,wma,";
+
+    function isAudioPath(p: string): boolean {
+      var m = String(p).match(/\.([A-Za-z0-9]+)$/);
+      return !!m && AUDIO_EXTS.indexOf("," + m[1].toLowerCase() + ",") !== -1;
+    }
 
     /** Stills get the sentence span; everything else plays at full length. */
     function isStillPath(p: string): boolean {
@@ -326,6 +335,92 @@ export function aiEditBuildStoryboard(spec: any): string {
       return -1;
     }
 
+    /**
+     * First audio track at or above `minIndex` (0-based) free over the span,
+     * adding a stereo track through the QE DOM when every one is taken.
+     * -1 if none could be found or made.
+     */
+    function freeAudioTrack(minIndex: number, startFrames: number, endFrames: number): number {
+      var s0 = seq();
+      var n = s0.audioTracks ? s0.audioTracks.numTracks : 0;
+      for (var t = minIndex; t < n; t++) {
+        if (!occupied(s0.audioTracks[t], startFrames, endFrames)) return t;
+      }
+      try {
+        app.enableQE();
+        // @ts-ignore - qe is the QE DOM global, enabled above.
+        var qeSeq: any = qe.project.getActiveSequence();
+        var nv = s0.videoTracks.numTracks;
+        // (video count, after video, audio count, audio type 1 = stereo, after audio)
+        try { qeSeq.addTracks(0, nv, 1, 1, n, 0, 0); } catch (e1) {}
+        if (seq().audioTracks.numTracks <= n) {
+          try { qeSeq.addTracks(0, nv, 1); } catch (e2) {}
+        }
+        var now = seq().audioTracks.numTracks;
+        if (now > n) return now - 1 < minIndex ? freeAudioTrack(minIndex, startFrames, endFrames) : now - 1;
+      } catch (e) {}
+      return -1;
+    }
+
+    /** An audio item's own length in seconds, or 0. */
+    function audioSeconds(mp: any): number {
+      var kinds = [2, 4, 1];
+      for (var k = 0; k < kinds.length; k++) {
+        try {
+          var len = getTimeSeconds(mp.getOutPoint(kinds[k])) - getTimeSeconds(mp.getInPoint(kinds[k]));
+          if (len > 0) return len;
+        } catch (e) {}
+      }
+      return 0;
+    }
+
+    /**
+     * Place the audio-only items. Returns how many landed; problems go to
+     * `lines`. Each is counted on the track it went to, so a clip that landed
+     * is never reported as missing.
+     */
+    function placeAudioItems(audioItems: any[]): number {
+      var placedCount = 0;
+      for (var i = 0; i < audioItems.length; i++) {
+        var it = audioItems[i];
+        var name = baseNameOf(it.path);
+        var amp = importOne(it.path);
+        if (!amp) {
+          lines[lines.length] = "Skipped (import failed): " + name;
+          continue;
+        }
+        var start = it.start > 0 ? it.start : 0;
+        var aIn = it.src_in > 0 ? it.src_in : 0;
+        var aOut = it.src_out > aIn ? it.src_out : 0;
+        var full = audioSeconds(amp);
+        var lenSec = aOut > 0 ? aOut - aIn : it.end > start ? it.end - start : full > 0 ? full - aIn : 3;
+        if (full > 0 && aIn + lenSec > full) lenSec = full - aIn;
+        if (lenSec <= 0) lenSec = 1 / (seqFps || 25);
+        var ranged = aIn > 0 || lenSec < full - aIn;
+        if (ranged) setItemRange(amp, aIn, aIn + lenSec, 0);
+        var startF = toFrames(start);
+        var lenF = toFrames(lenSec);
+        if (seqFps > 0 && lenF < 1) lenF = 1;
+        var idx = freeAudioTrack(1, startF, startF + lenF);
+        if (idx < 0) {
+          lines[lines.length] = "Skipped (no free audio track; add one in Premiere): " + name;
+          if (ranged) clearItemRange(amp, 0);
+          continue;
+        }
+        var clip = placeClip(seq().audioTracks[idx], amp, startF);
+        if (ranged) clearItemRange(amp, 0);
+        if (!clip) {
+          lines[lines.length] = "Could not place: " + name + (lastPlaceErr ? " [" + lastPlaceErr + "]" : "");
+          continue;
+        }
+        try {
+          if (timeToFrames(clip.end) !== startF + lenF) clip.end = frameToTime(startF + lenF);
+        } catch (trimErr) {}
+        placedCount++;
+      }
+      return placedCount;
+    }
+
     /** Ids of every audio clip, to spot the ones a placement adds. */
     function audioIds(): any {
       var ids: any = {};
@@ -432,6 +527,13 @@ export function aiEditBuildStoryboard(spec: any): string {
         }
       }
       return null;
+    }
+
+    var items: any[] = [];
+    var audioItems: any[] = [];
+    for (var ai = 0; ai < allItems.length; ai++) {
+      if (allItems[ai] && isAudioPath(allItems[ai].path)) audioItems[audioItems.length] = allItems[ai];
+      else items[items.length] = allItems[ai];
     }
 
     // Resolve the destination video track (1-based -> 0-based), clamped to what
@@ -609,6 +711,11 @@ export function aiEditBuildStoryboard(spec: any): string {
         "Placed " + appended + " of " + items.length + " media on V" + (vIndex + 1) + " (" + mode + ").";
     }
 
+    var audioPlaced = audioItems.length > 0 ? placeAudioItems(audioItems) : 0;
+    if (audioItems.length > 0) {
+      lines[lines.length] = "Placed " + audioPlaced + " of " + audioItems.length + " audio item(s) on free audio tracks.";
+    }
+
     // Optional voice-over on the last audio track at t=0.
     if (audioPath && audioPath.length > 0) {
       var seqA = seq();
@@ -631,8 +738,10 @@ export function aiEditBuildStoryboard(spec: any): string {
     return JSON.stringify({
       success: true,
       lines: lines,
-      appended: appended,
-      requested: requested,
+      appended: appended + audioPlaced,
+      requested: requested + audioItems.length,
+      audio_placed: audioPlaced,
+      audio_requested: audioItems.length,
       mode: mode,
     });
   } catch (e: any) {

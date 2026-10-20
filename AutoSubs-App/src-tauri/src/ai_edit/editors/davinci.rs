@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use crate::ai_edit::actions::{ActionOutcome, MarkerSpec, SegmentUpdate, StoryboardItem, TextSpec, TimeRange};
+use crate::ai_edit::actions::{ActionOutcome, Editor, MarkerSpec, SegmentUpdate, StoryboardItem, TextSpec, TimeRange};
 use crate::ai_edit::mcp::tools::{
     delete_tool, marker_tool, remove_ranges_tool, split_tool, storyboard_tool, text_item, tool,
 };
@@ -93,11 +93,7 @@ pub async fn build_storyboard(
     .await?;
     let appended = reply.get("appended").and_then(|v| v.as_u64()).unwrap_or(0);
     let requested = reply.get("requested").and_then(|v| v.as_u64()).unwrap_or(items.len() as u64);
-    Ok(ActionOutcome {
-        message: format!("Placed {}/{} clip(s) on Resolve track V{}.", appended, requested, track),
-        partial: appended < requested,
-        lines: string_lines(&reply),
-    })
+    Ok(ActionOutcome::placed(Editor::Davinci, track, appended, requested, string_lines(&reply)))
 }
 
 pub async fn add_markers(markers: Vec<MarkerSpec>) -> Result<ActionOutcome, String> {

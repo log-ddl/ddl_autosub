@@ -8,7 +8,7 @@ use std::path::Path;
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
-use crate::ai_edit::mcp::tools::tool;
+use crate::ai_edit::mcp::tools::{assets, tool};
 use crate::media::remotion::{self, RenderRequest, STARTER_NAME};
 
 pub fn tools() -> Vec<Value> {
@@ -81,7 +81,7 @@ async fn render(app: &AppHandle, workspace: Option<&Path>, args: &Value) -> Resu
     let size_mb = std::fs::metadata(&output).map(|m| m.len() as f64 / 1_048_576.0).unwrap_or(0.0);
     Ok(format!(
         "Rendered {} ({:.0} MB, {}) in {:.0}s{}.",
-        output.display(),
+        assets::describe(workspace, &output),
         size_mb,
         if transparent { "ProRes 4444 with alpha" } else { "H.264" },
         took.as_secs_f64(),
