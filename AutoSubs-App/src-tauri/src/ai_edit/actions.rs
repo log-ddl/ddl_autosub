@@ -161,6 +161,14 @@ async fn call_resolve(payload: Value) -> Result<Value, String> {
                 .map(str::to_string)
                 .or_else(|| v.get("message").and_then(|m| m.as_str()).map(str::to_string))
                 .unwrap_or_else(|| "Resolve reported an error".into());
+            if short == "Invalid function name" {
+                // The Lua loop in Resolve predates this endpoint.
+                return Err(format!(
+                    "The AutoSubs script running in DaVinci Resolve is an older version without '{}'. \
+                     Run Workspace > Scripts > AutoSubs again in Resolve, then retry.",
+                    func
+                ));
+            }
             let detail = v.get("detail").and_then(|d| d.as_str()).unwrap_or("");
             return Err(if detail.is_empty() { short } else { format!("{}: {}", short, detail) });
         }

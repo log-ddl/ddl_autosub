@@ -104,6 +104,19 @@ pub fn format_agy_step_update(su: &Value) -> Option<String> {
         .filter(|s| !s.is_empty())
         .unwrap_or(step_type);
 
+    // agy reaches MCP tools through one generic `call_mcp_tool`; name the
+    // actual tool ("autosubs/add_marker") so the step says what it does.
+    let params = su.get("tool_info").and_then(|ti| ti.get("parameters"));
+    let mcp_tool = (tool_name == "call_mcp_tool")
+        .then(|| params)
+        .flatten()
+        .and_then(|p| {
+            let server = p.get("ServerName")?.as_str()?;
+            let tool = p.get("ToolName")?.as_str()?;
+            Some(format!("{}/{}", server, tool))
+        });
+    let tool_name = mcp_tool.as_deref().unwrap_or(tool_name);
+
     let mut detail = String::new();
     if let Some(params) = su.get("tool_info").and_then(|ti| ti.get("parameters")) {
         if let Some(p) = params
@@ -420,5 +433,24 @@ fn handle_claude_event(
                 .unwrap_or("Claude CLI error")
                 .to_string();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn names_the_mcp_tool_behind_call_mcp_tool() {
+        // Shape of an agy step_update, captured from a real run.
+        let su = json!({
+            "step_index": 4, "state": "DONE", "step_type": "tool", "tool_name": "call_mcp_tool",
+            "duration_seconds": 1.8,
+            "tool_info": { "name": "call_mcp_tool",
+                           "parameters": { "Arguments": {}, "ServerName": "autosubs", "ToolName": "get_timeline" } }
+        });
+        let step = format_agy_step_update(&su).unwrap();
+        assert!(step.starts_with("DONE#4:autosubs/get_timeline||"), "{}", step);
     }
 }
