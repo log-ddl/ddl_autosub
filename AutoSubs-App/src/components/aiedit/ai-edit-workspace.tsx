@@ -1,4 +1,4 @@
-import { Layers, PanelLeftOpen, Sparkles } from "lucide-react";
+import { Layers, PanelLeftOpen } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import type { TimelineActionCommand } from "./ai-edit-helpers";
@@ -76,28 +76,6 @@ export function AiEditWorkspace() {
                 </span>
               )}
             </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                if (c.selectedIntegration === "capcut") {
-                  c.setProjectPickerOpen(true);
-                }
-              }}
-              className="flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/30 px-2.5 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
-              title={
-                c.selectedIntegration === "capcut"
-                  ? "Bấm để đổi Project CapCut"
-                  : "Timeline DaVinci Resolve đang kết nối"
-              }
-            >
-              <Sparkles className="size-3 text-primary" />
-              <span>
-                {c.selectedIntegration === "capcut"
-                  ? `CapCut: ${c.timelineSnapshot?.draftName || "Chọn Project"}`
-                  : `DaVinci: ${c.resolveTimeline?.name || "Timeline"}`}
-              </span>
-            </button>
           </div>
         </div>
 
@@ -105,7 +83,7 @@ export function AiEditWorkspace() {
           activeConversation={c.activeConversation}
           activeAdapter={c.activeAdapter}
           selectedIntegration={c.selectedIntegration}
-          draftName={c.timelineSnapshot?.draftName}
+          editorTitle={c.editorTitle}
           activeIsRunning={c.activeIsRunning}
           activeRunText={c.activeRunText}
           activeThinkingText={c.activeThinkingText}

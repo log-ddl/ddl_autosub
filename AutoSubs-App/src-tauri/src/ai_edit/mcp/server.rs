@@ -1,4 +1,4 @@
-//! Local MCP server that gives the AI Edit agent timeline tools.
+//! Transport for the AI Edit MCP server.
 //!
 //! Speaks the MCP "streamable HTTP" transport in its simplest form: every
 //! JSON-RPC request is a POST answered with a single JSON body (no SSE).
@@ -6,8 +6,8 @@
 //! is generated per app run, so other local processes cannot drive it.
 //!
 //! Each agent run gets its own session path (`/mcp/<session>`) bound to one
-//! editor and project, and to whether it may edit. Tools are described per
-//! editor, so the agent only sees what that editor supports. Every tool
+//! editor and project, and to whether it may edit. Tool schemas come from
+//! `mcp::tools`; tool calls run through `actions::execute`. Every tool
 //! answers with a text outcome or an error, which is how the agent learns
 //! whether an edit worked and can correct itself.
 
@@ -20,6 +20,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::ai_edit::actions::{execute, timeline_snapshot, EditTarget, TimelineAction};
+use crate::ai_edit::mcp::tools::tool_definitions;
 
 /// Event the UI listens to so it can refresh and toast after an agent edit.
 pub const TIMELINE_CHANGED_EVENT: &str = "ai-edit-timeline-changed";
@@ -267,7 +268,7 @@ async fn handle_message(session: &Session, msg: &Value) -> Option<Value> {
             )
         }
         "ping" => rpc_result(id, json!({})),
-        "tools/list" => rpc_result(id, json!({ "tools": tool_definitions(session) })),
+        "tools/list" => rpc_result(id, json!({ "tools": tool_definitions(session.target.editor, session.allow_edits) })),
         "tools/call" => {
             let name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
             let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
@@ -277,16 +278,12 @@ async fn handle_message(session: &Session, msg: &Value) -> Option<Value> {
     })
 }
 
-fn editor_name(session: &Session) -> &'static str {
-    if session.target.integration == "capcut" { "CapCut" } else { "DaVinci Resolve" }
-}
-
 fn instructions(session: &Session) -> String {
     let mut s = format!(
         "Timeline tools for the {} project this conversation is bound to. Times are seconds from the \
          start of the timeline. Call get_timeline to see clip ids, then edit; every edit tool reports \
          what it did, so read the result and fix anything that failed.",
-        editor_name(session)
+        session.target.editor.display_name()
     );
     if !session.allow_edits {
         s.push_str(" This run is read-only (Manual mode): only get_timeline is available.");
@@ -335,7 +332,7 @@ async fn call_tool(session: &Session, name: &str, mut args: Value) -> Value {
         let _ = app.emit(
             TIMELINE_CHANGED_EVENT,
             json!({
-                "integration": session.target.integration,
+                "integration": session.target.editor,
                 "tool": name,
                 "ok": result.is_ok(),
                 "message": match &result { Ok(o) => o.message.clone(), Err(e) => e.clone() },
@@ -356,252 +353,19 @@ async fn call_tool(session: &Session, name: &str, mut args: Value) -> Value {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tool definitions
-// ---------------------------------------------------------------------------
-
-fn tool(name: &str, description: String, schema: Value) -> Value {
-    json!({ "name": name, "description": description, "inputSchema": schema })
-}
-
-fn tool_definitions(session: &Session) -> Vec<Value> {
-    let capcut = session.target.integration == "capcut";
-    let mut tools = vec![tool(
-        "get_timeline",
-        format!(
-            "Read the open {} timeline: tracks with every clip (id, name, start and duration in seconds{}) \
-             and the markers. Call it before editing clips and after edits to check the result.",
-            editor_name(session),
-            if capcut { ", zoom, text, media path" } else { ", zoom, Text+ text" }
-        ),
-        json!({ "type": "object", "properties": {} }),
-    )];
-    if !session.allow_edits {
-        return tools;
-    }
-
-    let effect = json!({
-        "type": "object",
-        "properties": {
-            "zoom": { "type": "number", "description": "1.0 = no zoom" },
-            "panX": { "type": "number" },
-            "panY": { "type": "number" },
-            "rotation": { "type": "number", "description": "degrees" }
-        }
-    });
-    tools.push(tool(
-        "build_storyboard",
-        format!(
-            "Place video, image or audio files on the {} timeline. mode: replace (overwrite [start, end] \
-             on the track), insert (ripple: split at start and push later clips right), overlay (put on \
-             a free track above), append (after the last clip). Tracks are created as needed.{}",
-            editor_name(session),
-            if capcut { "" } else { " Resolve can only set a fixed zoom/pan/rotation per clip, not keyframes." }
-        ),
-        json!({
-            "type": "object",
-            "properties": {
-                "mode": { "type": "string", "enum": ["replace", "insert", "overlay", "append"] },
-                "targetVideoTrack": { "type": "integer", "minimum": 1, "description": "1 = V1" },
-                "audioPath": { "type": "string", "description": "Optional audio file placed on a new audio track" },
-                "items": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "path": { "type": "string", "description": "Absolute file path" },
-                            "start": { "type": "number", "description": "Timeline start, seconds" },
-                            "end": { "type": "number", "description": "Timeline end, seconds" },
-                            "srcIn": { "type": "number", "description": "Cut-in inside the source, seconds" },
-                            "srcOut": { "type": "number", "description": "Cut-out inside the source, seconds" },
-                            "effect": effect
-                        },
-                        "required": ["path", "start"]
-                    }
-                }
-            },
-            "required": ["items"]
-        }),
-    ));
-
-    let marker_colors: Vec<&str> = if capcut {
-        vec!["Red", "Cyan"]
-    } else {
-        vec![
-            "Blue", "Cyan", "Green", "Yellow", "Red", "Pink", "Purple", "Fuchsia", "Rose", "Lavender",
-            "Sky", "Mint", "Lemon", "Sand", "Cocoa", "Cream",
-        ]
-    };
-    let mut marker_props = json!({
-        "atSec": { "type": "number", "description": "Seconds from the timeline start" },
-        "color": { "type": "string", "enum": marker_colors },
-        "name": { "type": "string" },
-        "durationSec": { "type": "number", "description": "Span in seconds; omit for a point marker" }
-    });
-    if !capcut {
-        marker_props["note"] = json!({ "type": "string" });
-    }
-    tools.push(tool(
-        "add_marker",
-        if capcut {
-            "Add markers to the CapCut timeline. CapCut has two colors (Red, Cyan) and no note field, so \
-             put everything in name. A frame that already has a marker is skipped."
-                .to_string()
-        } else {
-            "Add markers to the Resolve timeline. A frame that already has a marker is skipped.".to_string()
-        },
-        json!({
-            "type": "object",
-            "properties": {
-                "markers": {
-                    "type": "array",
-                    "items": { "type": "object", "properties": marker_props, "required": ["atSec"] }
-                }
-            },
-            "required": ["markers"]
-        }),
-    ));
-
-    let text_item = json!({
-        "type": "object",
-        "properties": {
-            "text": { "type": "string" },
-            "start": { "type": "number", "description": "Seconds from the timeline start" },
-            "end": { "type": "number", "description": "Seconds from the timeline start" }
-        },
-        "required": ["text", "start", "end"]
-    });
-    tools.push(if capcut {
-        tool(
-            "add_text",
-            "Add on-screen text to CapCut as a new text track (white with a black outline, or yellow)."
-                .to_string(),
-            json!({
-                "type": "object",
-                "properties": {
-                    "texts": { "type": "array", "items": text_item },
-                    "template": { "type": "string", "enum": ["White", "Yellow"] }
-                },
-                "required": ["texts"]
-            }),
-        )
-    } else {
-        tool(
-            "add_text",
-            "Add Text+ titles to the Resolve timeline. template is the name of a Text+ in the media pool: \
-             \"AutoSubs Caption\" animates word by word, \"Default Template\" is a plain title (the \
-             default). track is the video track number, \"0\" or omitted for a new track."
-                .to_string(),
-            json!({
-                "type": "object",
-                "properties": {
-                    "texts": { "type": "array", "items": text_item },
-                    "template": { "type": "string" },
-                    "track": { "type": "string" }
-                },
-                "required": ["texts"]
-            }),
-        )
-    });
-
-    tools.push(if capcut {
-        tool(
-            "update_clip",
-            "Change a CapCut clip by id: move or retime it (startSec, durationSec), set zoom/pan/rotation, \
-             animate them with zoomEnd/panXEnd/panYEnd (keyframes from clip start to end), set volume, \
-             or replace the text of a text clip."
-                .to_string(),
-            json!({
-                "type": "object",
-                "properties": {
-                    "segmentId": { "type": "string" },
-                    "startSec": { "type": "number" },
-                    "durationSec": { "type": "number" },
-                    "zoom": { "type": "number" }, "zoomEnd": { "type": "number" },
-                    "panX": { "type": "number" }, "panXEnd": { "type": "number" },
-                    "panY": { "type": "number" }, "panYEnd": { "type": "number" },
-                    "rotation": { "type": "number" },
-                    "volume": { "type": "number", "description": "1.0 = unchanged" },
-                    "text": { "type": "string" }
-                },
-                "required": ["segmentId"]
-            }),
-        )
-    } else {
-        tool(
-            "update_clip",
-            "Change a Resolve clip by id: zoom, panX, panY, rotation, opacity (0-100), or the text of a \
-             Text+ clip. Resolve's API cannot move, retime, keyframe or change volume; to move a clip, \
-             delete it and place it again with build_storyboard."
-                .to_string(),
-            json!({
-                "type": "object",
-                "properties": {
-                    "segmentId": { "type": "string" },
-                    "zoom": { "type": "number" },
-                    "panX": { "type": "number" },
-                    "panY": { "type": "number" },
-                    "rotation": { "type": "number" },
-                    "opacity": { "type": "number" },
-                    "text": { "type": "string" }
-                },
-                "required": ["segmentId"]
-            }),
-        )
-    });
-
-    let mut delete_props = json!({
-        "segmentIds": { "type": "array", "items": { "type": "string" } }
-    });
-    if !capcut {
-        delete_props["ripple"] = json!({ "type": "boolean", "description": "Close the gap left behind" });
-    }
-    tools.push(tool(
-        "delete_clips",
-        format!("Delete clips from the {} timeline by id.", editor_name(session)),
-        json!({ "type": "object", "properties": delete_props, "required": ["segmentIds"] }),
-    ));
-    tools
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn session(integration: &str, allow_edits: bool) -> Session {
-        Session {
-            target: EditTarget { integration: integration.into(), draft_id: None },
-            allow_edits,
-        }
-    }
+    use crate::ai_edit::actions::Editor;
 
-    fn names(tools: &[Value]) -> Vec<&str> {
-        tools.iter().filter_map(|t| t["name"].as_str()).collect()
-    }
-
-    #[test]
-    fn manual_mode_is_read_only() {
-        assert_eq!(names(&tool_definitions(&session("davinci", false))), ["get_timeline"]);
-    }
-
-    #[test]
-    fn tools_follow_the_editor() {
-        let davinci = tool_definitions(&session("davinci", true));
-        let capcut = tool_definitions(&session("capcut", true));
-        assert_eq!(
-            names(&davinci),
-            ["get_timeline", "build_storyboard", "add_marker", "add_text", "update_clip", "delete_clips"]
-        );
-        let ripple = |tools: &[Value]| tools[5]["inputSchema"]["properties"].get("ripple").is_some();
-        assert!(ripple(&davinci));
-        assert!(!ripple(&capcut));
-        assert!(capcut[4]["inputSchema"]["properties"].get("zoomEnd").is_some());
-        assert!(davinci[4]["inputSchema"]["properties"].get("zoomEnd").is_none());
+    fn session(editor: Editor, allow_edits: bool) -> Session {
+        Session { target: EditTarget { editor, draft_id: None }, allow_edits }
     }
 
     #[tokio::test]
     async fn answers_initialize_and_ignores_notifications() {
-        let s = session("capcut", true);
+        let s = session(Editor::Capcut, true);
         let init = handle_message(
             &s,
             &json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -651,7 +415,7 @@ mod tests {
         sessions()
             .lock()
             .unwrap()
-            .insert("s1".into(), session("capcut", true));
+            .insert("s1".into(), session(Editor::Capcut, true));
 
         let list = http(post("/mcp/s1", &token, &json!({ "jsonrpc": "2.0", "id": 7, "method": "tools/list" }))).await;
         assert!(list.starts_with("HTTP/1.1 200 OK"), "{}", list);
@@ -671,7 +435,7 @@ mod tests {
 
     #[tokio::test]
     async fn read_only_session_refuses_edits() {
-        let result = call_tool(&session("davinci", false), "add_marker", json!({ "markers": [] })).await;
+        let result = call_tool(&session(Editor::Davinci, false), "add_marker", json!({ "markers": [] })).await;
         assert_eq!(result["isError"], json!(true));
     }
 }

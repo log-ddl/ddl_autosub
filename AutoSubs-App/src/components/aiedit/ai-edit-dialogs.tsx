@@ -226,7 +226,7 @@ export function AiEditDialogs({
               Quản lý Project Assets ({workspaceInfo?.projectSlug || "Project"})
             </DialogTitle>
             <DialogDescription className="text-xs">
-              Mỗi Project CapCut / DaVinci có không gian lưu trữ riêng cho{" "}
+              Mỗi Project CapCut / DaVinci / Premiere có không gian lưu trữ riêng cho{" "}
               <span className="font-medium text-foreground">
                 Motion Graphics
               </span>

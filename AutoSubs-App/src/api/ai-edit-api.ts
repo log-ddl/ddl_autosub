@@ -2,8 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 
 /** Which editor and project an AI Edit conversation works on. */
 export interface EditTarget {
-  integration: "davinci" | "capcut";
-  /** CapCut draft id; DaVinci always edits the open timeline. */
+  integration: "davinci" | "capcut" | "premiere";
+  /** CapCut draft id; DaVinci and Premiere always edit the open timeline. */
   draftId?: string | null;
 }
 

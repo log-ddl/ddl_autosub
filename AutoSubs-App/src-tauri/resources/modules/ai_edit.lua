@@ -78,8 +78,14 @@ local function find_item(timeline, id)
     return found
 end
 
--- The first Text+ tool in a Fusion title clip, or nil.
+-- The first Text+ tool in a Fusion title clip, or nil. Only for edits the
+-- user asked for: checks GetFusionCompCount first like autosubs_core does,
+-- so a plain clip never has a Fusion comp opened for it.
 local function text_plus_tool(item)
+    local okCount, count = pcall(item.GetFusionCompCount, item)
+    if not okCount or not count or count < 1 then
+        return nil
+    end
     local ok, comp = pcall(item.GetFusionCompByIndex, item, 1)
     if not ok or not comp then
         return nil
@@ -121,18 +127,15 @@ function M.get_timeline_snapshot()
                     startSec = (item:GetStart() - start) / fps,
                     durationSec = (item:GetEnd() - item:GetStart()) / fps,
                 }
+                -- No Text+ text here: reading a Fusion input (GetInput) from
+                -- the bridge loop deadlocks Resolve's main thread (Resolve
+                -- 21.1, stack stuck in Fusion::Input::GetSourceTagList), and
+                -- the app reads this snapshot before every AI Edit message.
                 if kind == "video" then
                     clip.zoom = property(item, "ZoomX")
                     clip.panX = property(item, "Pan")
                     clip.panY = property(item, "Tilt")
                     clip.rotation = property(item, "RotationAngle")
-                    local tool = text_plus_tool(item)
-                    if tool then
-                        local okText, text = pcall(tool.GetInput, tool, "StyledText")
-                        if okText and type(text) == "string" then
-                            clip.text = text
-                        end
-                    end
                 end
                 table.insert(clips, clip)
             end

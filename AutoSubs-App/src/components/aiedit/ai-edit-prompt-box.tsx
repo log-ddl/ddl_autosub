@@ -36,6 +36,7 @@ import type {
 import {
   AI_EDIT_SLASH_COMMANDS,
   cliLabel,
+  editorLabel,
   formatModelParts,
   workspaceShortLabel,
 } from "./ai-edit-helpers";
@@ -129,16 +130,12 @@ export function AiEditPromptBox({
               <span className="leading-snug">
                 Đoạn chat này đã khóa với{" "}
                 <strong className="font-semibold">
-                  {contextMismatch.boundIntegration === "capcut"
-                    ? "CapCut"
-                    : "DaVinci"}{" "}
+                  {editorLabel(contextMismatch.boundIntegration, true)}{" "}
                   · {contextMismatch.boundProjectName}
                 </strong>
                 . Bạn đang mở{" "}
                 <strong className="font-semibold">
-                  {contextMismatch.currentIntegration === "capcut"
-                    ? "CapCut"
-                    : "DaVinci"}{" "}
+                  {editorLabel(contextMismatch.currentIntegration, true)}{" "}
                   · {contextMismatch.currentProjectName}
                 </strong>{" "}
                 (đã chặn gửi tiếp để tránh lẫn lộn context).

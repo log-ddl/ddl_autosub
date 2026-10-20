@@ -82,6 +82,20 @@ export const AI_EDIT_SLASH_COMMANDS = [
   { name: "folder", desc: "Chọn thư mục Workspace làm việc riêng" },
 ] as const;
 
+/** Display name of an editor integration ("short" for compact badges). */
+export function editorLabel(integration: string | null | undefined, short = false): string {
+  switch (integration) {
+    case "capcut":
+      return "CapCut";
+    case "premiere":
+      return short ? "Premiere" : "Premiere Pro";
+    case "aftereffects":
+      return "After Effects";
+    default:
+      return short ? "DaVinci" : "DaVinci Resolve";
+  }
+}
+
 export function cliLabel(adapter: ContentCliAdapter | string): string {
   switch (adapter) {
     case "claude":

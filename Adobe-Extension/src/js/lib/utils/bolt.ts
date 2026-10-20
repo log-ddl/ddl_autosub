@@ -51,6 +51,7 @@ const allowedScriptFunctions = new Set<string>([
   "importSRTFile",
   "jumpToTime",
   "buildStoryboard",
+  "aiEdit",
 ]);
 
 /**

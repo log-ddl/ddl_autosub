@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { ContentCliAdapter } from "@/api/cli-chat-api";
 import type { ContentConversation } from "@/stores/ai-edit-chat-store";
-import { cliLabel } from "./ai-edit-helpers";
+import { cliLabel, editorLabel } from "./ai-edit-helpers";
 
 export interface AiEditSidebarProps {
   conversations: ContentConversation[];
@@ -120,7 +120,7 @@ export function AiEditSidebar({
                 </div>
                 <div className="text-[10.5px] text-muted-foreground/70 mt-0.5 truncate">
                   {conv.boundIntegration
-                    ? `${conv.boundIntegration === "capcut" ? "CapCut" : "DaVinci"}${conv.boundProjectName ? ` (${conv.boundProjectName})` : ""} · `
+                    ? `${editorLabel(conv.boundIntegration, true)}${conv.boundProjectName ? ` (${conv.boundProjectName})` : ""} · `
                     : `${cliLabel(conv.adapter ?? defaultAdapter)} · `}
                   {conv.messages.length} tin
                 </div>

@@ -243,6 +243,30 @@ export const useWebSocket = (port: number) => {
         sendMessage({ type: "build_storyboard_response", payload: storyboardPayload, sessionId: message.sessionId, operationId: opId });
         break;
       }
+      case "request_ai_edit": {
+        // AI Edit tab: one request shape for every timeline edit. The app side
+        // (editors/premiere.rs) waits for the reply by sessionId.
+        if (!isRecord(message.payload) || !isNonEmptyString(message.payload.func)) {
+          addLog("Rejected malformed AI Edit request", "error");
+          sendMessage({ type: "ai_edit_response", payload: JSON.stringify({ success: false, error: "Malformed AI Edit request" }), sessionId: message.sessionId, operationId: opId });
+          break;
+        }
+
+        addLog(`AI Edit: ${message.payload.func}`, "info");
+        // Same ASCII escaping as request_build_storyboard, for the same reason.
+        const requestJson = JSON.stringify(message.payload).replace(
+          /[^\x00-\x7F]/g,
+          (ch) => "\\u" + ("0000" + ch.charCodeAt(0).toString(16)).slice(-4),
+        );
+        // No retry: edits are not idempotent, and a retried add_marker or
+        // build_storyboard would apply twice.
+        const aiResult = await executeWithRetry(() => evalTS("aiEdit", requestJson), 0);
+        const aiPayload = aiResult.success && aiResult.data
+          ? aiResult.data
+          : JSON.stringify({ success: false, error: aiResult.error || "aiEdit returned nothing" });
+        sendMessage({ type: "ai_edit_response", payload: aiPayload, sessionId: message.sessionId, operationId: opId });
+        break;
+      }
       case "request_jump_to_time": {
         if (!isRecord(message.payload) || typeof message.payload.time !== "number" || !Number.isFinite(message.payload.time) || message.payload.time < 0) {
           addLog("Rejected malformed jump request", "error");

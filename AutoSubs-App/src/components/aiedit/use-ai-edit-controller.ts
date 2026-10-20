@@ -12,41 +12,25 @@ import {
   type ContentCliAdapter,
   type WorkspaceInfo,
 } from "@/api/cli-chat-api";
-import {
-  getCapCutTimelineSnapshot,
-  type CapCutTimelineSnapshot,
-} from "@/api/capcut-api";
-import {
-  executeTimelineAction as runTimelineAction,
-  getEditTimeline,
-} from "@/api/ai-edit-api";
+import { executeTimelineAction as runTimelineAction } from "@/api/ai-edit-api";
 import {
   useAiEditChatStore,
   type ContentMessage,
 } from "@/stores/ai-edit-chat-store";
 import { useIntegration } from "@/contexts/IntegrationContext";
-import { useCapCut } from "@/contexts/CapCutContext";
-import { useResolve } from "@/contexts/ResolveContext";
 import {
   cliLabel,
   extractTimelineActions,
   mergeStepEvent,
   type TimelineActionCommand,
 } from "./ai-edit-helpers";
-import {
-  buildEditorContextPrompt,
-  type DavinciTimelineSnapshot,
-} from "./ai-edit-prompts";
+import { useEditorAdapter } from "./editors";
 
 export function useAiEditController() {
   const { selectedIntegration } = useIntegration();
-  const {
-    selectedDraftId,
-    setProjectPickerOpen,
-    refresh: refreshCapCut,
-  } = useCapCut();
-  const { timelineInfo: resolveTimeline, refresh: refreshResolve } =
-    useResolve();
+  // Everything editor-specific (target, project, snapshot, prompt, refresh)
+  // lives in ./editors/<editor>.ts.
+  const editor = useEditorAdapter(selectedIntegration);
 
   // Store selectors
   const conversations = useAiEditChatStore((s) => s.conversations);
@@ -116,10 +100,6 @@ export function useAiEditController() {
   } | null>(null);
   const [renameDraft, setRenameDraft] = React.useState("");
 
-  // Timeline Snapshot state (for AI context)
-  const [timelineSnapshot, setTimelineSnapshot] =
-    React.useState<CapCutTimelineSnapshot | null>(null);
-
   const abortControllersRef = React.useRef(new Map<string, AbortController>());
   const endRef = React.useRef<HTMLDivElement>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
@@ -165,24 +145,8 @@ export function useAiEditController() {
   const selectedModel = selectedModels[activeAdapter];
   const adapterStatus = status?.[activeAdapter];
 
-  const activeProjectId = React.useMemo(() => {
-    if (selectedIntegration === "capcut") {
-      return timelineSnapshot?.draftId || selectedDraftId || null;
-    }
-    return resolveTimeline?.name || null;
-  }, [
-    selectedIntegration,
-    timelineSnapshot?.draftId,
-    selectedDraftId,
-    resolveTimeline?.name,
-  ]);
-
-  const activeProjectName = React.useMemo(() => {
-    if (selectedIntegration === "capcut") {
-      return timelineSnapshot?.draftName || null;
-    }
-    return resolveTimeline?.name || null;
-  }, [selectedIntegration, timelineSnapshot?.draftName, resolveTimeline?.name]);
+  const activeProjectId = editor.projectId;
+  const activeProjectName = editor.projectName;
 
   const contextMismatch = React.useMemo(() => {
     if (
@@ -225,23 +189,6 @@ export function useAiEditController() {
     el.style.height = "auto";
     el.style.height = `${Math.min(160, Math.max(28, el.scrollHeight))}px`;
   }, [draft]);
-
-  const loadTimelineSnapshot = React.useCallback(async () => {
-    if (selectedIntegration !== "capcut") return;
-    try {
-      const snap = await getCapCutTimelineSnapshot(
-        selectedDraftId || undefined,
-      );
-      setTimelineSnapshot(snap);
-    } catch (err) {
-      console.warn("[AiEditWorkspace] Could not load CapCut snapshot:", err);
-      setTimelineSnapshot(null);
-    }
-  }, [selectedIntegration, selectedDraftId]);
-
-  React.useEffect(() => {
-    void loadTimelineSnapshot();
-  }, [loadTimelineSnapshot]);
 
   const refreshRuntime = React.useCallback(async () => {
     setCheckingRuntime(true);
@@ -303,12 +250,14 @@ export function useAiEditController() {
 
   const executeTimelineAction = React.useCallback(
     async (cmd: TimelineActionCommand) => {
+      const target = editor.target;
+      if (!target) {
+        toast.error("AI Edit chưa hỗ trợ trình dựng này.");
+        return;
+      }
       try {
         const outcome = await runTimelineAction(
-          {
-            integration: selectedIntegration === "capcut" ? "capcut" : "davinci",
-            draftId: selectedDraftId || null,
-          },
+          target,
           cmd as unknown as Record<string, unknown>,
         );
         if (outcome.partial) {
@@ -316,27 +265,17 @@ export function useAiEditController() {
         } else {
           toast.success(cmd.summary || outcome.message);
         }
-        if (selectedIntegration === "capcut") {
-          await refreshCapCut();
-          await loadTimelineSnapshot();
-        } else {
-          await refreshResolve();
-        }
+        await editor.refreshAfterEdit();
       } catch (err: any) {
         toast.error(err?.message || String(err));
       }
     },
-    [
-      selectedIntegration,
-      selectedDraftId,
-      refreshCapCut,
-      loadTimelineSnapshot,
-      refreshResolve,
-    ],
+    [editor],
   );
 
   // The agent edits through the MCP tools in the backend; mirror each edit
   // here so the user sees it happen and the timeline view stays current.
+  const refreshAfterEdit = editor.refreshAfterEdit;
   React.useEffect(() => {
     let unlisten: (() => void) | undefined;
     let disposed = false;
@@ -347,12 +286,7 @@ export function useAiEditController() {
         if (!ok) toast.error(message);
         else if (partial) toast.warning(message);
         else toast.success(message);
-        if (selectedIntegration === "capcut") {
-          void refreshCapCut();
-          void loadTimelineSnapshot();
-        } else {
-          void refreshResolve();
-        }
+        void refreshAfterEdit();
       },
     ).then((fn) => {
       if (disposed) fn();
@@ -362,7 +296,7 @@ export function useAiEditController() {
       disposed = true;
       unlisten?.();
     };
-  }, [selectedIntegration, refreshCapCut, loadTimelineSnapshot, refreshResolve]);
+  }, [refreshAfterEdit]);
 
   async function handlePickWorkspace() {
     if (!activeConversation || providerLocked) return;
@@ -487,24 +421,7 @@ export function useAiEditController() {
     setRunningThinking((prev) => ({ ...prev, [convId]: "" }));
     setRunningSteps((prev) => ({ ...prev, [convId]: [] }));
 
-    // The DaVinci clip list is read fresh per message; CapCut's snapshot is
-    // kept up to date by the effects above.
-    let davinciSnapshot: DavinciTimelineSnapshot | null = null;
-    if (selectedIntegration !== "capcut") {
-      try {
-        davinciSnapshot = (await getEditTimeline({
-          integration: "davinci",
-        })) as DavinciTimelineSnapshot;
-      } catch {
-        davinciSnapshot = null;
-      }
-    }
-
-    const fullSystemPrompt = buildEditorContextPrompt(
-      selectedIntegration,
-      timelineSnapshot,
-      resolveTimeline?.name,
-      davinciSnapshot,
+    const fullSystemPrompt = await editor.buildPrompt(
       activeConversation.systemPrompt,
       workspaceInfo,
       autoApplyActions,
@@ -523,10 +440,7 @@ export function useAiEditController() {
         sessionKey: `${convId}:${targetAdapter}`,
         workingDirectory: workspaceInfo?.path,
         projectName: activeProjectName || undefined,
-        editTarget: {
-          integration: selectedIntegration === "capcut" ? "capcut" : "davinci",
-          draftId: selectedDraftId || null,
-        },
+        editTarget: editor.target ?? undefined,
         // Turbo lets the agent edit through the MCP tools; Manual keeps them
         // read-only and the user applies timeline-action blocks.
         allowEdits: autoApplyActions,
@@ -630,9 +544,7 @@ export function useAiEditController() {
 
   return {
     selectedIntegration,
-    setProjectPickerOpen,
-    resolveTimeline,
-    timelineSnapshot,
+    editorTitle: editor.title,
     adapter,
     setAdapter,
     setModel,

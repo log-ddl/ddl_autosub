@@ -1,6 +1,8 @@
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::OnceLock;
 use std::collections::HashMap;
-use tokio::sync::mpsc;
+use std::time::Duration;
+use tokio::sync::{mpsc, oneshot};
 use tokio::sync::Mutex;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::tungstenite::Message;
@@ -47,7 +49,58 @@ pub async fn send_to_adobe(
     }
 }
 
+/// Replies the backend itself is waiting for, keyed by sessionId. Replies to
+/// requests the frontend sent (send_to_adobe) are not in here and go out as
+/// `adobe-message` events as before.
+fn backend_waiters() -> &'static std::sync::Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>> {
+    static WAITERS: OnceLock<std::sync::Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>> =
+        OnceLock::new();
+    WAITERS.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+fn bridge_app() -> &'static OnceLock<tauri::AppHandle> {
+    static APP: OnceLock<tauri::AppHandle> = OnceLock::new();
+    &APP
+}
+
+/// Send `{ type, payload, sessionId }` to the connected extension (`app_id`
+/// is "premiere" or "aftereffects") and wait for the message it sends back
+/// with the same sessionId. Returns that message's `payload`.
+pub async fn request(
+    app_id: &str,
+    msg_type: &str,
+    payload: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let app = bridge_app().get().ok_or("The Adobe bridge is not running.")?;
+    let sender = {
+        let state = app.state::<AdobeState>();
+        let guard = state.connections.lock().await;
+        guard.get(app_id).map(|c| c.sender.clone())
+    };
+    let sender = sender.ok_or_else(|| format!("The AutoSubs panel in {} is not connected.", app_id))?;
+
+    let session_id = format!("backend_{}", uuid::Uuid::new_v4().simple());
+    let (tx, rx) = oneshot::channel();
+    backend_waiters().lock().map_err(|e| e.to_string())?.insert(session_id.clone(), tx);
+
+    let msg = json!({ "type": msg_type, "payload": payload, "sessionId": session_id });
+    if sender.send(msg.to_string()).await.is_err() {
+        backend_waiters().lock().ok().map(|mut m| m.remove(&session_id));
+        return Err(format!("Lost the connection to {}.", app_id));
+    }
+    match tokio::time::timeout(timeout, rx).await {
+        Ok(Ok(reply)) => Ok(reply.get("payload").cloned().unwrap_or(serde_json::Value::Null)),
+        Ok(Err(_)) => Err(format!("Lost the connection to {}.", app_id)),
+        Err(_) => {
+            backend_waiters().lock().ok().map(|mut m| m.remove(&session_id));
+            Err(format!("{} did not answer within {}s.", app_id, timeout.as_secs()))
+        }
+    }
+}
+
 pub fn init_adobe_server(app_handle: tauri::AppHandle) {
+    let _ = bridge_app().set(app_handle.clone());
     let adobe_state = AdobeState {
         connections: Mutex::new(HashMap::new()),
     };
@@ -148,6 +201,15 @@ async fn handle_connection(stream: TcpStream, app_handle: tauri::AppHandle) -> R
         while let Some(Ok(msg)) = ws_receiver.next().await {
             if let Message::Text(text) = msg {
                 if let Ok(mut json_val) = serde_json::from_str::<serde_json::Value>(text.as_str()) {
+                    // A reply the backend is waiting for goes straight to it.
+                    let waiter = json_val
+                        .get("sessionId")
+                        .and_then(|s| s.as_str())
+                        .and_then(|sid| backend_waiters().lock().ok()?.remove(sid));
+                    if let Some(tx) = waiter {
+                        let _ = tx.send(json_val);
+                        continue;
+                    }
                     // Add app origin info to the message
                     if let Some(obj) = json_val.as_object_mut() {
                         obj.insert("integration".to_string(), json!(app_name_clone));

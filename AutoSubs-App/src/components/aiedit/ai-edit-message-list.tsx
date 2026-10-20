@@ -29,7 +29,8 @@ export interface AiEditMessageListProps {
   activeConversation: ContentConversation | null;
   activeAdapter: ContentCliAdapter;
   selectedIntegration: string;
-  draftName?: string;
+  /** Editor and project, from the editor adapter. */
+  editorTitle: string;
   activeIsRunning: boolean;
   activeRunText?: string;
   activeThinkingText?: string;
@@ -147,7 +148,7 @@ export function AiEditMessageList({
   activeConversation,
   activeAdapter,
   selectedIntegration,
-  draftName,
+  editorTitle,
   activeIsRunning,
   activeRunText,
   activeThinkingText,
@@ -174,9 +175,7 @@ export function AiEditMessageList({
                 <p className="text-xs text-muted-foreground leading-relaxed">
                   Điều khiển trực tiếp{" "}
                   <span className="font-medium text-foreground">
-                    {selectedIntegration === "capcut"
-                      ? `CapCut (${draftName || "Chưa chọn"})`
-                      : "DaVinci Resolve"}
+                    {editorTitle}
                   </span>{" "}
                   bằng {cliLabel(activeAdapter)}.
                 </p>

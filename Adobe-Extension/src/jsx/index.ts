@@ -2,7 +2,7 @@
 
 import { ns } from "../shared/shared";
 
-import * as ppro from "./ppro/ppro";
+import * as ppro from "./ppro";
 import * as aeft from "./aeft/aeft";
 
 // https://extendscript.docsforadobe.dev/interapplication-communication/bridgetalk-class.html?highlight=bridgetalk#appname

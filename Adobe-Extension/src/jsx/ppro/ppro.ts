@@ -22,10 +22,10 @@ function AK_indexOf(arr: any[], item: any): number {
 }
 
 // Premiere Pro's internal tick rate — all Time values from the API are in this unit.
-const TICKS_PER_SECOND = 254016000000;
+export const TICKS_PER_SECOND = 254016000000;
 
 /** Extracts seconds from a Premiere Pro Time object, a raw tick string, or a seconds string. */
-function getTimeSeconds(timeObj: any): number {
+export function getTimeSeconds(timeObj: any): number {
   if (!timeObj) return 0;
 
   // Time objects expose ticks (string) and seconds (number/string). ticks is the
@@ -50,7 +50,7 @@ function getTimeSeconds(timeObj: any): number {
 }
 
 /** Returns the sequence's displayed starting time (zeroPoint) in seconds. */
-function getSequenceStartSeconds(sequence: any): number {
+export function getSequenceStartSeconds(sequence: any): number {
   if (sequence.zeroPoint) {
     var zeroTicks = parseFloat(sequence.zeroPoint);
     if (!isNaN(zeroTicks)) return zeroTicks / TICKS_PER_SECOND;
