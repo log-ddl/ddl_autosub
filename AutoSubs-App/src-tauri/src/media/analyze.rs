@@ -243,7 +243,7 @@ fn grab_frame(video: &Path, t: f64, width: u32) -> Result<RgbImage, String> {
 }
 
 /// A grid of `frames`, each with its time in the top-left corner.
-fn compose_sheet(frames: &[(f64, RgbImage)], cols: usize) -> RgbImage {
+pub(crate) fn compose_sheet(frames: &[(f64, RgbImage)], cols: usize) -> RgbImage {
     let (tw, th) = frames.iter().fold((0, 0), |(w, h), (_, f)| (w.max(f.width()), h.max(f.height())));
     let gap = 4;
     let cols = cols.min(frames.len()).max(1) as u32;

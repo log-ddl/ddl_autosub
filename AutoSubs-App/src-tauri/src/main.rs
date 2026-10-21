@@ -423,6 +423,7 @@ fn main() {
             resolve_bridge::init_http_compat_proxy();
             ai_edit::mcp::start(app.handle().clone());
             ai_edit::mcp::external::start(app.handle());
+            tauri::async_runtime::spawn(media::remotion::prepare(app.handle().clone()));
 
             // Release builds install/refresh the Resolve launcher themselves so
             // app updates land it without a reinstall. Dev builds must not:

@@ -15,6 +15,11 @@
 //!
 //! Each client is told apart by the `Mcp-Session-Id` it gets on initialize;
 //! the UI shows who connected and who is driving now.
+//!
+//! The tool list is the open editor's only, so an agent never sees another
+//! editor's tools. When the editor changes, clients holding the event stream
+//! (GET) get `notifications/tools/list_changed`; a client still on an old
+//! list is told so in every tool result until it lists the tools again.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -71,6 +76,9 @@ struct Client {
     last_seen: u64,
     last_tool: Option<String>,
     last_tool_at: u64,
+    /// The editor its last tools/list was for: None before it listed,
+    /// Some(None) when no project was open then.
+    listed: Option<Option<Editor>>,
 }
 
 #[derive(Default)]
@@ -84,6 +92,14 @@ struct State {
 }
 
 static STATE: Lazy<Mutex<State>> = Lazy::new(|| Mutex::new(State::default()));
+
+/// Fires when the open editor changes, so the tool list did too.
+static TOOLS_CHANGED: Lazy<tokio::sync::broadcast::Sender<()>> =
+    Lazy::new(|| tokio::sync::broadcast::channel(8).0);
+
+pub fn tools_changed() -> tokio::sync::broadcast::Receiver<()> {
+    TOOLS_CHANGED.subscribe()
+}
 
 fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
@@ -218,7 +234,8 @@ pub fn current() -> Option<Current> {
     lock().current.clone()
 }
 
-/// The editor tools are listed for when no project is known yet.
+/// Stands in for a target before the app has seen a project; no editor
+/// tools are listed for it.
 pub fn fallback_target() -> EditTarget {
     EditTarget { editor: Editor::Davinci, draft_id: None, transcript_file: None }
 }
@@ -240,6 +257,7 @@ pub fn client_initialized(app: Option<&AppHandle>, params: &Value, user_agent: &
             last_seen: t,
             last_tool: None,
             last_tool_at: 0,
+            listed: None,
         },
     );
     if let Some(app) = app {
@@ -254,14 +272,7 @@ pub fn client_initialized(app: Option<&AppHandle>, params: &Value, user_agent: &
 pub fn touch(app: Option<&AppHandle>, session: Option<&str>, user_agent: &str, tool: Option<&str>) {
     let changed = {
         let mut st = lock();
-        let key = session.filter(|s| st.clients.contains_key(*s)).map(str::to_string).or_else(|| {
-            st.clients
-                .iter()
-                .filter(|(_, c)| !user_agent.is_empty() && c.user_agent == user_agent)
-                .max_by_key(|(_, c)| c.last_seen)
-                .map(|(k, _)| k.clone())
-        });
-        let Some(key) = key else { return };
+        let Some(key) = client_key(&st, session, user_agent) else { return };
         let Some(c) = st.clients.get_mut(&key) else { return };
         c.last_seen = now();
         if let Some(t) = tool {
@@ -277,6 +288,54 @@ pub fn touch(app: Option<&AppHandle>, session: Option<&str>, user_agent: &str, t
             emit_status(app);
         }
     }
+}
+
+fn client_key(st: &State, session: Option<&str>, user_agent: &str) -> Option<String> {
+    session.filter(|s| st.clients.contains_key(*s)).map(str::to_string).or_else(|| {
+        st.clients
+            .iter()
+            .filter(|(_, c)| !user_agent.is_empty() && c.user_agent == user_agent)
+            .max_by_key(|(_, c)| c.last_seen)
+            .map(|(k, _)| k.clone())
+    })
+}
+
+/// A client's tools/list, answered for `editor` (None: no project open).
+pub fn tools_listed(session: Option<&str>, user_agent: &str, editor: Option<Editor>) {
+    let mut st = lock();
+    if let Some(key) = client_key(&st, session, user_agent) {
+        if let Some(c) = st.clients.get_mut(&key) {
+            c.listed = Some(editor);
+        }
+    }
+}
+
+/// Said with every tool result while a client's tool list is from another
+/// editor than the open one (its app did not refresh on list_changed).
+pub fn stale_list_note(session: Option<&str>, user_agent: &str) -> Option<String> {
+    let st = lock();
+    let key = client_key(&st, session, user_agent)?;
+    let listed = st.clients.get(&key)?.listed?;
+    let open = st.current.as_ref().map(|c| c.target.editor);
+    if listed == open {
+        return None;
+    }
+    let had = match listed {
+        Some(e) => format!("{}'s tools", e.display_name()),
+        None => "the tools from before a project was open".into(),
+    };
+    Some(match open {
+        Some(e) => format!(
+            "Note: the project open in AutoSubs is now in {}, but this connection still has {}. \
+             Edit tools act on {} and may take arguments your list does not show. Tell the user to \
+             reconnect the autosubs-app MCP server (in Claude Code: /mcp, then reconnect) to get {}'s tools.",
+            e.display_name(),
+            had,
+            e.display_name(),
+            e.display_name()
+        ),
+        None => "Note: no editor project is open in AutoSubs any more.".into(),
+    })
 }
 
 /// "Claude Code", "Antigravity", ... from an MCP clientInfo name.
@@ -598,8 +657,10 @@ pub async fn external_agent_set_target(
         }
         None => None,
     };
-    let changed = {
+    let (changed, editor_changed) = {
         let mut st = lock();
+        let editor_changed =
+            st.current.as_ref().map(|c| c.target.editor) != next.as_ref().map(|c| c.target.editor);
         let same = match (&st.current, &next) {
             (Some(a), Some(b)) => {
                 a.target.editor == b.target.editor
@@ -611,8 +672,11 @@ pub async fn external_agent_set_target(
             _ => false,
         };
         st.current = next;
-        !same
+        (!same, editor_changed)
     };
+    if editor_changed {
+        let _ = TOOLS_CHANGED.send(());
+    }
     if changed {
         let a = app.clone();
         let _ = tauri::async_runtime::spawn_blocking(move || write_home(&a)).await;
@@ -875,6 +939,44 @@ fn shell_quote(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Editor switches reach clients: list_changed on the event stream, and a
+    /// note on tool results for a client still holding the old list.
+    #[tokio::test]
+    async fn tells_clients_when_the_editor_changes() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        lock().config = Some(Config { enabled: true, token: "tok".into(), home: None });
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let _ = super::super::server::serve_external(stream).await;
+        });
+        let mut sse = tokio::net::TcpStream::connect(addr).await.unwrap();
+        sse.write_all(b"GET /mcp HTTP/1.1\r\nAuthorization: Bearer tok\r\nAccept: text/event-stream\r\n\r\n")
+            .await
+            .unwrap();
+        let mut buf = vec![0u8; 4096];
+        let n = sse.read(&mut buf).await.unwrap();
+        assert!(String::from_utf8_lossy(&buf[..n]).contains("text/event-stream"));
+
+        let id = client_initialized(None, &json!({ "clientInfo": { "name": "claude-code" } }), "ua");
+        tools_listed(Some(&id), "ua", Some(Editor::Davinci));
+        lock().current = Some(Current {
+            target: EditTarget { editor: Editor::Premiere, draft_id: None, transcript_file: None },
+            label: None,
+            workspace: None,
+        });
+        let _ = TOOLS_CHANGED.send(());
+        let n = tokio::time::timeout(std::time::Duration::from_secs(5), sse.read(&mut buf)).await.unwrap().unwrap();
+        assert!(String::from_utf8_lossy(&buf[..n]).contains("notifications/tools/list_changed"));
+
+        let note = stale_list_note(Some(&id), "ua").unwrap();
+        assert!(note.contains("Premiere Pro") && note.contains("DaVinci Resolve"));
+        tools_listed(Some(&id), "ua", Some(Editor::Premiere));
+        assert!(stale_list_note(Some(&id), "ua").is_none());
+        lock().current = None;
+    }
 
     #[test]
     fn adds_one_antigravity_project_per_folder() {

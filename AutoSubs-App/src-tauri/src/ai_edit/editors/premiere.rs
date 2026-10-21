@@ -513,7 +513,7 @@ fn update_clip_tool() -> Value {
             "items": {
                 "type": "object",
                 "properties": {
-                    "property": { "type": "string", "description": "Scale, Position, Rotation, Opacity, Level, or \"<Effect>/<Parameter>\"" },
+                    "property": { "type": "string", "description": "Scale, Scale Width, Scale Height, Position, Rotation, Opacity, Level, or \"<Effect>/<Parameter>\"" },
                     "points": {
                         "type": "array",
                         "items": {
@@ -542,7 +542,7 @@ fn update_clip_tool() -> Value {
              clip start to end. volume: 1.0 = unchanged, 0.5 = about -6 dB, 0 = silent (a video clip's linked \
              audio too). speed changes the clip's length with it, so a slower clip needs free room after it; \
              reverse plays it backwards. keyframes animate any property in Premiere's own units (Scale 100 = \
-             100%, Position [0.5, 0.5] = centre, Opacity 0-100, Rotation degrees, an effect's parameter as \
+             100%; Scale Width / Scale Height for one side, squash and stretch, turn Uniform Scale off; Position [0.5, 0.5] = centre, Opacity 0-100, Rotation degrees, an effect's parameter as \
              its control shows it): sec counts from the clip's start, or back from its end with fromEnd, so one \
              list fits clips of any length (a fade-out is Opacity 100 at sec 1 fromEnd, 0 at sec 0 fromEnd). \
              Caption text cannot be changed.",

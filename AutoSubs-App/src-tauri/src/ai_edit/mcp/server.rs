@@ -286,6 +286,7 @@ pub async fn serve_external(mut stream: TcpStream) -> Result<(), String> {
     }
     match req.method.as_str() {
         "POST" => {}
+        "GET" => return stream_tool_changes(stream).await,
         "DELETE" => return respond(&mut stream, "200 OK", None).await,
         _ => return respond(&mut stream, "405 Method Not Allowed", None).await,
     }
@@ -298,6 +299,7 @@ pub async fn serve_external(mut stream: TcpStream) -> Result<(), String> {
     };
 
     let session = external_session();
+    let listed_for = session.connected.then_some(session.target.editor);
     let app = app_handle().get();
     let client = req.headers.get("mcp-session-id").cloned();
     let user_agent = req.headers.get("user-agent").cloned().unwrap_or_default();
@@ -316,13 +318,24 @@ pub async fn serve_external(mut stream: TcpStream) -> Result<(), String> {
                 let tool = m.pointer("/params/name").and_then(|v| v.as_str());
                 external::touch(app, client.as_deref(), &user_agent, tool);
             }
+            Some("tools/list") => {
+                external::touch(app, client.as_deref(), &user_agent, None);
+                external::tools_listed(client.as_deref(), &user_agent, listed_for);
+            }
             _ => external::touch(app, client.as_deref(), &user_agent, None),
         }
     }
 
     let mut out = Vec::new();
     for m in messages {
-        if let Some(r) = handle_message(&session, m).await {
+        if let Some(mut r) = handle_message(&session, m).await {
+            if m.get("method").and_then(|v| v.as_str()) == Some("tools/call") {
+                if let Some(note) = external::stale_list_note(client.as_deref(), &user_agent) {
+                    if let Some(items) = r.pointer_mut("/result/content").and_then(|c| c.as_array_mut()) {
+                        items.push(json!({ "type": "text", "text": note }));
+                    }
+                }
+            }
             out.push(r);
         }
     }
@@ -330,6 +343,41 @@ pub async fn serve_external(mut stream: TcpStream) -> Result<(), String> {
     match reply {
         Some(body) => respond_with(&mut stream, "200 OK", Some(&body), &extra).await,
         None => respond_with(&mut stream, "202 Accepted", None, &extra).await,
+    }
+}
+
+/// An external client's event stream (GET): `notifications/tools/list_changed`
+/// whenever the open editor changes, and a comment line now and then so a
+/// dead connection is noticed. Chunked, since it has no length.
+async fn stream_tool_changes(mut stream: TcpStream) -> Result<(), String> {
+    use tokio::sync::broadcast::error::RecvError;
+    let head = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\n\
+                Transfer-Encoding: chunked\r\n\r\n";
+    stream.write_all(head.as_bytes()).await.map_err(|e| e.to_string())?;
+    stream.flush().await.map_err(|e| e.to_string())?;
+    let mut changes = external::tools_changed();
+    let mut ping = tokio::time::interval(std::time::Duration::from_secs(20));
+    ping.tick().await;
+    loop {
+        let event = tokio::select! {
+            r = changes.recv() => match r {
+                Ok(()) | Err(RecvError::Lagged(_)) => {
+                    let note = json!({ "jsonrpc": "2.0", "method": "notifications/tools/list_changed" });
+                    format!("event: message\ndata: {}\n\n", note)
+                }
+                Err(RecvError::Closed) => return Ok(()),
+            },
+            _ = ping.tick() => {
+                // Turning external agents off ends the stream too.
+                if external::token().is_none() {
+                    return Ok(());
+                }
+                ": ping\n\n".to_string()
+            }
+        };
+        let chunk = format!("{:x}\r\n{}\r\n", event.len(), event);
+        stream.write_all(chunk.as_bytes()).await.map_err(|e| e.to_string())?;
+        stream.flush().await.map_err(|e| e.to_string())?;
     }
 }
 
@@ -383,7 +431,7 @@ async fn handle_message(session: &Session, msg: &Value) -> Option<Value> {
                 id,
                 json!({
                     "protocolVersion": version,
-                    "capabilities": { "tools": { "listChanged": false } },
+                    "capabilities": { "tools": { "listChanged": session.external } },
                     "serverInfo": { "name": "autosubs", "version": env!("CARGO_PKG_VERSION") },
                     "instructions": instructions(session),
                 }),
@@ -391,7 +439,13 @@ async fn handle_message(session: &Session, msg: &Value) -> Option<Value> {
         }
         "ping" => rpc_result(id, json!({})),
         "tools/list" => {
-            let mut tools = tool_definitions(session.target.editor, session.allow_edits);
+            // An external agent with no project open gets no editor's tools
+            // (not a guess at one), and the real list once a project opens.
+            let mut tools = if session.connected {
+                tool_definitions(session.target.editor, session.allow_edits)
+            } else {
+                Vec::new()
+            };
             if session.workspace.is_some() || session.external {
                 tools.extend(project::tools());
                 tools.extend(search::tools());
@@ -421,6 +475,13 @@ fn instructions(session: &Session) -> String {
              with save_plan / read_plan. ",
         );
     }
+    if session.external && !session.connected {
+        s.push_str(
+            "No editor project is open in AutoSubs yet, so there are no timeline tools. Ask the user to \
+             open AutoSubs and their project; the tools for that editor then appear.",
+        );
+        return s;
+    }
     s.push_str(&format!(
         "Timeline tools for the {} project this conversation is bound to. Times are seconds from the \
          start of the timeline. Call get_timeline to see clip ids and get_transcript to see what is said \
@@ -437,8 +498,8 @@ fn instructions(session: &Session) -> String {
              download_media and remove_background return paths build_storyboard takes. \
              analyze_media shows the shots and contact sheets of a video, to pick the srcIn/srcOut \
              section build_storyboard places (the editor trims; files are never cut). \
-             render_motion renders a Remotion project from motion-graphics/ into exports/ and waits \
-             for the file. list_media lists a folder (a sound effect pack) with ids and lengths. Every \
+             preview_motion shows a Remotion project from motion-graphics/ as a contact sheet of \
+             frames; render_motion renders it into exports/ and waits for the file. list_media lists a folder (a sound effect pack) with ids and lengths. Every \
              file these tools return has a short id (m12); pass it as path instead of the full path.",
         );
     }

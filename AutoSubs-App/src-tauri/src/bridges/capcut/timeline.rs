@@ -445,36 +445,194 @@ pub struct CapCutUpdateSegmentArgs {
     pub pan_y_end: Option<f64>,
     pub rotation: Option<f64>,
     pub volume: Option<f64>,
+    /// 0-100, as `clip.alpha` 0-1.
+    #[serde(default)]
+    pub opacity: Option<f64>,
+    #[serde(default)]
+    pub keyframes: Vec<CapCutKeyframes>,
 }
 
-fn build_kf_entry(prop: &str, v0: f64, v1: f64, last_offset_us: i64) -> Value {
-    json!({
-        "id": new_id(),
-        "material_id": "",
-        "property_type": prop,
-        "keyframe_list": [
-            {
-                "id": new_id(),
-                "curveType": "Line",
-                "time_offset": 0,
-                "left_control": { "x": 0.0, "y": 0.0 },
-                "right_control": { "x": 0.0, "y": 0.0 },
-                "values": [v0],
-                "string_value": "",
-                "graphID": ""
-            },
-            {
-                "id": new_id(),
-                "curveType": "Line",
-                "time_offset": last_offset_us.max(1000),
-                "left_control": { "x": 0.0, "y": 0.0 },
-                "right_control": { "x": 0.0, "y": 0.0 },
-                "values": [v1],
-                "string_value": "",
-                "graphID": ""
+/// Keyframes on one property, in the units `update_clip` documents for
+/// CapCut: Scale 1.0 = 100% (ScaleX/ScaleY for width or height alone),
+/// Position [x, y] (0 = centred, 1 = half the frame, y up), Rotation degrees,
+/// Opacity 0-100, Volume 1.0 = unchanged.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapCutKeyframes {
+    pub property: String,
+    #[serde(default)]
+    pub points: Vec<CapCutKeyPoint>,
+    /// "ease" (default), "linear" or "hold".
+    pub interpolation: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapCutKeyPoint {
+    pub sec: f64,
+    pub value: Value,
+    #[serde(default)]
+    pub from_end: bool,
+}
+
+/// About one frame at 30 fps, the gap a "hold" step leaves before the next key.
+const KF_STEP_US: i64 = 33_333;
+/// Extra linear keys inside each span of an eased curve. Only "Line" curves
+/// are written, which every CapCut version reads the same way.
+const EASE_STEPS: usize = 6;
+
+/// The CapCut keyframe groups (`property_type`, keys as (offset µs, value))
+/// one spec writes, for a segment `dur_us` long.
+fn keyframe_groups(spec: &CapCutKeyframes, dur_us: i64) -> Result<Vec<(&'static str, Vec<(i64, f64)>)>, String> {
+    let prop = spec.property.trim().to_ascii_lowercase().replace([' ', '_', '-'], "");
+    let num = |v: &Value| -> Result<f64, String> {
+        v.as_f64()
+            .filter(|n| n.is_finite())
+            .ok_or_else(|| format!("{} keyframes take a number, got {}.", spec.property, v))
+    };
+    let pair = |v: &Value| -> Result<(f64, f64), String> {
+        match v.as_array().map(|a| a.as_slice()) {
+            Some([x, y]) => Ok((num(x)?, num(y)?)),
+            _ => Err(format!("Position keyframes take [x, y], got {}.", v)),
+        }
+    };
+    let mut keys: Vec<(i64, &Value)> = spec
+        .points
+        .iter()
+        .map(|p| {
+            let off = (p.sec.max(0.0) * US_PER_SEC).round() as i64;
+            let t = if p.from_end { dur_us - off } else { off };
+            (t.clamp(0, (dur_us - 1).max(0)), &p.value)
+        })
+        .collect();
+    keys.sort_by_key(|(t, _)| *t);
+    // One key per time: the last one given wins.
+    keys.reverse();
+    keys.dedup_by_key(|(t, _)| *t);
+    keys.reverse();
+
+    let mut groups: Vec<(&'static str, Vec<(i64, f64)>)> = match prop.as_str() {
+        "scale" | "zoom" | "scalex" | "scalewidth" | "width" => {
+            vec![("KFTypeScaleX", keys.iter().map(|(t, v)| Ok((*t, num(v)?))).collect::<Result<_, String>>()?)]
+        }
+        "scaley" | "scaleheight" | "height" => {
+            vec![("KFTypeScaleY", keys.iter().map(|(t, v)| Ok((*t, num(v)?))).collect::<Result<_, String>>()?)]
+        }
+        "rotation" => vec![("KFTypeRotation", keys.iter().map(|(t, v)| Ok((*t, num(v)?))).collect::<Result<_, String>>()?)],
+        "opacity" | "alpha" => vec![(
+            "KFTypeAlpha",
+            keys.iter().map(|(t, v)| Ok((*t, (num(v)? / 100.0).clamp(0.0, 1.0)))).collect::<Result<_, String>>()?,
+        )],
+        "volume" => vec![("KFTypeVolume", keys.iter().map(|(t, v)| Ok((*t, num(v)?.max(0.0)))).collect::<Result<_, String>>()?)],
+        "positionx" | "panx" => vec![("KFTypePositionX", keys.iter().map(|(t, v)| Ok((*t, num(v)?))).collect::<Result<_, String>>()?)],
+        "positiony" | "pany" => vec![("KFTypePositionY", keys.iter().map(|(t, v)| Ok((*t, num(v)?))).collect::<Result<_, String>>()?)],
+        "position" => {
+            let xy: Vec<(i64, (f64, f64))> = keys.iter().map(|(t, v)| Ok((*t, pair(v)?))).collect::<Result<_, String>>()?;
+            vec![
+                ("KFTypePositionX", xy.iter().map(|(t, (x, _))| (*t, *x)).collect()),
+                ("KFTypePositionY", xy.iter().map(|(t, (_, y))| (*t, *y)).collect()),
+            ]
+        }
+        _ => {
+            return Err(format!(
+                "CapCut cannot keyframe \"{}\": use Scale, ScaleX, ScaleY, Position, PositionX, PositionY, Rotation, Opacity or Volume.",
+                spec.property
+            ))
+        }
+    };
+
+    let mode = spec.interpolation.as_deref().unwrap_or("ease").trim().to_ascii_lowercase();
+    for (_, keys) in groups.iter_mut() {
+        *keys = match mode.as_str() {
+            "linear" => std::mem::take(keys),
+            "hold" => hold_keys(keys),
+            "ease" | "" => eased_keys(keys),
+            other => return Err(format!("Unknown interpolation \"{}\": use ease, linear or hold.", other)),
+        };
+    }
+    Ok(groups)
+}
+
+/// Each value held until the next key, which it jumps to.
+fn hold_keys(keys: &[(i64, f64)]) -> Vec<(i64, f64)> {
+    let mut out = Vec::new();
+    for (i, &(t, v)) in keys.iter().enumerate() {
+        out.push((t, v));
+        if let Some(&(next, _)) = keys.get(i + 1) {
+            let before = (next - KF_STEP_US).max(t + 1);
+            if before < next {
+                out.push((before, v));
             }
-        ]
-    })
+        }
+    }
+    out
+}
+
+/// Ease in and out (smoothstep) between keys, as short linear steps.
+fn eased_keys(keys: &[(i64, f64)]) -> Vec<(i64, f64)> {
+    let mut out = Vec::new();
+    for (i, &(t, v)) in keys.iter().enumerate() {
+        out.push((t, v));
+        let Some(&(t1, v1)) = keys.get(i + 1) else { continue };
+        if v1 == v || t1 - t < 2 * EASE_STEPS as i64 {
+            continue;
+        }
+        for k in 1..EASE_STEPS {
+            let s = k as f64 / EASE_STEPS as f64;
+            let e = s * s * (3.0 - 2.0 * s);
+            out.push((t + ((t1 - t) as f64 * s).round() as i64, v + (v1 - v) * e));
+        }
+    }
+    out
+}
+
+/// Whether a spec scales both sides together (Some(true)), one side alone
+/// (Some(false)), or is not about scale (None).
+fn uniform_scale_of(spec: &CapCutKeyframes) -> Option<bool> {
+    match spec.property.trim().to_ascii_lowercase().replace([' ', '_', '-'], "").as_str() {
+        "scale" | "zoom" => Some(true),
+        "scalex" | "scalewidth" | "width" | "scaley" | "scaleheight" | "height" => Some(false),
+        _ => None,
+    }
+}
+
+/// Uniform scale on: KFTypeScaleX drives both sides. Off: X and Y apart,
+/// the side without keyframes staying at its `clip.scale` value.
+fn set_uniform_scale(seg: &mut Value, on: bool) {
+    seg["uniform_scale"] = json!({ "on": on, "value": 1.0 });
+    if on {
+        if let Some(groups) = seg["common_keyframes"].as_array_mut() {
+            groups.retain(|g| g.get("property_type").and_then(|p| p.as_str()) != Some("KFTypeScaleY"));
+        }
+    }
+}
+
+/// Replace the segment's keyframes of `prop` with `keys`; no keys removes them.
+fn set_kf_group(seg: &mut Value, prop: &str, keys: &[(i64, f64)]) {
+    if !seg["common_keyframes"].is_array() {
+        seg["common_keyframes"] = json!([]);
+    }
+    let groups = seg["common_keyframes"].as_array_mut().expect("just made an array");
+    groups.retain(|g| g.get("property_type").and_then(|p| p.as_str()) != Some(prop));
+    if keys.is_empty() {
+        return;
+    }
+    let list: Vec<Value> = keys
+        .iter()
+        .map(|(t, v)| {
+            json!({
+                "id": new_id(),
+                "curveType": "Line",
+                "time_offset": t,
+                "left_control": { "x": 0.0, "y": 0.0 },
+                "right_control": { "x": 0.0, "y": 0.0 },
+                "values": [v],
+                "string_value": "",
+                "graphID": ""
+            })
+        })
+        .collect();
+    groups.push(json!({ "id": new_id(), "material_id": "", "property_type": prop, "keyframe_list": list }));
 }
 
 #[tauri::command]
@@ -492,6 +650,7 @@ pub async fn capcut_update_segment(
 
     let mut target_material_id: Option<String> = None;
     let mut max_end_us: i64 = 0;
+    let mut found = false;
 
     if let Some(tracks) = info.get_mut("tracks").and_then(|v| v.as_array_mut()) {
         for tr in tracks.iter_mut() {
@@ -569,21 +728,36 @@ pub async fn capcut_update_segment(
                                     .unwrap_or(0.0)
                             });
                             let py1 = args.pan_y_end.unwrap_or(py0);
-                            let rot = args.rotation.unwrap_or_else(|| {
-                                seg.get("clip")
-                                    .and_then(|c| c.get("rotation"))
-                                    .and_then(|v| v.as_f64())
-                                    .unwrap_or(0.0)
-                            });
-
-                            seg["uniform_scale"] = json!({ "on": true, "value": 1.0 });
-                            seg["common_keyframes"] = json!([
-                                build_kf_entry("KFTypePositionX", px0, px1, last_us),
-                                build_kf_entry("KFTypePositionY", py0, py1, last_us),
-                                build_kf_entry("KFTypeScaleX", z0, z1, last_us),
-                                build_kf_entry("KFTypeRotation", rot, rot, last_us)
-                            ]);
+                            if args.zoom_end.is_some() {
+                                set_kf_group(seg, "KFTypeScaleX", &[(0, z0), (last_us, z1)]);
+                                set_uniform_scale(seg, true);
+                            }
+                            if args.pan_x_end.is_some() {
+                                set_kf_group(seg, "KFTypePositionX", &[(0, px0), (last_us, px1)]);
+                            }
+                            if args.pan_y_end.is_some() {
+                                set_kf_group(seg, "KFTypePositionY", &[(0, py0), (last_us, py1)]);
+                            }
                         }
+                        if let Some(op) = args.opacity {
+                            seg["clip"]["alpha"] = json!((op / 100.0).clamp(0.0, 1.0));
+                        }
+                        if !args.keyframes.is_empty() {
+                            let dur_us = seg
+                                .get("target_timerange")
+                                .and_then(|r| r.get("duration"))
+                                .and_then(|v| v.as_i64())
+                                .unwrap_or(0);
+                            for spec in &args.keyframes {
+                                for (prop, keys) in keyframe_groups(spec, dur_us)? {
+                                    set_kf_group(seg, prop, &keys);
+                                }
+                                if let Some(on) = uniform_scale_of(spec) {
+                                    set_uniform_scale(seg, on);
+                                }
+                            }
+                        }
+                        found = true;
                     }
 
                     let s = seg
@@ -600,6 +774,10 @@ pub async fn capcut_update_segment(
                 }
             }
         }
+    }
+
+    if !found {
+        return Err(format!("No clip with id {} in the CapCut project.", args.segment_id));
     }
 
     if let (Some(mat_id), Some(new_text)) = (target_material_id, args.text) {
@@ -782,6 +960,77 @@ pub async fn capcut_delete_markers(preferred_draft_id: Option<String>, at_secs: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn spec(v: Value) -> CapCutKeyframes {
+        serde_json::from_value(v).unwrap()
+    }
+
+    #[test]
+    fn position_keyframes_at_given_times() {
+        let s = spec(json!({
+            "property": "Position", "interpolation": "linear",
+            "points": [{ "sec": 0.5, "value": [0, 0] }, { "sec": 0, "value": [2, 0.5] }]
+        }));
+        let groups = keyframe_groups(&s, 3_000_000).unwrap();
+        assert_eq!(groups[0], ("KFTypePositionX", vec![(0, 2.0), (500_000, 0.0)]));
+        assert_eq!(groups[1], ("KFTypePositionY", vec![(0, 0.5), (500_000, 0.0)]));
+    }
+
+    #[test]
+    fn from_end_opacity_and_ease() {
+        let s = spec(json!({
+            "property": "opacity",
+            "points": [{ "sec": 1, "fromEnd": true, "value": 100 }, { "sec": 0, "fromEnd": true, "value": 0 }]
+        }));
+        let (prop, keys) = keyframe_groups(&s, 4_000_000).unwrap().remove(0);
+        assert_eq!(prop, "KFTypeAlpha");
+        assert_eq!(keys.first(), Some(&(3_000_000, 1.0)));
+        assert_eq!(keys.last(), Some(&(3_999_999, 0.0)));
+        // Eased: in-between keys, slow at both ends.
+        assert_eq!(keys.len(), EASE_STEPS + 1);
+        assert!(keys[1].1 > 0.9 && keys[EASE_STEPS - 1].1 < 0.1);
+    }
+
+    #[test]
+    fn hold_and_unknown_property() {
+        let s = spec(json!({
+            "property": "Scale", "interpolation": "hold",
+            "points": [{ "sec": 0, "value": 1 }, { "sec": 1, "value": 2 }]
+        }));
+        let (_, keys) = keyframe_groups(&s, 2_000_000).unwrap().remove(0);
+        assert_eq!(keys, vec![(0, 1.0), (1_000_000 - KF_STEP_US, 1.0), (1_000_000, 2.0)]);
+        assert!(keyframe_groups(&spec(json!({ "property": "Blur", "points": [] })), 1).is_err());
+    }
+
+    #[test]
+    fn width_and_height_apart() {
+        let w = spec(json!({ "property": "ScaleX", "points": [{ "sec": 0, "value": 1.1 }] }));
+        let h = spec(json!({ "property": "Scale Height", "points": [{ "sec": 0, "value": 0.9 }] }));
+        assert_eq!(keyframe_groups(&w, 1_000_000).unwrap()[0].0, "KFTypeScaleX");
+        assert_eq!(keyframe_groups(&h, 1_000_000).unwrap()[0].0, "KFTypeScaleY");
+        assert_eq!(uniform_scale_of(&h), Some(false));
+        assert_eq!(uniform_scale_of(&spec(json!({ "property": "Scale", "points": [] }))), Some(true));
+
+        let mut seg = json!({ "common_keyframes": [] });
+        set_kf_group(&mut seg, "KFTypeScaleY", &[(0, 0.9)]);
+        set_uniform_scale(&mut seg, false);
+        assert_eq!(seg["uniform_scale"]["on"], json!(false));
+        // Back to uniform: the height keys would fight the single scale.
+        set_uniform_scale(&mut seg, true);
+        assert!(seg["common_keyframes"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn keyframe_group_replaces_only_its_property() {
+        let mut seg = json!({ "common_keyframes": [] });
+        set_kf_group(&mut seg, "KFTypeScaleX", &[(0, 1.0), (10, 2.0)]);
+        set_kf_group(&mut seg, "KFTypeAlpha", &[(0, 1.0)]);
+        set_kf_group(&mut seg, "KFTypeScaleX", &[(0, 1.5)]);
+        let groups = seg["common_keyframes"].as_array().unwrap();
+        assert_eq!(groups.len(), 2);
+        set_kf_group(&mut seg, "KFTypeAlpha", &[]);
+        assert_eq!(seg["common_keyframes"].as_array().unwrap().len(), 1);
+    }
 
     #[test]
     fn removes_markers_by_time() {

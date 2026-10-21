@@ -21,6 +21,10 @@ const DEFAULTS: &[(&str, &str)] = &[
         "skills/footage-planning/SKILL.md",
         include_str!("../../templates/library/skills/footage-planning/SKILL.md"),
     ),
+    (
+        "skills/remotion-motion/SKILL.md",
+        include_str!("../../templates/library/skills/remotion-motion/SKILL.md"),
+    ),
 ];
 
 pub const AGENTS_DIR: &str = "agents";
@@ -232,6 +236,14 @@ fn copy_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
     fs::create_dir_all(dst)?;
     for e in fs::read_dir(src)?.flatten() {
         let (from, to) = (e.path(), dst.join(e.file_name()));
+        // Links stay links: a skill's `reference/` points at the Remotion
+        // kit, and Remotion's own skills link to each other.
+        #[cfg(unix)]
+        if e.file_type().is_ok_and(|t| t.is_symlink()) {
+            let _ = fs::remove_file(&to);
+            std::os::unix::fs::symlink(fs::read_link(&from)?, &to)?;
+            continue;
+        }
         if from.is_dir() {
             copy_dir(&from, &to)?;
         } else {

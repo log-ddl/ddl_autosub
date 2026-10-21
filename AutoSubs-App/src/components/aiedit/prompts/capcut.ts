@@ -32,7 +32,21 @@ const CAPCUT_MARKER_DOC = `**Đặt Marker lên Timeline CapCut** (\`add_marker\
 }
 \`\`\``;
 
-const UPDATE_SEGMENT_DOC = `**Chỉnh sửa hoặc tạo Keyframe động cho một clip/segment đang có trên CapCut** (\`update_segment\` theo \`id\` của segment — truyền \`zoomEnd\` / \`panXEnd\` / \`panYEnd\` sẽ tự động tạo keyframe động mượt mà từ đầu đến cuối clip):
+const UPDATE_SEGMENT_DOC = `**Chỉnh sửa hoặc tạo Keyframe động cho một clip/segment đang có trên CapCut** (\`update_segment\` theo \`id\` của segment):
+- \`zoom\` (1.0 = 100%), \`panX\` / \`panY\` (0 = giữa, 1 = lệch nửa khung hình, y dương là lên trên), \`rotation\` (độ), \`opacity\` (0-100), \`volume\` (1.0 = giữ nguyên).
+- \`zoomEnd\` / \`panXEnd\` / \`panYEnd\`: keyframe từ đầu đến cuối clip.
+- \`keyframes\`: keyframe ở thời điểm bất kỳ: \`{ "property": "Position", "points": [{ "sec": 0, "value": [2, 0] }, { "sec": 0.5, "value": [0, 0] }], "interpolation": "ease" }\`. \`property\` là \`Scale\` (cả hai chiều), \`ScaleX\` / \`ScaleY\` (chỉ chiều rộng hoặc cao, để nhún bẹt ra/dài ra; tự tắt scale đều), \`Position\` (\`[x, y]\`), \`PositionX\`, \`PositionY\`, \`Rotation\`, \`Opacity\` (0-100) hoặc \`Volume\`, cùng đơn vị như trên. \`sec\` tính từ đầu clip, thêm \`fromEnd: true\` để tính lùi từ cuối clip. Ở zoom 1, clip ra hẳn ngoài màn hình khi x là 2 hoặc -2; ở zoom z là 1 + z. \`points: []\` xóa keyframe của thông số đó.
+\`\`\`timeline-action
+{
+  "action": "update_segment",
+  "summary": "Trượt clip từ phải vào giữa trong 0.5 giây",
+  "segmentId": "<ID_SEGMENT>",
+  "keyframes": [
+    { "property": "Position", "points": [{ "sec": 0, "value": [2, 0] }, { "sec": 0.5, "value": [0, 0] }] }
+  ]
+}
+\`\`\`
+Ví dụ đổi thời gian, zoom động và chữ:
 \`\`\`timeline-action
 {
   "action": "update_segment",

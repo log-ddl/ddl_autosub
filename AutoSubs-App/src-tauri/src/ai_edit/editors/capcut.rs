@@ -128,11 +128,9 @@ pub async fn add_text(
 }
 
 pub async fn update_segment(draft: Option<String>, u: SegmentUpdate) -> Result<ActionOutcome, String> {
-    let mut outcome = ActionOutcome::ok("Updated the clip on the CapCut timeline.");
-    if u.opacity.is_some() {
-        outcome.lines.push("CapCut: opacity is not supported and was ignored.".into());
-        outcome.partial = true;
-    }
+    let keyframes = serde_json::to_value(&u.keyframes)
+        .and_then(serde_json::from_value)
+        .map_err(|e| format!("Invalid keyframes: {}", e))?;
     capcut_update_segment(CapCutUpdateSegmentArgs {
         preferred_draft_id: draft,
         segment_id: u.segment_id,
@@ -147,9 +145,11 @@ pub async fn update_segment(draft: Option<String>, u: SegmentUpdate) -> Result<A
         pan_y_end: u.pan_y_end,
         rotation: u.rotation,
         volume: u.volume,
+        opacity: u.opacity,
+        keyframes,
     })
     .await?;
-    Ok(outcome)
+    Ok(ActionOutcome::ok("Updated the clip on the CapCut timeline."))
 }
 
 pub async fn delete_segments(draft: Option<String>, ids: Vec<String>) -> Result<ActionOutcome, String> {
@@ -226,9 +226,18 @@ pub fn edit_tools() -> Vec<Value> {
         ),
         tool(
             "update_clip",
-            "Change a CapCut clip by id: move or retime it (startSec, durationSec), set zoom/pan/rotation, \
-             animate them with zoomEnd/panXEnd/panYEnd (keyframes from clip start to end), set volume, \
-             or replace the text of a text clip.",
+            "Change a CapCut clip by id: move or retime it (startSec, durationSec), set zoom (1.0 = 100%), \
+             panX/panY (0 = centred, 1 = half the frame, y up), rotation (degrees), opacity (0-100), volume \
+             (1.0 = unchanged), or replace the text of a text clip. zoomEnd/panXEnd/panYEnd animate from clip \
+             start to end. keyframes animate a property at any times: sec counts from the clip's start, or \
+             back from its end with fromEnd, so one list fits clips of any length. Units as above: Scale \
+             (1.0 = 100%, both sides), ScaleX / ScaleY (width or height alone, for squash and stretch; \
+             turns uniform scale off, Scale turns it back on), Position [x, y], PositionX, PositionY, \
+             Rotation, Opacity 0-100, Volume. At zoom 1 a \
+             clip is fully off screen at x 2 or -2 (y 2 or -2); at zoom z, at 1 + z. Slide in from the right \
+             over 0.5 s: Position [[2, 0] at sec 0, [0, 0] at sec 0.5]. A fade-out is Opacity 100 at sec 1 \
+             fromEnd, 0 at sec 0 fromEnd. interpolation: ease (default), linear or hold. Empty points remove \
+             that property's keyframes.",
             json!({
                 "type": "object",
                 "properties": {
@@ -239,8 +248,32 @@ pub fn edit_tools() -> Vec<Value> {
                     "panX": { "type": "number" }, "panXEnd": { "type": "number" },
                     "panY": { "type": "number" }, "panYEnd": { "type": "number" },
                     "rotation": { "type": "number" },
+                    "opacity": { "type": "number", "description": "0-100" },
                     "volume": { "type": "number", "description": "1.0 = unchanged" },
-                    "text": { "type": "string" }
+                    "text": { "type": "string" },
+                    "keyframes": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "property": { "type": "string", "enum": ["Scale", "ScaleX", "ScaleY", "Position", "PositionX", "PositionY", "Rotation", "Opacity", "Volume"] },
+                                "points": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "sec": { "type": "number", "description": "Seconds after the clip's start" },
+                                            "fromEnd": { "type": "boolean", "description": "Count sec back from the clip's end" },
+                                            "value": { "description": "Number, or [x, y] for Position" }
+                                        },
+                                        "required": ["sec", "value"]
+                                    }
+                                },
+                                "interpolation": { "type": "string", "enum": ["ease", "linear", "hold"] }
+                            },
+                            "required": ["property", "points"]
+                        }
+                    }
                 },
                 "required": ["segmentId"]
             }),

@@ -390,11 +390,13 @@ pub struct SegmentUpdate {
 }
 
 impl SegmentUpdate {
-    /// Whether it asks for something only Premiere can do so far.
-    fn premiere_only(&self) -> Option<&'static str> {
-        if !self.target.is_empty() {
+    /// What it asks for that `editor` cannot do yet.
+    fn unsupported(&self, editor: Editor) -> Option<&'static str> {
+        if editor == Editor::Premiere {
+            None
+        } else if !self.target.is_empty() {
             Some("picking clips by clips/tracks/fromSec/selected/all")
-        } else if !self.keyframes.is_empty() {
+        } else if !self.keyframes.is_empty() && editor != Editor::Capcut {
             Some("keyframes")
         } else if self.speed.is_some() || self.reverse {
             Some("speed and reverse")
@@ -698,7 +700,7 @@ pub async fn execute(target: &EditTarget, action: TimelineAction) -> Result<Acti
         }
         TimelineAction::UpdateSegment(update) => {
             if target.editor != Editor::Premiere {
-                if let Some(what) = update.premiere_only() {
+                if let Some(what) = update.unsupported(target.editor) {
                     return Err(format!("{} is not available in {} yet.", what, target.editor.display_name()));
                 }
                 if update.segment_id.is_empty() {
@@ -1021,7 +1023,8 @@ mod tests {
                 assert!(u.target.all);
                 assert_eq!(u.speed, Some(2.0));
                 assert_eq!(u.keyframes[0].points.len(), 2);
-                assert_eq!(u.premiere_only(), Some("picking clips by clips/tracks/fromSec/selected/all"));
+                assert_eq!(u.unsupported(Editor::Capcut), Some("picking clips by clips/tracks/fromSec/selected/all"));
+                assert_eq!(u.unsupported(Editor::Premiere), None);
             }
             other => panic!("{:?}", other),
         }

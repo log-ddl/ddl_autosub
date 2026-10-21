@@ -293,12 +293,45 @@ function keyframeProperty(clip: any, path: string): any {
   return null;
 }
 
+/**
+ * "Scale Width" / "Scale Height": turns the clip's Uniform Scale off first,
+ * after which Motion's "Scale" is the height. Null for any other property.
+ */
+function scaleAxis(clip: any, path: string, lines: string[]): any {
+  var axis = foldName(path);
+  if (axis !== "scalewidth" && axis !== "scaleheight") return null;
+  var motion = lastComponent(clip, "AE.ADBE Motion") || lastComponent(clip, "Motion");
+  if (!motion) return null;
+  var uniform = findProperty(motion, "Uniform Scale");
+  // The checkbox reads back as true/1; some versions only take 0 to clear it.
+  var on = function (): boolean {
+    var v = uniform.getValue();
+    return v === true || v === 1 || String(v) === "true";
+  };
+  if (!uniform) {
+    note(lines, "No Uniform Scale checkbox found, so width and height may still move together.");
+  } else {
+    try {
+      if (on()) uniform.setValue(false, true);
+      if (on()) uniform.setValue(0, true);
+      if (on()) note(lines, "Premiere kept Uniform Scale on: untick it in Effect Controls > Motion for width and height to move apart.");
+    } catch (e) {
+      note(lines, "Could not turn off Uniform Scale: " + e);
+    }
+  }
+  var prop =
+    axis === "scalewidth"
+      ? findProperty(motion, "Scale Width")
+      : findProperty(motion, "Scale Height") || findProperty(motion, "Scale");
+  return prop ? { prop: prop, clip: clip } : null;
+}
+
 /** Keyframes from `args.keyframes`, each point placed relative to the clip's start or end. */
 export function applyKeyframes(hit: any, args: any, updated: string[], lines: string[]): void {
   var specs: any[] = args.keyframes || [];
   for (var k = 0; k < specs.length; k++) {
     var spec = specs[k];
-    var found = keyframeProperty(hit.clip, String(spec.property));
+    var found = scaleAxis(hit.clip, String(spec.property), lines) || keyframeProperty(hit.clip, String(spec.property));
     if (!found) {
       note(lines, "No property \"" + spec.property + "\" on this clip (use \"Effect/Parameter\" for an effect's).");
       continue;
