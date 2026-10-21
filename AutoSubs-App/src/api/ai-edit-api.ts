@@ -26,8 +26,14 @@ export interface ActionOutcome {
 export async function executeTimelineAction(
   target: EditTarget,
   action: Record<string, unknown>,
+  /** Project workspace: media from outside it is copied into its media/ folder first. */
+  workspace?: string | null,
 ): Promise<ActionOutcome> {
-  return invoke<ActionOutcome>("ai_edit_execute_action", { target, action });
+  return invoke<ActionOutcome>("ai_edit_execute_action", {
+    target,
+    action,
+    workspace: workspace || null,
+  });
 }
 
 /** Tracks, clips and markers of the target timeline, as the agent sees them. */

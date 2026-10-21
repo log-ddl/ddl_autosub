@@ -7,6 +7,7 @@
 //! `extra_material_refs` (speed, canvas, sound channel mapping, ...), the way
 //! CapCut's own split leaves them. Times here are microseconds.
 
+use std::collections::HashMap;
 use std::fs;
 
 use serde::Serialize;
@@ -132,17 +133,43 @@ fn min_piece_us(info: &Value) -> i64 {
 
 /// Apply `cut` to every segment of every track (tracks stay in place, each
 /// one's segments are re-sorted by start).
-fn for_each_segment(info: &mut Value, mut cut: impl FnMut(&Value, &mut Value) -> Vec<Value>) {
+/// A track's label as get_timeline shows it: a letter for its kind and its
+/// place among the tracks of that kind ("V1", "A2", "T1").
+fn track_labels(tracks: &Value) -> Vec<String> {
+    let mut counts: HashMap<char, usize> = HashMap::new();
+    tracks
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .map(|t| {
+                    let letter = match t.get("type").and_then(|k| k.as_str()).unwrap_or("") {
+                        "audio" => 'A',
+                        "text" => 'T',
+                        "subtitle" | "caption" => 'S',
+                        "effect" | "filter" | "sticker" => 'E',
+                        _ => 'V',
+                    };
+                    let n = counts.entry(letter).or_insert(0);
+                    *n += 1;
+                    format!("{}{}", letter, n)
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn for_each_segment(info: &mut Value, mut cut: impl FnMut(&str, &Value, &mut Value) -> Vec<Value>) {
     let mut tracks = info["tracks"].take();
+    let labels = track_labels(&tracks);
     if !info["materials"].is_object() {
         info["materials"] = json!({});
     }
     if let Some(list) = tracks.as_array_mut() {
-        for track in list.iter_mut() {
+        for (i, track) in list.iter_mut().enumerate() {
             let Some(segs) = track.get_mut("segments").and_then(|s| s.as_array_mut()) else { continue };
             let mut out = Vec::with_capacity(segs.len());
             for seg in segs.iter() {
-                out.extend(cut(seg, &mut info["materials"]));
+                out.extend(cut(&labels[i], seg, &mut info["materials"]));
             }
             out.sort_by_key(|s| target_span(s).0);
             *segs = out;
@@ -155,7 +182,7 @@ fn for_each_segment(info: &mut Value, mut cut: impl FnMut(&Value, &mut Value) ->
 pub fn split_at(info: &mut Value, at: i64, ids: &[String]) -> CutStats {
     let min_len = min_piece_us(info);
     let mut stats = CutStats::default();
-    for_each_segment(info, |seg, materials| {
+    for_each_segment(info, |_, seg, materials| {
         let id = seg.get("id").and_then(|x| x.as_str()).unwrap_or("");
         let (start, end) = target_span(seg);
         let wanted = ids.is_empty() || ids.iter().any(|w| w == id);
@@ -171,10 +198,16 @@ pub fn split_at(info: &mut Value, at: i64, ids: &[String]) -> CutStats {
 /// Cut `ranges` (sorted, disjoint, microseconds) out of every track. With
 /// `ripple`, later segments and markers move left by the time removed before
 /// them, so every track stays in sync.
-pub fn remove_ranges(info: &mut Value, ranges: &[(i64, i64)], ripple: bool) -> CutStats {
+/// Cut `ranges` out of the tracks in `only` (labels like "V1"; every track
+/// when empty). With ripple only those tracks close up, and markers move
+/// only when every track did.
+pub fn remove_ranges(info: &mut Value, ranges: &[(i64, i64)], ripple: bool, only: &[String]) -> CutStats {
     let min_len = min_piece_us(info);
     let mut stats = CutStats::default();
-    for_each_segment(info, |seg, materials| {
+    for_each_segment(info, |label, seg, materials| {
+        if !only.is_empty() && !only.iter().any(|t| t == label) {
+            return vec![seg.clone()];
+        }
         let (start, end) = target_span(seg);
         // What survives of [start, end] once every range is taken out.
         let mut keep = Vec::new();
@@ -210,7 +243,7 @@ pub fn remove_ranges(info: &mut Value, ranges: &[(i64, i64)], ripple: bool) -> C
         pieces
     });
 
-    if ripple {
+    if ripple && only.is_empty() {
         if let Some(marks) = info
             .get_mut("time_marks")
             .and_then(|t| t.get_mut("mark_items"))
@@ -277,12 +310,13 @@ pub async fn capcut_remove_ranges(
     preferred_draft_id: Option<String>,
     ranges_sec: Vec<(f64, f64)>,
     ripple: bool,
+    tracks: Vec<String>,
 ) -> Result<CutStats, String> {
     let ranges: Vec<(i64, i64)> = ranges_sec
         .iter()
         .map(|&(a, b)| ((a * US_PER_SEC).round() as i64, (b * US_PER_SEC).round() as i64))
         .collect();
-    edit_draft(preferred_draft_id, |info| remove_ranges(info, &ranges, ripple)).await
+    edit_draft(preferred_draft_id, |info| remove_ranges(info, &ranges, ripple, &tracks)).await
 }
 
 #[cfg(test)]
@@ -350,7 +384,7 @@ mod tests {
     #[test]
     fn ripple_remove_keeps_tracks_in_sync() {
         let mut info = draft();
-        let stats = remove_ranges(&mut info, &[(2 * S, 3 * S), (5 * S, 6 * S)], true);
+        let stats = remove_ranges(&mut info, &[(2 * S, 3 * S), (5 * S, 6 * S)], true, &[]);
         // V1 loses 2s in two places: 0-2, 3-5, 6-10 -> 0-2, 2-4, 4-8.
         assert_eq!(spans(&info, 0), vec![(0, 2 * S), (2 * S, 4 * S), (4 * S, 8 * S)]);
         let v = info["tracks"][0]["segments"].as_array().unwrap();
@@ -368,7 +402,7 @@ mod tests {
     #[test]
     fn remove_without_ripple_leaves_gaps() {
         let mut info = draft();
-        remove_ranges(&mut info, &[(2 * S, 3 * S)], false);
+        remove_ranges(&mut info, &[(2 * S, 3 * S)], false, &[]);
         assert_eq!(spans(&info, 0), vec![(0, 2 * S), (3 * S, 10 * S)]);
         assert_eq!(spans(&info, 1), vec![(8 * S, 9 * S)]);
         assert_eq!(info["time_marks"]["mark_items"].as_array().unwrap().len(), 2);
@@ -382,5 +416,18 @@ mod tests {
         let v = info["tracks"][0]["segments"].as_array().unwrap();
         assert_eq!(v[0]["source_timerange"]["duration"], json!(8 * S));
         assert_eq!(v[1]["source_timerange"]["start"], json!(108 * S));
+    }
+
+    #[test]
+    fn cuts_only_the_listed_tracks() {
+        // Cut 2-3 s on V1 only: the text track (T1) keeps both titles whole.
+        let mut info = draft();
+        let stats = remove_ranges(&mut info, &[(2 * S, 3 * S)], true, &["V1".to_string()]);
+        assert_eq!(stats.split, 1);
+        assert_eq!(spans(&info, 0), vec![(0, 2 * S), (2 * S, 9 * S)]);
+        assert_eq!(spans(&info, 1), vec![(2 * S, 3 * S), (8 * S, 9 * S)]);
+        // Markers stay put when only some tracks closed up.
+        let marks = info["time_marks"]["mark_items"].as_array().unwrap();
+        assert_eq!(marks[1]["time_range"]["start"], json!(9 * S));
     }
 }

@@ -6,4 +6,5 @@
 
 pub mod capcut;
 pub mod davinci;
+mod davinci_titles;
 pub mod premiere;

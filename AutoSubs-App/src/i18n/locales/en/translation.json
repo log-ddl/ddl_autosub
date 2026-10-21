@@ -5,7 +5,8 @@
     "sections": {
       "transcription": "Transcription",
       "language": "Language",
-      "cli": "Command line"
+      "cli": "Command line",
+      "aiProjects": "AI Edit projects"
     },
     "gpu": {
       "title": "GPU Acceleration",
@@ -44,6 +45,21 @@
     "support": {
       "supportAutoSubs": "Support AutoSubs",
       "viewSource": "Contribute"
+    },
+    "aiProjects": {
+      "description": "Media and chats AI Edit keeps for each project.",
+      "loading": "Loading...",
+      "empty": "No AI Edit projects yet.",
+      "noEditor": "No editor",
+      "chatCount_one": "{{count}} chat",
+      "chatCount_other": "{{count}} chats",
+      "openFolder": "Open folder",
+      "delete": "Delete from AutoSubs",
+      "confirmTitle": "Delete project",
+      "confirm_zero": "Delete \"{{name}}\" from AutoSubs? Its media, motion graphics and exports go to the Trash. The project in {{editor}} is not touched.",
+      "confirm_one": "Delete \"{{name}}\" from AutoSubs? Its media, motion graphics and exports go to the Trash, and its chat is deleted. The project in {{editor}} is not touched.",
+      "confirm_other": "Delete \"{{name}}\" from AutoSubs? Its media, motion graphics and exports go to the Trash, and its {{count}} chats are deleted. The project in {{editor}} is not touched.",
+      "errorTitle": "Could not delete project"
     }
   },
   "common": {
@@ -1040,7 +1056,193 @@
     "assets": {
       "button": "Asset",
       "tooltip": "Open the project's assets (Motion Graphics, AI B-Roll, Exports, Templates)",
-      "menuItem": "Asset (Motion / B-Roll)"
+      "menuItem": "Assets & Skills",
+      "title": "Project assets ({{project}})",
+      "description": "Each DaVinci, Premiere or CapCut project has its own folder (video, images, music, SFX, motion). The shared library is read only: click \"Use\" to copy a file into the project.",
+      "projectPath": "Project: ",
+      "libraryPath": "Shared library (music, SFX, templates): ",
+      "tabs": {
+        "all": "All ({{count}})",
+        "video": "Video",
+        "images": "Images",
+        "music": "Music",
+        "sfx": "SFX",
+        "motion": "Motion",
+        "exports": "Exports",
+        "templates": "Templates",
+        "libraryMusic": "Music",
+        "librarySfx": "SFX",
+        "skills": "Skills",
+        "librarySkills": "Skills"
+      },
+      "library": "Library",
+      "empty": "Nothing here yet. Ask the AI to make a motion graphic or download a video.",
+      "attach": "@Chat",
+      "attachTooltip": "Add this path to the chat box (@)",
+      "saveTemplate": "Save template",
+      "saveTemplateTooltip": "Copy to the shared templates for other projects",
+      "use": "Use",
+      "useTooltip": "Copy into this project (library files stay as they are)",
+      "place": "To timeline",
+      "placeTooltip": "Put this file on the timeline",
+      "placeSummary": "Placed {{name}} on the timeline",
+      "savedTemplate": "Saved \"{{name}}\" to the shared templates",
+      "copied": "Copied \"{{name}}\" into the project",
+      "importSkill": "Import skill",
+      "importSkillTooltip": "Pick a folder with SKILL.md (or a folder of skills)",
+      "importSkillTitle": "Choose a skill folder",
+      "importedSkills": "Imported skills: {{names}}",
+      "skillsHint": "The AI reads a skill when a task matches it or you name it.",
+      "emptySkills": "No skills yet. Click \"Import skill\" to pick a folder with SKILL.md.",
+      "savedSkill": "Saved \"{{name}}\" to shared skills"
+    },
+    "empty": {
+      "title": "What are we editing today?",
+      "subtitle": "Edit <b>{{editor}}</b> directly with {{cli}}."
+    },
+    "newChat": "New chat",
+    "save": "Save",
+    "sidebar": {
+      "title": "Chats",
+      "collapse": "Hide chat list",
+      "expand": "Show chat list",
+      "search": "Search chats...",
+      "messages_one": "{{count}} message",
+      "messages_other": "{{count}} messages",
+      "pin": "Pin",
+      "unpin": "Unpin",
+      "rename": "Rename",
+      "delete": "Delete"
+    },
+    "header": {
+      "projectTooltip": "Project that holds this chat's assets"
+    },
+    "preview": {
+      "button": "Preview",
+      "tooltip": "Preview the code the AI wrote",
+      "menuTitle": "Project motion graphics",
+      "loading": "Loading...",
+      "empty": "Nothing to preview yet. Ask the AI to make a motion graphic.",
+      "close": "Close preview",
+      "open": "Open preview",
+      "logs": "Show log",
+      "reload": "Reload",
+      "openBrowser": "Open in browser",
+      "startingDev": "Installing packages and starting the dev server...",
+      "opening": "Opening preview...",
+      "failed": "Couldn't open the preview",
+      "retry": "Try again",
+      "noLogs": "(No log yet)"
+    },
+    "message": {
+      "reasoning": "Reasoning...",
+      "working": "{{cli}} is thinking...",
+      "reasonedSteps_one": "Reasoned and ran {{count}} tool step",
+      "reasonedSteps_other": "Reasoned and ran {{count}} tool steps",
+      "ranSteps_one": "Ran {{count}} tool step ({{last}})",
+      "ranSteps_other": "Ran {{count}} tool steps ({{last}})",
+      "reasoned": "Reasoned",
+      "command": "Command: {{action}}",
+      "reapply": "Apply again",
+      "copy": "Copy",
+      "copyTooltip": "Copy message",
+      "runError": "⚠️ **Run failed ({{cli}})**: {{error}}",
+      "stopped": "*(Stopped by you)*",
+      "durationTooltip": "Time this reply took"
+    },
+    "prompt": {
+      "locked": "This chat is tied to <b>{{bound}}</b>. You have <b>{{current}}</b> open, so sending is blocked to keep the context apart.",
+      "newChatForProject": "New chat for this project",
+      "lockedPlaceholder": "This chat belongs to another project. Start a new chat...",
+      "placeholder": "Ask anything, @ to mention, / for actions",
+      "addTooltip": "Add files, workspace or settings",
+      "attach": "Attach file or media (@)",
+      "pickWorkspace": "Choose workspace folder",
+      "resetWorkspace": "Use default workspace",
+      "memory": "Memory (memory.md)",
+      "systemPrompt": "Chat instructions",
+      "defaultModel": "Default ({{name}})",
+      "connected": "Connected: {{version}}",
+      "recheck": "Check the CLI again",
+      "turboTooltip": "Turbo: the AI's edits go straight onto the timeline",
+      "manualTooltip": "Manual: ask before changing the timeline",
+      "stop": "Stop",
+      "send": "Send (Enter)"
+    },
+    "slash": {
+      "new": "Start a new chat",
+      "clear": "Clear this chat's history",
+      "assets": "Project assets",
+      "memory": "Edit memory.md and global-memory.md",
+      "folder": "Choose a workspace folder"
+    },
+    "systemPrompt": {
+      "title": "Chat instructions",
+      "description": "Instructions for this chat only (editing style, cut rules, aspect ratio...). The timeline and project workspace are attached automatically.",
+      "placeholder": "E.g. keep a fast 2.5s pace per shot, zoom 1.15x on emphasized lines...",
+      "save": "Save instructions",
+      "saved": "Instructions saved"
+    },
+    "memory": {
+      "title": "AI memory",
+      "description": "Notes for the open project (<b>{{project}}</b>) are kept apart from the style you use in every project.",
+      "projectTab": "This project ({{project}})",
+      "globalTab": "All projects (global-memory.md)",
+      "projectPlaceholder": "Notes for this video: topic, script, color tone, people, special requests...",
+      "globalPlaceholder": "Default style for every project: brand fonts, color palette, cut pace, music folder...",
+      "saving": "Saving...",
+      "save": "Save memory",
+      "saved": "Memory saved"
+    },
+    "rename": {
+      "title": "Rename chat"
+    },
+    "errors": {
+      "unsupported": "AI Edit doesn't support this editor yet.",
+      "mismatch": "This chat belongs to another project. Start a new chat so the context doesn't get mixed up.",
+      "projectUnknown": "Couldn't read the project open in {{editor}}. Open a project and timeline, then try again."
+    },
+    "pickWorkspaceTitle": "Choose a workspace folder for the AI",
+    "attachTitle": "Choose files or media for the AI",
+    "defaultProject": "Default",
+    "notSelected": "None selected",
+    "unsupportedEditor": "{{name}} (AI Edit can't edit it yet)",
+    "steps": {
+      "planning": "Reasoning and planning",
+      "get_timeline": "Read timeline",
+      "get_transcript": "Read transcript",
+      "build_storyboard": "Place clips on timeline",
+      "add_marker": "Add marker",
+      "add_text": "Add text",
+      "update_clip": "Adjust clip",
+      "delete_clips": "Delete clips",
+      "split_clips": "Split clips",
+      "remove_ranges": "Cut out ranges",
+      "apply_actions": "Apply several edits",
+      "render_motion": "Render motion graphic",
+      "list_media": "Browse media folder",
+      "inspect_media": "Check video link",
+      "download_media": "Download video",
+      "save_article": "Save article",
+      "remove_background": "Remove image background",
+      "thinking": "Reasoning",
+      "runCommand": "Run terminal command",
+      "writeFile": "Write file",
+      "createFile": "Create file",
+      "editFile": "Edit file",
+      "editMany": "Edit several parts",
+      "readFile": "Read file",
+      "listDir": "List folder",
+      "findFile": "Find files",
+      "searchCode": "Search code",
+      "searchDir": "Search folder",
+      "searchWeb": "Search the web",
+      "readWeb": "Read web page",
+      "generateImage": "Generate AI image",
+      "subagent": "Run subagent",
+      "remove_marker": "Remove markers",
+      "add_effects": "Add effects",
+      "add_transitions": "Add transitions"
     }
   }
 }

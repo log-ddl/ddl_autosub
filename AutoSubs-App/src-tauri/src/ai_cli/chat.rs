@@ -53,16 +53,46 @@ pub struct RunCliTextResult {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct SessionState {
     adapter: String,
     session_id: String,
 }
 
+/// Which CLI session each chat continues, by `<conversation>:<adapter>`.
+/// Kept on disk: in memory only, a restarted app started every chat over in
+/// a fresh CLI session, and the agent forgot the conversation.
+fn sessions_file() -> Option<PathBuf> {
+    dirs::data_local_dir().map(|d| d.join("com.autosubs").join("ai-cli-sessions.json"))
+}
+
 fn sessions_map() -> &'static Mutex<HashMap<String, SessionState>> {
     static SESSIONS: OnceLock<Mutex<HashMap<String, SessionState>>> = OnceLock::new();
-    SESSIONS.get_or_init(|| Mutex::new(HashMap::new()))
+    SESSIONS.get_or_init(|| {
+        let saved = sessions_file()
+            .and_then(|p| fs::read_to_string(p).ok())
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default();
+        Mutex::new(saved)
+    })
 }
+
+fn save_sessions(map: &HashMap<String, SessionState>) {
+    if let (Some(path), Ok(text)) = (sessions_file(), serde_json::to_string(map)) {
+        if let Some(dir) = path.parent() {
+            let _ = fs::create_dir_all(dir);
+        }
+        let _ = fs::write(path, text);
+    }
+}
+
+/// What agy gets in place of the system prompt on a resumed session. agy
+/// has no system prompt flag, so the prompt goes into the user message, and
+/// sending it every time put another full copy into the conversation each
+/// message (the history grew by ~5k tokens a turn). The first message of a
+/// session carries it; later ones only this reminder.
+const AGY_RESUMED_CONTEXT: &str = "Same editor, project, tools and rules as at the start of this conversation. \
+The timeline may have changed since: call get_timeline when you need its current state.";
 
 fn active_pids() -> &'static Mutex<HashMap<String, Arc<Mutex<Option<u32>>>>> {
     static PIDS: OnceLock<Mutex<HashMap<String, Arc<Mutex<Option<u32>>>>>> = OnceLock::new();
@@ -146,14 +176,25 @@ fn run_cli_blocking(
         .edit_target
         .clone()
         .and_then(|target| mcp::open_session(target, payload.allow_edits, Some(cwd_dir.clone())));
+    // Re-read every run, so a skill imported mid-conversation is seen next turn.
+    let skills = crate::ai_cli::workspace::skills_prompt(&cwd_dir);
+    let with_skills = |sys: Option<&str>| -> Option<String> {
+        let parts: Vec<&str> = sys
+            .into_iter()
+            .chain(skills.as_deref())
+            .filter(|s| !s.trim().is_empty())
+            .collect();
+        (!parts.is_empty()).then(|| parts.join("\n\n"))
+    };
 
     match adapter {
         "agy" => {
-            let full_prompt = if let Some(sys) = payload
-                .system_prompt
-                .as_deref()
-                .filter(|s| !s.trim().is_empty())
-            {
+            let system_prompt = with_skills(if resume_session_id.is_some() {
+                Some(AGY_RESUMED_CONTEXT)
+            } else {
+                payload.system_prompt.as_deref()
+            });
+            let full_prompt = if let Some(sys) = system_prompt {
                 format!(
                     "<live_editor_context>\n{}\n</live_editor_context>\n\n{}",
                     sys, payload.prompt
@@ -203,14 +244,10 @@ fn run_cli_blocking(
             }
             // Sent on every run, resumed or not: it carries the live timeline,
             // which changes between messages.
-            if let Some(sys) = payload
-                .system_prompt
-                .as_deref()
-                .filter(|s| !s.trim().is_empty())
-            {
+            if let Some(sys) = with_skills(payload.system_prompt.as_deref()) {
                 let tmp = std::env::temp_dir()
                     .join(format!("autosubs-sys-{}.txt", uuid::Uuid::new_v4()));
-                if fs::write(&tmp, sys).is_ok() {
+                if fs::write(&tmp, &sys).is_ok() {
                     args.extend([
                         "--append-system-prompt-file".into(),
                         tmp.to_string_lossy().into_owned(),
@@ -309,6 +346,7 @@ fn run_cli_blocking(
                     session_id: sid,
                 },
             );
+            save_sessions(&map);
         }
     }
 

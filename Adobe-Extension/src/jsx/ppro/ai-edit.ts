@@ -10,6 +10,7 @@
 // Times are seconds from the start of the sequence. Clip ids are TrackItem
 // nodeIds, which stay stable while the project is open.
 
+import { addEffects, addedEffects, addGraphics, addTransitions, applyKeyframes, applySpeed } from "./ai-edit-fx";
 import { aiEditBuildStoryboard } from "./ai-edit-storyboard";
 import {
   applyTransform,
@@ -19,6 +20,7 @@ import {
   findClip,
   component,
   frameSeconds,
+  locate,
   num,
   property,
   secondsToTime,
@@ -86,6 +88,15 @@ function getTimelineSnapshot(seq: any): string {
           var zoom = scaleOf(clip);
           if (zoom !== null) entry.zoom = zoom;
         }
+        try {
+          var speed = Number(clip.getSpeed());
+          if (speed > 0 && Math.abs(speed - 1) > 0.001) entry.speed = speed;
+        } catch (e) {}
+        var fx = addedEffects(clip);
+        if (fx.length > 0) entry.effects = fx;
+        try {
+          if (clip.isSelected()) entry.selected = true;
+        } catch (e) {}
         clips[clips.length] = entry;
       }
       tracks[tracks.length] = {
@@ -122,10 +133,19 @@ function getTimelineSnapshot(seq: any): string {
     if (tb > 0) fps = TICKS_PER_SECOND / tb;
   } catch (e) {}
 
+  var width = 0;
+  var height = 0;
+  try {
+    width = Number(seq.frameSizeHorizontal) || 0;
+    height = Number(seq.frameSizeVertical) || 0;
+  } catch (e) {}
+
   return JSON.stringify({
     success: true,
     name: String(seq.name || ""),
     fps: Math.round(fps * 1000) / 1000,
+    width: width,
+    height: height,
     durationSec: Math.max(0, getTimeSeconds(seq.end) - getSequenceStartSeconds(seq)),
     tracks: tracks,
     markers: markers,
@@ -161,12 +181,64 @@ function addMarkers(seq: any, args: any): string {
   return JSON.stringify({ success: true, added: added, lines: lines });
 }
 
+// args: { atSec: number[] }  Delete the markers at these times. The app
+// picks them from the snapshot, so each sits exactly on a marker's start.
+function deleteMarkers(seq: any, args: any): string {
+  var wanted: number[] = args && args.atSec ? args.atSec : [];
+  var tolerance = Math.max(frameSeconds(seq) / 2, 0.001);
+  var doomed: any[] = [];
+  var m = seq.markers.getFirstMarker();
+  while (m) {
+    var at = getTimeSeconds(m.start);
+    for (var i = 0; i < wanted.length; i++) {
+      if (Math.abs(Number(wanted[i]) - at) <= tolerance) {
+        doomed[doomed.length] = m;
+        break;
+      }
+    }
+    m = seq.markers.getNextMarker(m);
+  }
+  // Delete after the walk: removing while iterating loses the next marker.
+  var deleted = 0;
+  var lines: string[] = [];
+  for (var d = 0; d < doomed.length; d++) {
+    try {
+      seq.markers.deleteMarker(doomed[d]);
+      deleted++;
+    } catch (e: any) {
+      lines[lines.length] = "Could not delete a marker: " + e;
+    }
+  }
+  return JSON.stringify({ success: true, deleted: deleted, lines: lines });
+}
+
+// args: { ids, ...the update_clip fields }  The same change on every clip.
 function updateClip(seq: any, args: any): string {
-  var clip = findClip(seq, String(args.segmentId || ""));
-  if (!clip) return fail("No clip with id " + args.segmentId + " on the active sequence.");
+  var ids: string[] = args.ids || [];
   var updated: string[] = [];
   var lines: string[] = [];
+  var done = 0;
+  for (var i = 0; i < ids.length; i++) {
+    var hit = locate(seq, String(ids[i]));
+    if (!hit) {
+      lines[lines.length] = "No clip with id " + ids[i] + " on the active sequence.";
+      continue;
+    }
+    var mine: string[] = [];
+    updateOne(seq, String(ids[i]), hit, args, mine, lines);
+    for (var m = 0; m < mine.length; m++) {
+      var seen = false;
+      for (var u = 0; u < updated.length; u++) if (updated[u] === mine[m]) seen = true;
+      if (!seen) updated[updated.length] = mine[m];
+    }
+    if (mine.length > 0) done++;
+  }
+  if (done === 0 && ids.length === 1 && lines.length > 0 && updated.length === 0) return fail(lines.join(" "));
+  return JSON.stringify({ success: true, clips: done, updated: updated, lines: lines });
+}
 
+function updateOne(seq: any, id: string, hit: any, args: any, updated: string[], lines: string[]): void {
+  var clip = hit.clip;
   if (num(args.startSec)) {
     try {
       var shift = args.startSec - getTimeSeconds(clip.start);
@@ -185,6 +257,17 @@ function updateClip(seq: any, args: any): string {
     }
   }
 
+  // Speed changes the clip's length, so it goes before anything timed
+  // against the clip (zoom keyframes, keyframes).
+  applySpeed(hit, args, updated, lines);
+  if (num(args.speed) || args.reverse) {
+    var again = locate(seq, id);
+    if (again) {
+      hit = again;
+      clip = again.clip;
+    }
+  }
+
   applyTransform(clip, args, updated, lines);
 
   if (num(args.opacity)) {
@@ -197,9 +280,8 @@ function updateClip(seq: any, args: any): string {
     }
   }
   if (num(args.volume) && setVolume(clip, args.volume, lines)) updated[updated.length] = "volume";
+  applyKeyframes(hit, args, updated, lines);
   if (typeof args.text === "string") lines[lines.length] = "Premiere: clip text cannot be edited by script; ignored.";
-
-  return JSON.stringify({ success: true, updated: updated, lines: lines });
 }
 
 function deleteClips(seq: any, args: any): string {
@@ -217,15 +299,6 @@ function deleteClips(seq: any, args: any): string {
     deleted++;
   }
   return JSON.stringify({ success: true, deleted: deleted, missing: missing });
-}
-
-/** Track kind and index of the clip with this id, or null. */
-function trackOf(seq: any, id: string): any {
-  var found: any = null;
-  eachClip(seq, function (clip, kind, t, c) {
-    if (!found && clipId(clip, kind, t, c) === id) found = { kind: kind, index: t, clip: clip };
-  });
-  return found;
 }
 
 function trackName(kind: string, index: number): string {
@@ -258,7 +331,7 @@ function splitClips(seq: any, args: any): string {
       }
     };
     for (var i = 0; i < ids.length; i++) {
-      var hit = trackOf(seq, String(ids[i]));
+      var hit = locate(seq, String(ids[i]));
       if (!hit) {
         lines[lines.length] = "No clip with id " + ids[i] + ".";
         continue;
@@ -267,7 +340,7 @@ function splitClips(seq: any, args: any): string {
       try {
         var linked = hit.clip.getLinkedItems ? hit.clip.getLinkedItems() : null;
         for (var l = 0; linked && l < linked.numItems; l++) {
-          var other = trackOf(seq, String(linked[l].nodeId));
+          var other = locate(seq, String(linked[l].nodeId));
           if (other) add(other.kind, other.index);
         }
       } catch (e) {}
@@ -300,9 +373,10 @@ function splitClips(seq: any, args: any): string {
  * partner may already have moved with its clip, so each one's position is
  * read again before moving it. Returns how many did not end up in place.
  */
-function shiftLeft(seq: any, from: number, dur: number, tolerance: number): number {
+function shiftLeft(seq: any, from: number, dur: number, tolerance: number, only?: any): number {
   var todo: any[] = [];
   eachClip(seq, function (clip, kind, t, c) {
+    if (only && !only[kind + (t + 1)]) return;
     var s = getTimeSeconds(clip.start);
     if (s >= from - tolerance) todo[todo.length] = { id: clipId(clip, kind, t, c), want: s - dur, start: s };
   });
@@ -352,11 +426,20 @@ function rippleMarkers(seq: any, a: number, b: number, tolerance: number): numbe
   return removed;
 }
 
-// args: { ranges: [{ start, end }] (sorted, disjoint), ripple? }  Cut the
-// spans out of every track, last span first so earlier times stay valid.
+// args: { ranges: [{ start, end }] (sorted, disjoint), ripple?, tracks? }
+// Cut the spans out of every track (or only `tracks`, labelled "V1", "A2"
+// like get_timeline), last span first so earlier times stay valid.
 function removeRanges(seq: any, args: any): string {
   var ranges: any[] = args && args.ranges ? args.ranges : [];
-  var ripple = !(args && args.ripple === false);
+  var ripple = Boolean(args && args.ripple);
+  var only: any = null;
+  if (args && args.tracks && args.tracks.length > 0) {
+    only = {};
+    for (var o = 0; o < args.tracks.length; o++) only[String(args.tracks[o]).toUpperCase()] = true;
+  }
+  var wanted = function (kind: string, t: number): boolean {
+    return !only || only[kind + (t + 1)] === true;
+  };
   var tolerance = Math.max(frameSeconds(seq) / 2, 0.001);
   var razor = createRazor(seq);
   var lines: string[] = [];
@@ -371,11 +454,13 @@ function removeRanges(seq: any, args: any): string {
     if (!(b - a > tolerance)) continue;
     var tracks = allTracks(app.project.activeSequence);
     for (var t = 0; t < tracks.length; t++) {
+      if (!wanted(tracks[t].kind, tracks[t].index)) continue;
       if (razor(tracks[t].kind, tracks[t].index, a)) cut++;
       if (razor(tracks[t].kind, tracks[t].index, b)) cut++;
     }
     var inside: any[] = [];
-    eachClip(app.project.activeSequence, function (clip) {
+    eachClip(app.project.activeSequence, function (clip, kind, ti) {
+      if (!wanted(kind, ti)) return;
       var s = getTimeSeconds(clip.start);
       var e = getTimeSeconds(clip.end);
       if (s >= a - tolerance && e <= b + tolerance) inside[inside.length] = clip;
@@ -387,7 +472,8 @@ function removeRanges(seq: any, args: any): string {
       } catch (e) {}
     }
     var straddling = 0;
-    eachClip(app.project.activeSequence, function (clip) {
+    eachClip(app.project.activeSequence, function (clip, kind, ti) {
+      if (!wanted(kind, ti)) return;
       var s = getTimeSeconds(clip.start);
       var e = getTimeSeconds(clip.end);
       if (s < b - tolerance && e > a + tolerance) straddling++;
@@ -397,8 +483,10 @@ function removeRanges(seq: any, args: any): string {
       continue;
     }
     if (ripple) {
-      stuck += shiftLeft(app.project.activeSequence, b, b - a, tolerance);
-      markersRemoved += rippleMarkers(app.project.activeSequence, a, b, tolerance);
+      stuck += shiftLeft(app.project.activeSequence, b, b - a, tolerance, only);
+      // Markers belong to the whole sequence: they follow only a cut on
+      // every track.
+      if (!only) markersRemoved += rippleMarkers(app.project.activeSequence, a, b, tolerance);
     }
   }
   if (stuck > 0) lines[lines.length] = stuck + " clip move(s) did not land where expected; check the sequence.";
@@ -435,6 +523,8 @@ export function aiEdit(requestJson: string): string {
         return aiEditBuildStoryboard(args);
       case "AddMarkers":
         return addMarkers(seq, args);
+      case "DeleteMarkers":
+        return deleteMarkers(seq, args);
       case "ImportCaptions":
         return importSRTFile(String(args.filePath || ""));
       case "UpdateClip":
@@ -445,6 +535,12 @@ export function aiEdit(requestJson: string): string {
         return splitClips(seq, args);
       case "RemoveRanges":
         return removeRanges(seq, args);
+      case "AddEffects":
+        return addEffects(seq, args);
+      case "AddTransitions":
+        return addTransitions(seq, args);
+      case "AddGraphics":
+        return addGraphics(seq, args);
       default:
         return fail("Invalid function name");
     }

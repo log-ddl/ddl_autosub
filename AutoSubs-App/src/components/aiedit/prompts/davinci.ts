@@ -5,6 +5,7 @@ import {
   REMOVE_RANGES_DOC,
   SPLIT_DOC,
   STORYBOARD_DOC,
+  timelineBrief,
   toolsSection,
   userAndMemorySections,
   workspaceSection,
@@ -94,27 +95,11 @@ export interface DavinciTimelineSnapshot {
 }
 
 function davinciTimelineSummary(snapshot: DavinciTimelineSnapshot): string {
-  const tracks = (snapshot.tracks ?? [])
-    .map((tr) => {
-      const clips = (tr.clips ?? [])
-        .slice(0, 40)
-        .map(
-          (c) =>
-            `  - [id="${c.id}"] "${c.name}" từ ${c.startSec.toFixed(2)}s -> ${(c.startSec + c.durationSec).toFixed(2)}s (dài ${c.durationSec.toFixed(2)}s${c.zoom != null ? `, zoom=${c.zoom.toFixed(2)}` : ""})`,
-        )
-        .join("\n");
-      const label = tr.trackType === "video" ? "V" : tr.trackType === "audio" ? "A" : "S";
-      return `Track ${label}${tr.index}${tr.name ? ` "${tr.name}"` : ""} (${tr.trackType}, ${(tr.clips ?? []).length} clips):\n${clips || "  (trống)"}`;
-    })
-    .join("\n\n");
-  const markers = (snapshot.markers ?? [])
-    .map((m) => `  - [${m.color}] "${m.name}" tại ${m.atSec.toFixed(2)}s`)
-    .join("\n");
-  return `- ${snapshot.fps}fps, tổng thời lượng ${snapshot.durationSec.toFixed(2)}s
-- Chi tiết các Track trên Timeline:
-${tracks || "(Timeline hiện đang trống)"}
-- Marker đang có trên Timeline:
-${markers || "  (Chưa có marker nào)"}`;
+  const tracks = (snapshot.tracks ?? []).map((tr) => ({
+    label: `${tr.trackType === "video" ? "V" : tr.trackType === "audio" ? "A" : "S"}${tr.index}`,
+    count: (tr.clips ?? []).length,
+  }));
+  return timelineBrief(snapshot.fps, snapshot.durationSec, tracks, (snapshot.markers ?? []).length);
 }
 
 function davinciContext(

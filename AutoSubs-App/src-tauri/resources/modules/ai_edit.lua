@@ -234,7 +234,6 @@ function M.add_markers(req)
                 tostring(m.note or ""), duration, "")
             if ok and placed then
                 added = added + 1
-                table.insert(lines, string.format("Added %s marker \"%s\" at %.2fs.", color, name, atSec))
             else
                 skipped = skipped + 1
                 table.insert(lines, string.format(
@@ -243,6 +242,29 @@ function M.add_markers(req)
         end
     end
     return { added = added, skipped = skipped, lines = lines }
+end
+
+-- req: { atSec = { ... } }  Delete the markers at these times (the app picks
+-- them from the snapshot, so they sit exactly on a marker's frame).
+function M.delete_markers(req)
+    local ctx, err = current_timeline()
+    if not ctx then
+        return err
+    end
+    local deleted, lines = 0, {}
+    for _, at in ipairs((req and req.atSec) or {}) do
+        local atSec = tonumber(at)
+        if atSec then
+            local frame = round(atSec * ctx.fps)
+            local ok, done = pcall(ctx.timeline.DeleteMarkerAtFrame, ctx.timeline, frame)
+            if ok and done then
+                deleted = deleted + 1
+            else
+                table.insert(lines, string.format("Could not delete the marker at %.2fs.", atSec))
+            end
+        end
+    end
+    return { deleted = deleted, lines = lines }
 end
 
 -- ---------------------------------------------------------------------------
@@ -336,16 +358,45 @@ local function source_of(ctx, item, kind, index)
     }
 end
 
+-- A Resolve API object, as opposed to the numbers and strings its tables
+-- also carry.
+local function is_item(x)
+    local t = type(x)
+    return t == "userdata" or (t == "table" and x.GetUniqueId ~= nil)
+end
+
 -- Clips linked to `item` (its audio, for a video clip), as items.
+-- GetLinkedItems does not always answer in the same shape: usually a list
+-- of items, but sometimes the items are the keys and the values are numbers,
+-- so both sides of each pair are checked.
 local function linked_items(item)
     local ok, list = pcall(item.GetLinkedItems, item)
     local out = {}
     if ok and type(list) == "table" then
-        for _, linked in pairs(list) do
-            out[#out + 1] = linked
+        for k, v in pairs(list) do
+            if is_item(v) then
+                out[#out + 1] = v
+            elseif is_item(k) then
+                out[#out + 1] = k
+            end
         end
     end
     return out
+end
+
+-- A clip a cut could not rebuild (a title, generator, Fusion clip), for the
+-- app to handle: it re-creates titles AI Edit placed, whose text it knows.
+local function left_entry(ctx, item, kind, index, why)
+    local okId, id = pcall(item.GetUniqueId, item)
+    return {
+        id = okId and id or "",
+        name = item:GetName() or "",
+        kind = kind,
+        track = index,
+        startSec = (item:GetStart() - ctx.start) / ctx.fps,
+        endSec = (item:GetEnd() - ctx.start) / ctx.fps,
+        reason = why,
+    }
 end
 
 -- One key shared by a clip and the clips linked to it, so the pieces that
@@ -467,7 +518,7 @@ function M.split_clips(req)
         end
     end
 
-    local jobs, lines = {}, {}
+    local jobs, lines, left = {}, {}, {}
     each_item(ctx.timeline, function(item, kind, index)
         local okId, id = pcall(item.GetUniqueId, item)
         if wanted and not (okId and wanted[id]) then
@@ -483,21 +534,41 @@ function M.split_clips(req)
                     { from = frame, len = recOut - frame, dest = frame },
                 } })
             else
-                table.insert(lines, string.format("Could not split \"%s\" on %s: %s.",
-                    item:GetName() or "", track_label(kind, index), why))
+                table.insert(left, left_entry(ctx, item, kind, index, why))
             end
         end
     end)
     if #jobs == 0 then
-        return fail("Nothing was split", #lines > 0 and table.concat(lines, " ") or
-            string.format("No clip spans %.2fs.", frame / ctx.fps))
+        if #left > 0 then
+            return { split = 0, lines = lines, left = left }
+        end
+        return fail("Nothing was split", string.format("No clip spans %.2fs.", frame / ctx.fps))
     end
     local problems, rebuildErr = rebuild(ctx, jobs)
     if not problems then
         return fail("Could not split the clips", rebuildErr)
     end
     append_all(lines, problems)
-    return { split = #jobs, lines = lines }
+    -- The pieces' new ids, so the agent can edit one without re-reading the
+    -- timeline (a rebuilt clip never keeps its old id).
+    local pieces = {}
+    for _, job in ipairs(jobs) do
+        for k, piece in ipairs(job.pieces) do
+            local placed = job.placed and job.placed[k]
+            if placed then
+                local okId, id = pcall(placed.GetUniqueId, placed)
+                if okId and id then
+                    pieces[#pieces + 1] = {
+                        id = id,
+                        track = track_label(job.src.kind, job.src.track),
+                        startSec = piece.dest / ctx.fps,
+                        endSec = (piece.dest + piece.len) / ctx.fps,
+                    }
+                end
+            end
+        end
+    end
+    return { split = #jobs, lines = lines, left = left, pieces = pieces }
 end
 
 -- req: { ranges = { { start, end }, ... } (seconds, sorted, disjoint), ripple? }
@@ -531,9 +602,22 @@ function M.remove_ranges(req)
         return total
     end
 
-    local jobs, inside, lines, expected = {}, {}, {}, {}
+    -- tracks: only these ("V1", "A1", as get_timeline labels them); clips
+    -- on the other tracks are not cut and not moved.
+    local only
+    if req and type(req.tracks) == "table" and #req.tracks > 0 then
+        only = {}
+        for _, t in ipairs(req.tracks) do
+            only[string.upper(tostring(t))] = true
+        end
+    end
+
+    local jobs, inside, lines, expected, left = {}, {}, {}, {}, {}
     local removedWhole = 0
     each_item(ctx.timeline, function(item, kind, index)
+        if only and not only[track_label(kind, index)] then
+            return
+        end
         local recIn = item:GetStart() - ctx.start
         local recOut = item:GetEnd() - ctx.start
         local pieces, cursor, cuts = {}, recIn, 0
@@ -567,8 +651,7 @@ function M.remove_ranges(req)
         end
         local src, why = source_of(ctx, item, kind, index)
         if not src then
-            table.insert(lines, string.format("Left \"%s\" on %s as it was: %s.",
-                item:GetName() or "", track_label(kind, index), why))
+            table.insert(left, left_entry(ctx, item, kind, index, why))
             return
         end
         table.insert(jobs, { src = src, group = link_group(item), pieces = pieces })
@@ -614,7 +697,7 @@ function M.remove_ranges(req)
             "%d clip(s) on %s did not move left: Resolve only closes a gap on a track that had a clip inside the span.",
             count, label))
     end
-    return { cut = #jobs, deleted = #inside, removedWhole = removedWhole, lines = lines }
+    return { cut = #jobs, deleted = #inside, removedWhole = removedWhole, lines = lines, left = left }
 end
 
 -- Move `item` to `startFrame` and/or give it `lenFrames`, with the clips

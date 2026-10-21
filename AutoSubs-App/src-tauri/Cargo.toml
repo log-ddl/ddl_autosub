@@ -70,6 +70,7 @@ regex = "1"
 scraper = "0.20"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "bmp", "gif", "ico", "tiff"] }
 ort = { version = "=2.0.0-rc.12", default-features = false, features = ["ndarray"] }
+trash = "5"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 

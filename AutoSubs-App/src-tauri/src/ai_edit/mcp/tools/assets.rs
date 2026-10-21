@@ -103,6 +103,100 @@ pub fn resolve_ids(workspace: &Path, args: &mut Value) -> Result<(), String> {
     }
 }
 
+const VIDEO_EXTS: &[&str] = &["mp4", "mov", "m4v", "mkv", "webm", "avi", "mxf"];
+const AUDIO_EXTS: &[&str] = &["wav", "wave", "mp3", "m4a", "aac", "flac", "ogg", "aif", "aiff", "opus"];
+
+fn ext_in(path: &Path, list: &[&str]) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| list.iter().any(|m| e.eq_ignore_ascii_case(m)))
+}
+
+/// Which `media/` folder a file from outside the project belongs in. Audio
+/// from `library/sfx` or `library/music` keeps its kind; other audio counts as
+/// a sound effect when its folder or name says so, else as music.
+fn media_subdir(path: &Path, library: Option<&Path>) -> Option<&'static str> {
+    use crate::ai_cli::workspace::{IMAGES_DIR, MUSIC_DIR, SFX_DIR, VIDEO_DIR};
+    if ext_in(path, VIDEO_EXTS) {
+        return Some(VIDEO_DIR);
+    }
+    if !ext_in(path, AUDIO_EXTS) {
+        return is_media(path).then_some(IMAGES_DIR);
+    }
+    if let Some(lib) = library {
+        if path.starts_with(lib.join("sfx")) {
+            return Some(SFX_DIR);
+        }
+        if path.starts_with(lib.join("music")) {
+            return Some(MUSIC_DIR);
+        }
+    }
+    static SFX_HINT: Lazy<regex::Regex> = Lazy::new(|| {
+        regex::Regex::new(r"(?i)sfx|sound ?(fx|effect)|foley|whoosh|swoosh|impact|riser|transition|click|\bhit\b|\bpop\b")
+            .unwrap()
+    });
+    if SFX_HINT.is_match(&path.to_string_lossy()) { Some(SFX_DIR) } else { Some(MUSIC_DIR) }
+}
+
+/// Copies `src` into `dir`, reusing a same-named file of the same size (the
+/// same sound placed twice) and never overwriting a different one.
+fn copy_in(src: &Path, dir: &Path) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("Could not create {}: {}", dir.display(), e))?;
+    let name = src.file_name().ok_or("Invalid media path")?.to_string_lossy().into_owned();
+    let size = std::fs::metadata(src).map(|m| m.len()).ok();
+    let (stem, ext) = match name.rsplit_once('.') {
+        Some((s, e)) if !s.is_empty() => (s.to_string(), format!(".{}", e)),
+        _ => (name.clone(), String::new()),
+    };
+    for n in 1.. {
+        let candidate = if n == 1 { dir.join(&name) } else { dir.join(format!("{}-{}{}", stem, n, ext)) };
+        match std::fs::metadata(&candidate) {
+            Ok(m) if Some(m.len()) == size => return Ok(candidate),
+            Ok(_) => continue,
+            Err(_) => {
+                std::fs::copy(src, &candidate)
+                    .map_err(|e| format!("Could not copy {} into the project: {}", src.display(), e))?;
+                return Ok(candidate);
+            }
+        }
+    }
+    unreachable!()
+}
+
+/// Media placed on the timeline must live in the project: every `path` /
+/// `audioPath` in `args` that points outside `workspace` (a library/ pack,
+/// Downloads) is copied into the project's `media/` folder and rewritten to
+/// the copy, so the editor never links to a file the user may move or delete.
+pub fn import_external(workspace: &Path, library: Option<&Path>, args: &mut Value) -> Result<(), String> {
+    let root = workspace.canonicalize().unwrap_or_else(|_| workspace.to_path_buf());
+    let library = library.map(|l| l.canonicalize().unwrap_or_else(|_| l.to_path_buf()));
+    import_walk(&root, library.as_deref(), args)
+}
+
+fn import_walk(root: &Path, library: Option<&Path>, args: &mut Value) -> Result<(), String> {
+    match args {
+        Value::Object(map) => {
+            for (key, value) in map.iter_mut() {
+                if !matches!(key.as_str(), "path" | "audioPath") {
+                    import_walk(root, library, value)?;
+                    continue;
+                }
+                let Some(raw) = value.as_str().map(str::trim).filter(|s| !s.is_empty()) else { continue };
+                let Ok(src) = Path::new(raw).canonicalize() else { continue };
+                if src.starts_with(root) || !src.is_file() {
+                    continue;
+                }
+                let Some(sub) = media_subdir(&src, library) else { continue };
+                let copied = copy_in(&src, &root.join(sub))?;
+                *value = Value::String(copied.to_string_lossy().into_owned());
+            }
+            Ok(())
+        }
+        Value::Array(items) => items.iter_mut().try_for_each(|v| import_walk(root, library, v)),
+        _ => Ok(()),
+    }
+}
+
 /// `m12 name 3.4s`, the way every tool reports a file it made or found.
 pub fn describe(workspace: &Path, path: &Path) -> String {
     let id = id_for(workspace, path);
@@ -117,14 +211,16 @@ pub fn tools() -> Vec<Value> {
     vec![tool(
         "list_media",
         "List the media files in a folder (video, audio, images), each with a short id and its length: \
-         a sound effect pack, a music folder, or the project's own ai-broll/ and exports/ (the default). \
+         a sound effect pack, a music folder, or the project's own media/ and exports/ (the default). \
          Pass the id (like m12) as path to build_storyboard or any tool instead of the full path. Files \
          in subfolders are listed as subfolder/name. A folder with more files than limit answers with \
-         its subfolders and counts; list one of them, or narrow with filter.",
+         its subfolders and counts; then list every subfolder you need in ONE call with folders, or \
+         narrow with filter.",
         json!({
             "type": "object",
             "properties": {
-                "folder": { "type": "string", "description": "Absolute folder path (default: the project's ai-broll and exports)" },
+                "folder": { "type": "string", "description": "Absolute folder path (default: the project's media and exports)" },
+                "folders": { "type": "array", "items": { "type": "string" }, "description": "Several absolute folder paths, listed in one call" },
                 "filter": { "type": "string", "description": "Only names containing this text (case-insensitive)" },
                 "limit": { "type": "integer", "description": "Most files to list (default 200)" }
             }
@@ -170,15 +266,26 @@ fn walk(dir: &Path, rel: &str, depth: usize, out: &mut Vec<(String, PathBuf)>) {
 }
 
 fn list_media(workspace: &Path, args: &Value) -> Result<String, String> {
-    let folders: Vec<PathBuf> = match args.get("folder").and_then(|f| f.as_str()).map(str::trim).filter(|f| !f.is_empty()) {
-        Some(f) => {
-            let p = PathBuf::from(f);
-            if !p.is_dir() {
-                return Err(format!("{} is not a folder.", f));
-            }
-            vec![p]
+    // `folders` lists several at once (the Boom, Swoosh and Pop folders of
+    // a pack): each separate call costs the agent a model turn.
+    let asked: Vec<String> = args
+        .get("folders")
+        .and_then(|f| f.as_array())
+        .into_iter()
+        .flatten()
+        .chain(args.get("folder"))
+        .filter_map(|f| f.as_str().map(str::trim))
+        .filter(|f| !f.is_empty())
+        .map(str::to_string)
+        .collect();
+    let folders: Vec<PathBuf> = if asked.is_empty() {
+        vec![workspace.join("media"), workspace.join("exports")]
+    } else {
+        let missing: Vec<&str> = asked.iter().map(String::as_str).filter(|f| !Path::new(f).is_dir()).collect();
+        if !missing.is_empty() {
+            return Err(format!("Not a folder: {}.", missing.join(", ")));
         }
-        None => vec![workspace.join("ai-broll"), workspace.join("exports")],
+        asked.iter().map(PathBuf::from).collect()
     };
     let filter = args.get("filter").and_then(|f| f.as_str()).map(|f| f.to_lowercase()).filter(|f| !f.is_empty());
     let limit = args.get("limit").and_then(|v| v.as_u64()).map(|v| v as usize).unwrap_or(DEFAULT_LIMIT).max(1);
@@ -209,15 +316,16 @@ fn list_media(workspace: &Path, args: &Value) -> Result<String, String> {
                 None => counts.push((group, 1)),
             }
         }
-        let root = folders[0].to_string_lossy();
         let groups: Vec<String> = counts.iter().map(|(g, n)| format!("{} ({})", g, n)).collect();
+        let root = if folders.len() == 1 { folders[0].to_string_lossy().to_string() } else { "these folders".into() };
         return Ok(format!(
-            "{} files, more than limit {}. Subfolders of {}: {}. List one (folder = {}/<subfolder>) or use filter.",
+            "{} files, more than limit {}. Subfolders of {}: {}. List the ones you need in ONE call \
+             (folders = [\"{}/<subfolder>\", ...]) or use filter.",
             files.len(),
             limit,
             root,
             groups.join(", "),
-            root
+            folders[0].to_string_lossy()
         ));
     }
 
@@ -236,6 +344,34 @@ fn list_media(workspace: &Path, args: &Value) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn placing_outside_media_copies_it_into_the_project() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = tmp.path().join("ws");
+        let lib = tmp.path().join("library");
+        std::fs::create_dir_all(lib.join("sfx/Pack")).unwrap();
+        std::fs::create_dir_all(ws.join("media/video")).unwrap();
+        let downloads = tmp.path().join("Downloads");
+        std::fs::create_dir_all(&downloads).unwrap();
+        std::fs::write(lib.join("sfx/Pack/boom.wav"), "a").unwrap();
+        std::fs::write(downloads.join("song.mp3"), "bb").unwrap();
+        std::fs::write(ws.join("media/video/own.mp4"), "c").unwrap();
+        let own = ws.join("media/video/own.mp4").canonicalize().unwrap();
+        let mut args = json!({ "items": [
+            { "path": lib.join("sfx/Pack/boom.wav") },
+            { "path": downloads.join("song.mp3") },
+            { "path": own },
+            { "path": lib.join("sfx/Pack/boom.wav") }
+        ]});
+        import_external(&ws, Some(&lib), &mut args).unwrap();
+        let items = args["items"].as_array().unwrap();
+        let p = |i: usize| PathBuf::from(items[i]["path"].as_str().unwrap());
+        assert!(p(0).ends_with("media/audio/sfx/boom.wav") && p(0).is_file());
+        assert!(p(1).ends_with("media/audio/music/song.mp3") && p(1).is_file());
+        assert_eq!(p(2), own);
+        assert_eq!(p(3), p(0), "same sound twice reuses one copy");
+    }
+
     use super::*;
 
     #[test]
@@ -282,6 +418,14 @@ mod tests {
         assert!(summary.contains("Boom (3), Swoosh (3)"), "{}", summary);
         let filtered = list_media(&ws, &json!({ "folder": folder, "filter": "boom 1" })).unwrap();
         assert!(filtered.starts_with("1 file(s):"), "{}", filtered);
+
+        // Several subfolders in one call, each file under its folder's name.
+        let both = json!({ "folders": [format!("{}/Boom", folder), format!("{}/Swoosh", folder)] });
+        let listed = list_media(&ws, &both).unwrap();
+        assert!(listed.starts_with("6 file(s):"), "{}", listed);
+        assert!(listed.contains(" Boom/Boom 0.wav") && listed.contains(" Swoosh/Swoosh 2.wav"), "{}", listed);
+        let bad = list_media(&ws, &json!({ "folders": [folder.clone(), "/no/such/dir"] })).unwrap_err();
+        assert!(bad.contains("/no/such/dir"), "{}", bad);
         let _ = std::fs::remove_dir_all(&ws);
     }
 }

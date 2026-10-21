@@ -126,13 +126,10 @@ export function AdobeProvider({ children }: { children: React.ReactNode }) {
         [targetApp]: isAppConnected
       }));
 
-      const hostName = targetApp === 'aftereffects' ? 'After Effects' : 'Premiere Pro';
       if (isAppConnected) {
-        toast.success(`Connected to ${hostName}`);
         // Senior pattern: pass status explicitly instead of relying on async state update
         refreshApp(targetApp, true);
       } else {
-        toast.error(`Disconnected from ${hostName}`);
         if (targetApp === 'premiere') setPremiereTimeline(emptyTimeline);
         else if (targetApp === 'aftereffects') setAeTimeline(emptyTimeline);
       }

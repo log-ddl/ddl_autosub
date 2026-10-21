@@ -1,5 +1,6 @@
 import * as React from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
   ExternalLink,
@@ -97,6 +98,7 @@ function useLogs(active: boolean) {
 }
 
 export function AiEditPreviewPanel({ preview }: { preview: AiEditPreview }) {
+  const { t } = useTranslation();
   const { target, info, loading, error, reloadKey } = preview;
   const [showLogs, setShowLogs] = React.useState(false);
   const isDev = (info?.kind ?? target?.kind) === "dev";
@@ -123,7 +125,7 @@ export function AiEditPreviewPanel({ preview }: { preview: AiEditPreview }) {
             size="icon"
             className={cn("size-7", showLogs && "bg-muted text-foreground")}
             onClick={() => setShowLogs((v) => !v)}
-            title="Xem log"
+            title={t("aiEdit.preview.logs")}
           >
             <Terminal className="size-3.5" />
           </Button>
@@ -134,7 +136,7 @@ export function AiEditPreviewPanel({ preview }: { preview: AiEditPreview }) {
             className="size-7"
             disabled={!info}
             onClick={preview.reload}
-            title="Tải lại"
+            title={t("aiEdit.preview.reload")}
           >
             <RotateCw className="size-3.5" />
           </Button>
@@ -145,7 +147,7 @@ export function AiEditPreviewPanel({ preview }: { preview: AiEditPreview }) {
             className="size-7"
             disabled={!info}
             onClick={() => info && void openUrl(info.url)}
-            title="Mở trong trình duyệt"
+            title={t("aiEdit.preview.openBrowser")}
           >
             <ExternalLink className="size-3.5" />
           </Button>
@@ -155,7 +157,7 @@ export function AiEditPreviewPanel({ preview }: { preview: AiEditPreview }) {
             size="icon"
             className="size-7"
             onClick={preview.close}
-            title="Đóng preview"
+            title={t("aiEdit.preview.close")}
           >
             <X className="size-3.5" />
           </Button>
@@ -177,8 +179,8 @@ export function AiEditPreviewPanel({ preview }: { preview: AiEditPreview }) {
             <Loader2 className="size-5 animate-spin text-primary" />
             <span>
               {target.kind === "dev"
-                ? "Đang cài thư viện và khởi động dev server..."
-                : "Đang mở preview..."}
+                ? t("aiEdit.preview.startingDev")
+                : t("aiEdit.preview.opening")}
             </span>
           </div>
         )}
@@ -186,7 +188,7 @@ export function AiEditPreviewPanel({ preview }: { preview: AiEditPreview }) {
           <div className="absolute inset-0 flex flex-col gap-2 overflow-auto bg-background p-4 text-xs">
             <div className="flex items-center gap-1.5 font-medium text-destructive">
               <AlertTriangle className="size-3.5" />
-              Không mở được preview
+              {t("aiEdit.preview.failed")}
             </div>
             <pre className="whitespace-pre-wrap break-words font-mono text-[11px] text-muted-foreground">
               {error}
@@ -199,7 +201,7 @@ export function AiEditPreviewPanel({ preview }: { preview: AiEditPreview }) {
               onClick={() => preview.open(target)}
             >
               <RotateCw className="size-3" />
-              Thử lại
+              {t("aiEdit.preview.retry")}
             </Button>
           </div>
         )}
@@ -207,7 +209,7 @@ export function AiEditPreviewPanel({ preview }: { preview: AiEditPreview }) {
 
       {(showLogs || (loading && isDev)) && (
         <pre className="max-h-48 shrink-0 overflow-auto whitespace-pre-wrap break-words border-t border-border/60 bg-muted/30 p-2 font-mono text-[10.5px] text-muted-foreground">
-          {logs || "(Chưa có log)"}
+          {logs || t("aiEdit.preview.noLogs")}
         </pre>
       )}
     </div>

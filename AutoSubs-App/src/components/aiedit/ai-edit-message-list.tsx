@@ -1,9 +1,11 @@
 import * as React from "react";
+import { Trans, useTranslation } from "react-i18next";
 import {
   Brain,
   Check,
   ChevronDown,
   ChevronRight,
+  Clock,
   Copy,
   Film,
   Loader2,
@@ -11,7 +13,6 @@ import {
   Play,
   Sparkles,
   Terminal,
-  Wand2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -19,7 +20,6 @@ import type { ContentCliAdapter } from "@/api/cli-chat-api";
 import type { ContentConversation } from "@/stores/ai-edit-chat-store";
 import type { PreviewTarget } from "@/api/preview-api";
 import {
-  AI_EDIT_QUICK_STARTERS,
   cliLabel,
   extractTimelineActions,
   formatStepLabel,
@@ -37,7 +37,6 @@ export interface AiEditMessageListProps {
   activeRunText?: string;
   activeThinkingText?: string;
   activeStepList: string[];
-  onSendPrompt: (overridePrompt?: string) => void;
   onExecuteTimelineAction: (cmd: TimelineActionCommand) => void;
   onOpenPreview: (target: PreviewTarget) => void;
   endRef: React.RefObject<HTMLDivElement>;
@@ -56,6 +55,7 @@ function StepTraceBlock({
   adapterLabel: string;
   defaultExpanded?: boolean;
 }) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = React.useState(defaultExpanded);
   const stepList = steps || [];
   const hasContent = Boolean(thinking?.trim()) || stepList.length > 0;
@@ -70,13 +70,16 @@ function StepTraceBlock({
   const headerTitle = isRunning
     ? latestStep ||
       (thinking?.trim()
-        ? "Đang suy luận..."
-        : `${adapterLabel} đang suy nghĩ & xử lý...`)
+        ? t("aiEdit.message.reasoning")
+        : t("aiEdit.message.working", { cli: adapterLabel }))
     : stepList.length > 0 && thinking?.trim()
-      ? `Đã suy luận & thực thi ${stepList.length} bước công cụ`
+      ? t("aiEdit.message.reasonedSteps", { count: stepList.length })
       : stepList.length > 0
-        ? `Đã thực thi ${stepList.length} bước công cụ (${latestStep})`
-        : "Đã suy luận";
+        ? t("aiEdit.message.ranSteps", {
+            count: stepList.length,
+            last: latestStep,
+          })
+        : t("aiEdit.message.reasoned");
 
   return (
     <div className="rounded-xl border border-border/50 bg-muted/20 px-3.5 py-2 text-xs">
@@ -156,11 +159,11 @@ export function AiEditMessageList({
   activeRunText,
   activeThinkingText,
   activeStepList,
-  onSendPrompt,
   onExecuteTimelineAction,
   onOpenPreview,
   endRef,
 }: AiEditMessageListProps) {
+  const { t } = useTranslation();
   const [copiedId, setCopiedId] = React.useState("");
 
   return (
@@ -174,40 +177,30 @@ export function AiEditMessageList({
               </div>
               <div className="space-y-1.5 max-w-md">
                 <h3 className="text-base font-medium tracking-tight">
-                  Bạn muốn dựng gì hôm nay?
+                  {t("aiEdit.empty.title")}
                 </h3>
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  Điều khiển trực tiếp{" "}
-                  <span className="font-medium text-foreground">
-                    {editorTitle}
-                  </span>{" "}
-                  bằng {cliLabel(activeAdapter)}.
+                  <Trans
+                    i18nKey="aiEdit.empty.subtitle"
+                    values={{ editor: editorTitle, cli: cliLabel(activeAdapter) }}
+                    components={{ b: <span className="font-medium text-foreground" /> }}
+                  />
                 </p>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-xl text-left">
-                {AI_EDIT_QUICK_STARTERS.map((item) => (
-                  <button
-                    key={item.title}
-                    type="button"
-                    onClick={() => onSendPrompt(item.prompt)}
-                    className="flex flex-col gap-1 rounded-xl border border-border/50 bg-card/30 p-3 text-xs hover:bg-muted/50 hover:border-border transition-all"
-                  >
-                    <span className="font-medium text-foreground flex items-center gap-1.5">
-                      <Wand2 className="size-3.5 text-muted-foreground" />
-                      {item.title}
-                    </span>
-                    <span className="text-[11px] text-muted-foreground/80 line-clamp-2">
-                      {item.prompt}
-                    </span>
-                  </button>
-                ))}
               </div>
             </div>
           )}
 
-        {activeConversation?.messages.map((message) => {
+        {activeConversation?.messages.map((message, index) => {
           const isUser = message.role === "user";
+          // A reply is stamped when the run ends and the user's message when
+          // it is sent, so their gap is how long the agent took.
+          const askedAt = isUser
+            ? undefined
+            : activeConversation.messages
+                .slice(0, index)
+                .reverse()
+                .find((m) => m.role === "user")?.createdAt;
+          const tookMs = askedAt ? message.createdAt - askedAt : 0;
           const actions = !isUser
             ? extractTimelineActions(message.content)
             : [];
@@ -259,7 +252,8 @@ export function AiEditMessageList({
                         </div>
                         <div className="min-w-0">
                           <div className="font-medium text-foreground truncate">
-                            {act.summary || `Lệnh: ${act.action}`}
+                            {act.summary ||
+                              t("aiEdit.message.command", { action: act.action })}
                           </div>
                           <div className="text-[11px] text-muted-foreground">
                             {act.action} · {selectedIntegration.toUpperCase()}
@@ -274,7 +268,7 @@ export function AiEditMessageList({
                         onClick={() => onExecuteTimelineAction(act)}
                       >
                         <Play className="size-3" />
-                        Áp dụng lại
+                        {t("aiEdit.message.reapply")}
                       </Button>
                     </div>
                   ))}
@@ -306,14 +300,23 @@ export function AiEditMessageList({
                       </div>
                       <span className="flex shrink-0 items-center gap-1 rounded-lg bg-secondary px-2.5 py-1 text-xs font-medium text-secondary-foreground">
                         <Play className="size-3" />
-                        Xem preview
+                        {t("aiEdit.preview.open")}
                       </span>
                     </button>
                   ))}
                 </div>
               )}
 
-              <div className="flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
+              <div className="flex items-center gap-1">
+                {tookMs > 0 && (
+                  <span
+                    className="flex items-center gap-1 px-1.5 py-1 text-[11px] tabular-nums text-muted-foreground"
+                    title={t("aiEdit.message.durationTooltip")}
+                  >
+                    <Clock className="size-3" />
+                    {formatDuration(tookMs)}
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -321,15 +324,15 @@ export function AiEditMessageList({
                     setCopiedId(message.id);
                     setTimeout(() => setCopiedId(""), 1500);
                   }}
-                  className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
-                  title="Sao chép nội dung"
+                  className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-muted-foreground opacity-0 transition hover:bg-muted hover:text-foreground group-hover:opacity-100"
+                  title={t("aiEdit.message.copyTooltip")}
                 >
                   {copiedId === message.id ? (
                     <Check className="size-3 text-emerald-500" />
                   ) : (
                     <Copy className="size-3" />
                   )}
-                  <span>Sao chép</span>
+                  <span>{t("aiEdit.message.copy")}</span>
                 </button>
               </div>
             </div>
@@ -359,4 +362,15 @@ export function AiEditMessageList({
       </div>
     </div>
   );
+}
+
+/** 42s, 3m 12s, 1h 02m. */
+function formatDuration(ms: number): string {
+  const total = Math.max(1, Math.round(ms / 1000));
+  if (total < 60) return `${total}s`;
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = total % 60;
+  if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`;
+  return `${m}m ${String(sec).padStart(2, "0")}s`;
 }

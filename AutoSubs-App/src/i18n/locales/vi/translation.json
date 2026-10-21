@@ -5,7 +5,8 @@
     "sections": {
       "transcription": "Phiên âm",
       "language": "Ngôn ngữ",
-      "cli": "Dòng lệnh"
+      "cli": "Dòng lệnh",
+      "aiProjects": "Project AI Edit"
     },
     "gpu": {
       "title": "Tăng tốc GPU",
@@ -44,6 +45,21 @@
     "support": {
       "supportAutoSubs": "Ủng hộ AutoSubs",
       "viewSource": "Đóng góp"
+    },
+    "aiProjects": {
+      "description": "Media và hội thoại AI Edit lưu cho từng project.",
+      "loading": "Đang tải...",
+      "empty": "Chưa có project AI Edit nào.",
+      "noEditor": "Không có trình dựng",
+      "chatCount_one": "{{count}} hội thoại",
+      "chatCount_other": "{{count}} hội thoại",
+      "openFolder": "Mở thư mục",
+      "delete": "Xóa khỏi AutoSubs",
+      "confirmTitle": "Xóa project",
+      "confirm_zero": "Xóa \"{{name}}\" khỏi AutoSubs? Media, motion graphics và exports của project sẽ chuyển vào Thùng rác. Project trong {{editor}} được giữ nguyên.",
+      "confirm_one": "Xóa \"{{name}}\" khỏi AutoSubs? Media, motion graphics và exports của project sẽ chuyển vào Thùng rác, hội thoại liên quan bị xóa. Project trong {{editor}} được giữ nguyên.",
+      "confirm_other": "Xóa \"{{name}}\" khỏi AutoSubs? Media, motion graphics và exports của project sẽ chuyển vào Thùng rác, {{count}} hội thoại liên quan bị xóa. Project trong {{editor}} được giữ nguyên.",
+      "errorTitle": "Không xóa được project"
     }
   },
   "common": {
@@ -1040,7 +1056,193 @@
     "assets": {
       "button": "Tài nguyên",
       "tooltip": "Mở tài nguyên của Project (Motion Graphics, AI B-Roll, Exports, Templates)",
-      "menuItem": "Tài nguyên (Motion / B-Roll)"
+      "menuItem": "Tài nguyên & Skill",
+      "title": "Asset của project ({{project}})",
+      "description": "Mỗi project DaVinci / Premiere / CapCut có thư mục riêng (video, ảnh, nhạc, SFX, motion). Thư viện chung chỉ để đọc: bấm \"Dùng\" để chép một file vào project.",
+      "projectPath": "Project: ",
+      "libraryPath": "Thư viện chung (nhạc, SFX, template): ",
+      "tabs": {
+        "all": "Tất cả ({{count}})",
+        "video": "Video",
+        "images": "Ảnh",
+        "music": "Nhạc",
+        "sfx": "SFX",
+        "motion": "Motion",
+        "exports": "Xuất file",
+        "templates": "Template chung",
+        "libraryMusic": "Nhạc chung",
+        "librarySfx": "SFX chung",
+        "skills": "Skill",
+        "librarySkills": "Skill chung"
+      },
+      "library": "Thư viện",
+      "empty": "Chưa có asset nào trong mục này. Hãy nhờ AI tạo motion graphic hoặc tải video.",
+      "attach": "@Chat",
+      "attachTooltip": "Đính kèm đường dẫn vào khung chat (@)",
+      "saveTemplate": "Lưu template",
+      "saveTemplateTooltip": "Chép sang template chung để dùng cho project khác",
+      "use": "Dùng",
+      "useTooltip": "Chép vào project (không dùng thẳng file thư viện)",
+      "place": "Lên Timeline",
+      "placeTooltip": "Đặt trực tiếp file này lên Timeline",
+      "placeSummary": "Đặt {{name}} lên Timeline",
+      "savedTemplate": "Đã lưu \"{{name}}\" vào template chung",
+      "copied": "Đã chép \"{{name}}\" vào project",
+      "importSkill": "Nhập skill",
+      "importSkillTooltip": "Chọn thư mục có SKILL.md (hoặc thư mục chứa nhiều skill)",
+      "importSkillTitle": "Chọn thư mục skill",
+      "importedSkills": "Đã nhập skill: {{names}}",
+      "skillsHint": "AI tự đọc skill khi việc khớp mô tả, hoặc khi bạn nhắc tên.",
+      "emptySkills": "Chưa có skill nào. Bấm \"Nhập skill\" để chọn thư mục có SKILL.md.",
+      "savedSkill": "Đã lưu \"{{name}}\" vào skill chung"
+    },
+    "empty": {
+      "title": "Bạn muốn dựng gì hôm nay?",
+      "subtitle": "Điều khiển trực tiếp <b>{{editor}}</b> bằng {{cli}}."
+    },
+    "newChat": "Cuộc trò chuyện mới",
+    "save": "Lưu",
+    "sidebar": {
+      "title": "Hội thoại",
+      "collapse": "Thu gọn danh sách",
+      "expand": "Mở danh sách hội thoại",
+      "search": "Tìm hội thoại...",
+      "messages_one": "{{count}} tin",
+      "messages_other": "{{count}} tin",
+      "pin": "Ghim",
+      "unpin": "Bỏ ghim",
+      "rename": "Đổi tên",
+      "delete": "Xóa"
+    },
+    "header": {
+      "projectTooltip": "Project chứa asset của cuộc trò chuyện này"
+    },
+    "preview": {
+      "button": "Preview",
+      "tooltip": "Xem preview code AI đã viết",
+      "menuTitle": "Motion Graphics của project",
+      "loading": "Đang tải...",
+      "empty": "Chưa có gì để preview. Hãy nhờ AI tạo motion graphic.",
+      "close": "Đóng preview",
+      "open": "Xem preview",
+      "logs": "Xem log",
+      "reload": "Tải lại",
+      "openBrowser": "Mở trong trình duyệt",
+      "startingDev": "Đang cài thư viện và khởi động dev server...",
+      "opening": "Đang mở preview...",
+      "failed": "Không mở được preview",
+      "retry": "Thử lại",
+      "noLogs": "(Chưa có log)"
+    },
+    "message": {
+      "reasoning": "Đang suy luận...",
+      "working": "{{cli}} đang suy nghĩ và xử lý...",
+      "reasonedSteps_one": "Đã suy luận và chạy {{count}} bước công cụ",
+      "reasonedSteps_other": "Đã suy luận và chạy {{count}} bước công cụ",
+      "ranSteps_one": "Đã chạy {{count}} bước công cụ ({{last}})",
+      "ranSteps_other": "Đã chạy {{count}} bước công cụ ({{last}})",
+      "reasoned": "Đã suy luận",
+      "command": "Lệnh: {{action}}",
+      "reapply": "Áp dụng lại",
+      "copy": "Sao chép",
+      "copyTooltip": "Sao chép nội dung",
+      "runError": "⚠️ **Lỗi thực thi ({{cli}})**: {{error}}",
+      "stopped": "*(Đã dừng bởi người dùng)*",
+      "durationTooltip": "Thời gian AI xử lý câu này"
+    },
+    "prompt": {
+      "locked": "Đoạn chat này đã khóa với <b>{{bound}}</b>. Bạn đang mở <b>{{current}}</b> (đã chặn gửi tiếp để tránh lẫn lộn context).",
+      "newChatForProject": "Tạo chat mới cho dự án này",
+      "lockedPlaceholder": "Chat đã khóa với dự án khác. Hãy tạo cuộc trò chuyện mới...",
+      "placeholder": "Hỏi bất cứ điều gì, @ để đính kèm, / để chạy lệnh",
+      "addTooltip": "Thêm file, Workspace hoặc cấu hình",
+      "attach": "Đính kèm file / media (@)",
+      "pickWorkspace": "Chọn thư mục Workspace",
+      "resetWorkspace": "Về Workspace mặc định",
+      "memory": "Bộ nhớ (memory.md)",
+      "systemPrompt": "Chỉ dẫn cho AI",
+      "defaultModel": "Mặc định ({{name}})",
+      "connected": "Đã kết nối: {{version}}",
+      "recheck": "Kiểm tra lại CLI",
+      "turboTooltip": "Turbo: tự áp dụng lệnh dựng của AI lên Timeline",
+      "manualTooltip": "Manual: hỏi trước khi áp dụng lên Timeline",
+      "stop": "Dừng phản hồi",
+      "send": "Gửi (Enter)"
+    },
+    "slash": {
+      "new": "Tạo cuộc trò chuyện mới",
+      "clear": "Xóa lịch sử cuộc trò chuyện hiện tại",
+      "assets": "Quản lý asset của project",
+      "memory": "Sửa memory.md và global-memory.md",
+      "folder": "Chọn thư mục Workspace riêng"
+    },
+    "systemPrompt": {
+      "title": "Chỉ dẫn cho AI",
+      "description": "Chỉ dẫn riêng cho cuộc trò chuyện này (phong cách dựng, quy tắc cắt, tỷ lệ khung hình...). Timeline và Workspace của project đã được tự động đính kèm.",
+      "placeholder": "Ví dụ: luôn dựng theo nhịp nhanh 2.5s/cảnh, zoom 1.15x vào các câu nhấn mạnh...",
+      "save": "Lưu chỉ dẫn",
+      "saved": "Đã lưu chỉ dẫn"
+    },
+    "memory": {
+      "title": "Bộ nhớ AI",
+      "description": "Ghi chú riêng cho project đang mở (<b>{{project}}</b>) tách biệt với phong cách dựng dùng chung cho mọi dự án.",
+      "projectTab": "Theo project ({{project}})",
+      "globalTab": "Mọi project (global-memory.md)",
+      "projectPlaceholder": "Ghi chú riêng cho video này: chủ đề, kịch bản, tone màu, nhân vật, yêu cầu đặc biệt...",
+      "globalPlaceholder": "Phong cách dựng mặc định cho mọi dự án: font chữ thương hiệu, bảng màu, nhịp cắt, thư mục nhạc nền...",
+      "saving": "Đang lưu...",
+      "save": "Lưu bộ nhớ",
+      "saved": "Đã lưu bộ nhớ"
+    },
+    "rename": {
+      "title": "Đổi tên cuộc trò chuyện"
+    },
+    "errors": {
+      "unsupported": "AI Edit chưa hỗ trợ trình dựng này.",
+      "mismatch": "Cuộc trò chuyện này đã gắn với project khác. Hãy tạo cuộc trò chuyện mới để không lẫn lộn context.",
+      "projectUnknown": "Chưa đọc được project đang mở trong {{editor}}. Hãy mở project và timeline rồi thử lại."
+    },
+    "pickWorkspaceTitle": "Chọn thư mục Workspace cho AI",
+    "attachTitle": "Chọn file hoặc media đính kèm cho AI",
+    "defaultProject": "Mặc định",
+    "notSelected": "Chưa chọn",
+    "unsupportedEditor": "{{name}} (AI Edit chưa hỗ trợ dựng)",
+    "steps": {
+      "planning": "Suy luận và lập kế hoạch",
+      "get_timeline": "Đọc Timeline",
+      "get_transcript": "Đọc Transcript",
+      "build_storyboard": "Đặt clip lên Timeline",
+      "add_marker": "Đặt Marker",
+      "add_text": "Thêm chữ",
+      "update_clip": "Chỉnh clip",
+      "delete_clips": "Xóa clip",
+      "split_clips": "Cắt đôi clip",
+      "remove_ranges": "Cắt bỏ đoạn",
+      "apply_actions": "Áp nhiều thao tác",
+      "render_motion": "Render motion graphic",
+      "list_media": "Xem thư mục media",
+      "inspect_media": "Xem link video",
+      "download_media": "Tải video",
+      "save_article": "Lưu bài báo",
+      "remove_background": "Tách nền ảnh",
+      "thinking": "Suy luận",
+      "runCommand": "Chạy lệnh Terminal",
+      "writeFile": "Ghi file",
+      "createFile": "Tạo file",
+      "editFile": "Chỉnh sửa file",
+      "editMany": "Chỉnh sửa nhiều đoạn",
+      "readFile": "Đọc file",
+      "listDir": "Xem thư mục",
+      "findFile": "Tìm file",
+      "searchCode": "Tìm trong code",
+      "searchDir": "Tìm trong thư mục",
+      "searchWeb": "Tìm kiếm trên Web",
+      "readWeb": "Đọc trang Web",
+      "generateImage": "Tạo ảnh AI",
+      "subagent": "Gọi Subagent",
+      "remove_marker": "Xoá Marker",
+      "add_effects": "Thêm hiệu ứng",
+      "add_transitions": "Thêm chuyển cảnh"
     }
   }
 }

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import {
   ArrowRight,
   Bot,
@@ -130,17 +130,14 @@ export function AiEditPromptBox({
             <div className="flex items-center gap-2 min-w-0 flex-1">
               <Lock className="size-3.5 shrink-0 text-amber-500" />
               <span className="leading-snug">
-                Đoạn chat này đã khóa với{" "}
-                <strong className="font-semibold">
-                  {editorLabel(contextMismatch.boundIntegration, true)}{" "}
-                  · {contextMismatch.boundProjectName}
-                </strong>
-                . Bạn đang mở{" "}
-                <strong className="font-semibold">
-                  {editorLabel(contextMismatch.currentIntegration, true)}{" "}
-                  · {contextMismatch.currentProjectName}
-                </strong>{" "}
-                (đã chặn gửi tiếp để tránh lẫn lộn context).
+                <Trans
+                  i18nKey="aiEdit.prompt.locked"
+                  values={{
+                    bound: `${editorLabel(contextMismatch.boundIntegration, true)} · ${contextMismatch.boundProjectName}`,
+                    current: `${editorLabel(contextMismatch.currentIntegration, true)} · ${contextMismatch.currentProjectName}`,
+                  }}
+                  components={{ b: <strong className="font-semibold" /> }}
+                />
               </span>
             </div>
             {onCreateConversation && (
@@ -150,7 +147,7 @@ export function AiEditPromptBox({
                 className="flex shrink-0 items-center gap-1.5 rounded-lg bg-amber-500/20 px-2.5 py-1.5 text-[11px] font-semibold text-amber-700 dark:text-amber-200 hover:bg-amber-500/30 transition-colors"
               >
                 <MessageSquarePlus className="size-3.5" />
-                <span>Tạo chat mới cho dự án này</span>
+                <span>{t("aiEdit.prompt.newChatForProject")}</span>
               </button>
             )}
           </div>
@@ -168,7 +165,9 @@ export function AiEditPromptBox({
                 <span className="font-mono font-medium text-foreground">
                   /{cmd.name}
                 </span>
-                <span className="text-muted-foreground">{cmd.desc}</span>
+                <span className="text-muted-foreground">
+                  {t(`aiEdit.slash.${cmd.name}`)}
+                </span>
               </button>
             ))}
           </div>
@@ -194,8 +193,8 @@ export function AiEditPromptBox({
             }}
             placeholder={
               isLockedByMismatch
-                ? "Đoạn chat đã khóa với dự án khác — hãy tạo cuộc trò chuyện mới..."
-                : "Ask anything, @ to mention, / for actions"
+                ? t("aiEdit.prompt.lockedPlaceholder")
+                : t("aiEdit.prompt.placeholder")
             }
             className="w-full resize-none border-0 bg-transparent p-0 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/60 focus:outline-none disabled:cursor-not-allowed"
           />
@@ -208,7 +207,7 @@ export function AiEditPromptBox({
                     type="button"
                     disabled={activeIsRunning}
                     className="flex size-7 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-                    title="Thêm file, Workspace hoặc cấu hình"
+                    title={t("aiEdit.prompt.addTooltip")}
                   >
                     <Plus className="size-4" />
                   </button>
@@ -227,7 +226,7 @@ export function AiEditPromptBox({
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={onAttachFile}>
                     <Paperclip className="size-3.5 mr-2" />
-                    Đính kèm file / media (@)
+                    {t("aiEdit.prompt.attach")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     disabled={providerLocked}
@@ -237,23 +236,23 @@ export function AiEditPromptBox({
                     <span className="truncate">
                       {workspacePath
                         ? workspaceShortLabel(workspacePath)
-                        : "Chọn thư mục Workspace"}
+                        : t("aiEdit.prompt.pickWorkspace")}
                     </span>
                   </DropdownMenuItem>
                   {workspacePath && !providerLocked && (
                     <DropdownMenuItem onClick={onResetWorkspace}>
                       <RotateCcw className="size-3.5 mr-2" />
-                      Về Workspace mặc định
+                      {t("aiEdit.prompt.resetWorkspace")}
                     </DropdownMenuItem>
                   )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={onOpenMemoryDialog}>
                     <FileText className="size-3.5 mr-2" />
-                    Bộ nhớ 2-Tier (memory.md)
+                    {t("aiEdit.prompt.memory")}
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={onOpenSystemPromptDialog}>
                     <Bot className="size-3.5 mr-2" />
-                    Chỉ dẫn hệ thống (System Prompt)
+                    {t("aiEdit.prompt.systemPrompt")}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -281,11 +280,11 @@ export function AiEditPromptBox({
                 </SelectTrigger>
                 <SelectContent align="start">
                   <SelectItem value="__default">
-                    Mặc định ({defaultModelDisplay.name}
-                    {defaultModelDisplay.tier
-                      ? ` ${defaultModelDisplay.tier}`
-                      : ""}
-                    )
+                    {t("aiEdit.prompt.defaultModel", {
+                      name: [defaultModelDisplay.name, defaultModelDisplay.tier]
+                        .filter(Boolean)
+                        .join(" "),
+                    })}
                   </SelectItem>
                   {availableModels.map((m) => {
                     const parts = formatModelParts(m, activeAdapter);
@@ -335,8 +334,10 @@ export function AiEditPromptBox({
                 className="flex size-6 items-center justify-center rounded-md text-muted-foreground/60 hover:text-foreground transition-colors"
                 title={
                   adapterStatus?.available
-                    ? `Đã kết nối: ${adapterStatus.version || adapterStatus.path}`
-                    : "Kiểm tra lại CLI"
+                    ? t("aiEdit.prompt.connected", {
+                        version: adapterStatus.version || adapterStatus.path,
+                      })
+                    : t("aiEdit.prompt.recheck")
                 }
               >
                 <RefreshCw
@@ -357,8 +358,8 @@ export function AiEditPromptBox({
                 )}
                 title={
                   autoApplyActions
-                    ? "Chế độ Turbo: Tự động áp dụng lệnh dựng của AI lên Timeline"
-                    : "Chế độ Manual: Hỏi trước khi áp dụng lên Timeline"
+                    ? t("aiEdit.prompt.turboTooltip")
+                    : t("aiEdit.prompt.manualTooltip")
                 }
               >
                 <Shield className="size-3.5" />
@@ -373,7 +374,7 @@ export function AiEditPromptBox({
                   type="button"
                   onClick={onStopRunning}
                   className="flex size-8 items-center justify-center rounded-full bg-foreground text-background hover:opacity-90 transition-opacity"
-                  title="Dừng phản hồi"
+                  title={t("aiEdit.prompt.stop")}
                 >
                   <Square className="size-3.5 fill-current" />
                 </button>
@@ -388,7 +389,7 @@ export function AiEditPromptBox({
                       ? "bg-foreground text-background hover:opacity-90"
                       : "bg-muted text-muted-foreground/50 cursor-not-allowed",
                   )}
-                  title="Gửi (Enter)"
+                  title={t("aiEdit.prompt.send")}
                 >
                   <ArrowRight className="size-4" />
                 </button>

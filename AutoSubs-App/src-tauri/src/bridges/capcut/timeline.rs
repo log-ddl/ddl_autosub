@@ -742,9 +742,57 @@ pub async fn capcut_add_markers(
     })
 }
 
+/// Drop the markers that start within half a frame of one of `at_secs`.
+/// Returns how many went.
+fn remove_marker_items(info: &mut Value, at_secs: &[f64]) -> usize {
+    let fps = info.get("fps").and_then(|v| v.as_f64()).filter(|f| *f > 0.0).unwrap_or(30.0);
+    let tolerance_us = US_PER_SEC / fps / 2.0;
+    let Some(items) = info
+        .get_mut("time_marks")
+        .and_then(|t| t.get_mut("mark_items"))
+        .and_then(|m| m.as_array_mut())
+    else {
+        return 0;
+    };
+    let before = items.len();
+    items.retain(|it| {
+        let start = it.get("time_range").and_then(|r| r.get("start")).and_then(|v| v.as_i64()).unwrap_or(-1) as f64;
+        !at_secs.iter().any(|a| (a * US_PER_SEC - start).abs() <= tolerance_us)
+    });
+    before - items.len()
+}
+
+/// Delete the timeline markers at `at_secs` (seconds, as the snapshot
+/// reports them). Returns how many were removed.
+pub async fn capcut_delete_markers(preferred_draft_id: Option<String>, at_secs: Vec<f64>) -> Result<usize, String> {
+    let status = capcut_get_status(preferred_draft_id).await?;
+    let draft = status.active_draft.ok_or_else(|| "No CapCut project found.".to_string())?;
+    let text = fs::read_to_string(&draft.json_path)
+        .map_err(|e| format!("Failed to read {}: {}", draft.json_path, e))?;
+    let mut info: Value = serde_json::from_str(&text)
+        .map_err(|e| format!("Failed to parse {}: {}", draft.json_path, e))?;
+    let removed = remove_marker_items(&mut info, &at_secs);
+    if removed > 0 {
+        let duration_us = info.get("duration").and_then(|v| v.as_i64()).unwrap_or(0);
+        save_draft_json(&draft, &info, duration_us)?;
+    }
+    Ok(removed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn removes_markers_by_time() {
+        let mut info = draft_with_markers();
+        // Marker 01 sits at 0.70 s, Marker 02 at 2.3667 s.
+        assert_eq!(remove_marker_items(&mut info, &[2.3667]), 1);
+        let left = info["time_marks"]["mark_items"].as_array().unwrap();
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0]["title"], json!("Marker 01"));
+        assert_eq!(remove_marker_items(&mut info, &[5.0]), 0);
+    }
 
     // Shape copied from a draft CapCut Desktop saved with two markers.
     fn draft_with_markers() -> Value {

@@ -25,6 +25,7 @@ import {
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "@/components/ui/item";
 import { Field, FieldGroup } from "@/components/ui/field";
 import { initI18n, normalizeUiLanguage } from "@/i18n";
+import { AiEditProjects } from "@/components/settings/ai-edit-projects";
 import { uiLanguages } from "@/lib/languages";
 import { useRef } from "react";
 import { getVersion } from "@tauri-apps/api/app";
@@ -346,6 +347,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                 </Field>
               </FieldGroup>
             </div>
+
+            {/* Folders AI Edit keeps per editor project */}
+            <AiEditProjects open={open} />
 
             {/* Command-line tool */}
             {cliStatus && (

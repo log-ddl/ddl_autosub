@@ -246,7 +246,7 @@ fn create_main_window(app: &tauri::AppHandle) -> tauri::Result<tauri::WebviewWin
     let mut builder =
         tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
             .title("AutoSubs")
-            .inner_size(750.0, 700.0)
+            .inner_size(850.0, 850.0)
             .decorations(true)
             .accept_first_mouse(true)
             .visible(false);
@@ -473,6 +473,9 @@ fn main() {
             ai_cli::workspace::cli_ensure_workspace,
             ai_cli::workspace::cli_save_memory,
             ai_cli::workspace::cli_copy_asset,
+            ai_cli::workspace::cli_import_skills,
+            ai_cli::workspace::cli_list_workspace_projects,
+            ai_cli::workspace::cli_delete_workspace_project,
             ai_cli::chat::cli_run_text_task,
             ai_cli::chat::cli_cancel_text_task,
             ai_cli::preview::preview_start,

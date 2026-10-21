@@ -3,11 +3,13 @@
 //! images, and remove the background from an image. They run the Download tab's
 //! own code (`media_download`, `article`) plus `bg_remove`.
 //!
-//! Files land in the conversation's project workspace: videos and cutout PNGs in
-//! `ai-broll/`, articles in `articles/<slug>/`. None of these tools touch the
+//! Files land in the conversation's project workspace: videos in `media/video/`,
+//! cutout PNGs in `media/images/`, articles in `articles/<slug>/`. None of these tools touch the
 //! timeline, so they are available in Manual runs too.
 
 use std::path::{Path, PathBuf};
+
+use crate::ai_cli::workspace::{IMAGES_DIR, VIDEO_DIR};
 
 use futures_util::stream::{self, StreamExt};
 use serde_json::{json, Value};
@@ -42,7 +44,7 @@ pub fn tools() -> Vec<Value> {
         ),
         tool(
             "download_media",
-            "Download videos into the project's ai-broll folder as MP4 and return a short id (m12) \
+            "Download videos into the project's media/video folder as MP4 and return a short id (m12) \
              and length for each, ready for build_storyboard. For B-roll pass startSec/endSec to fetch only that section: it is \
              much faster than the whole video. quality is a height such as 1080 (default best). For \
              several clips pass them all in items (up to 10) in ONE call: they download 4 at a time, \
@@ -87,7 +89,7 @@ pub fn tools() -> Vec<Value> {
         tool(
             "remove_background",
             "Remove the background from an image (person, object, character, logo or illustration) \
-             and save a transparent PNG into the project's ai-broll folder, ready for build_storyboard. \
+             and save a transparent PNG into the project's media/images folder, ready for build_storyboard. \
              mode: \"auto\" (default, uses the local RMBG-1.4 AI segmentation model), \"ai\" (force AI \
              model for photos and complex scenes), or \"solid\" (fast corner-sampled color keying for \
              flat-colored illustrations, stickmen or icons). Set cropToContent to trim transparent margins.",
@@ -95,7 +97,7 @@ pub fn tools() -> Vec<Value> {
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "description": "Absolute path to the source image" },
-                    "outputPath": { "type": "string", "description": "Optional output PNG path; defaults to ai-broll/<stem>_nobg.png" },
+                    "outputPath": { "type": "string", "description": "Optional output PNG path; defaults to media/images/<stem>_nobg.png" },
                     "mode": { "type": "string", "enum": ["auto", "ai", "solid"], "description": "Segmentation mode (default \"auto\")" },
                     "cropToContent": { "type": "boolean", "description": "Trim transparent borders around the cutout (default false)" },
                     "padding": { "type": "integer", "minimum": 0, "description": "Transparent padding in pixels when cropToContent is true (default 8)" },
@@ -167,7 +169,8 @@ async fn inspect(app: &AppHandle, args: &Value) -> Result<String, String> {
 
 async fn download(app: &AppHandle, workspace: Option<&Path>, args: &Value) -> Result<String, String> {
     require_downloader(app)?;
-    let dir = workspace.ok_or("This run has no project workspace to download into.")?.join("ai-broll");
+    let workspace = workspace.ok_or("This run has no project workspace to download into.")?;
+    let dir = workspace.join(VIDEO_DIR);
     tokio::fs::create_dir_all(&dir).await.map_err(|e| format!("Could not create {}: {}", dir.display(), e))?;
     let items: Vec<&Value> = match args.get("items").and_then(|v| v.as_array()) {
         Some(list) if !list.is_empty() => list.iter().collect(),
@@ -177,7 +180,7 @@ async fn download(app: &AppHandle, workspace: Option<&Path>, args: &Value) -> Re
         return Err(format!("download_media takes at most {} items; split them over several calls.", MAX_DOWNLOADS));
     }
     if items.len() == 1 {
-        return download_one(app, &dir, items[0]).await;
+        return download_one(app, workspace, &dir, items[0]).await;
     }
 
     // Owned futures: borrowing app/dir through the map closure trips the
@@ -187,7 +190,7 @@ async fn download(app: &AppHandle, workspace: Option<&Path>, args: &Value) -> Re
         .cloned()
         .map(|item| {
             let (app, dir) = (app.clone(), dir.clone());
-            async move { download_one(&app, &dir, &item).await }
+            async move { download_one(&app, workspace, &dir, &item).await }
         })
         .collect();
     let results: Vec<Result<String, String>> = stream::iter(jobs).buffered(PARALLEL_DOWNLOADS).collect().await;
@@ -211,9 +214,9 @@ async fn download(app: &AppHandle, workspace: Option<&Path>, args: &Value) -> Re
 /// Download one clip. yt-dlp names the file after the video only, so two
 /// sections of one video would collide (the second is skipped as "already
 /// downloaded"). Each clip therefore lands in its own temp folder and moves
-/// into ai-broll/ under a name carrying its section, without the brackets
+/// into media/video/ under a name carrying its section, without the brackets
 /// shells read as glob patterns.
-async fn download_one(app: &AppHandle, dir: &Path, args: &Value) -> Result<String, String> {
+async fn download_one(app: &AppHandle, workspace: &Path, dir: &Path, args: &Value) -> Result<String, String> {
     let url = url_arg(args)?;
     let sec = |key: &str| args.get(key).and_then(|v| v.as_f64()).filter(|v| *v >= 0.0);
     let (start, end) = (sec("startSec"), sec("endSec"));
@@ -236,9 +239,8 @@ async fn download_one(app: &AppHandle, dir: &Path, args: &Value) -> Result<Strin
                 let from = PathBuf::from(&p);
                 let to = dir.join(clip_file_name(&from, start, end));
                 match tokio::fs::rename(&from, &to).await {
-                    // dir is <workspace>/ai-broll.
-                    Ok(()) => Ok(format!("Saved {}", assets::describe(dir.parent().unwrap_or(dir), &to))),
-                    Err(e) => Err(format!("Downloaded {} but could not move it into ai-broll: {}", p, e)),
+                    Ok(()) => Ok(format!("Saved {}", assets::describe(workspace, &to))),
+                    Err(e) => Err(format!("Downloaded {} but could not move it into media/video: {}", p, e)),
                 }
             }
             None => Err("The download finished without a file.".into()),
@@ -327,7 +329,7 @@ async fn remove_background(
         Some(custom) => PathBuf::from(custom),
         None => {
             let dir = match workspace {
-                Some(ws) => ws.join("ai-broll"),
+                Some(ws) => ws.join(IMAGES_DIR),
                 None => input_path
                     .parent()
                     .map(Path::to_path_buf)

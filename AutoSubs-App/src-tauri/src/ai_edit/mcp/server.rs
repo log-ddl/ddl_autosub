@@ -321,7 +321,9 @@ fn instructions(session: &Session) -> String {
     if session.workspace.is_some() {
         s.push_str(
             " inspect_media, download_media, save_article and remove_background fetch videos, web \
-             articles and remove image backgrounds into the project workspace (ai-broll/, articles/); \
+             articles and remove image backgrounds into the project workspace (media/video, \
+             media/images, articles/); media from outside the project (a library/ sfx pack, \
+             Downloads) is copied into media/ when build_storyboard places it; \
              download_media and remove_background return paths build_storyboard takes. \
              render_motion renders a Remotion project from motion-graphics/ into exports/ and waits \
              for the file. list_media lists a folder (a sound effect pack) with ids and lengths. Every \
@@ -347,10 +349,22 @@ async fn call_tool(session: &Session, name: &str, mut args: Value) -> Value {
         if let Err(e) = assets::resolve_ids(ws, &mut args) {
             return tool_text(e, true);
         }
+        // Whatever goes on the timeline is copied into the project first.
+        if matches!(name, "build_storyboard" | "apply_actions") {
+            let library = app_handle()
+                .get()
+                .and_then(|app| crate::ai_cli::workspace::library_root(app).ok());
+            if let Err(e) = assets::import_external(ws, library.as_deref(), &mut args) {
+                return tool_text(e, true);
+            }
+        }
     }
     if name == "get_timeline" {
         return match timeline_snapshot(&session.target).await {
-            Ok(snapshot) => tool_text(crate::ai_edit::mcp::tools::timeline_text(&snapshot), false),
+            Ok(snapshot) => {
+                let filter = crate::ai_edit::mcp::tools::TimelineFilter::from_args(&args);
+                tool_text(crate::ai_edit::mcp::tools::timeline_text(&snapshot, &filter), false)
+            }
             Err(e) => tool_text(e, true),
         };
     }
@@ -439,6 +453,9 @@ fn edit_action_name(tool: &str) -> Option<&'static str> {
         "delete_clips" => "delete_segment",
         "split_clips" => "split_clips",
         "remove_ranges" => "remove_ranges",
+        "remove_marker" => "remove_marker",
+        "add_effects" => "add_effects",
+        "add_transitions" => "add_transitions",
         _ => return None,
     })
 }
@@ -450,7 +467,10 @@ fn parse_edit(name: &str, mut args: Value) -> Result<TimelineAction, String> {
         args = json!({});
     }
     args["action"] = json!(action);
-    serde_json::from_value(args).map_err(|e| format!("Invalid arguments for {}: {}", name, e))
+    let action: TimelineAction =
+        serde_json::from_value(args).map_err(|e| format!("Invalid arguments for {}: {}", name, e))?;
+    action.check().map_err(|e| format!("Invalid arguments for {}: {}", name, e))?;
+    Ok(action)
 }
 
 /// Run several edits in one tool call, in order. Every entry is checked
@@ -589,7 +609,7 @@ mod tests {
         assert!(list.starts_with("HTTP/1.1 200 OK"), "{}", list);
         let body: Value = serde_json::from_str(list.split("\r\n\r\n").nth(1).unwrap()).unwrap();
         assert_eq!(body["id"], json!(7));
-        assert_eq!(body["result"]["tools"].as_array().unwrap().len(), 10);
+        assert_eq!(body["result"]["tools"].as_array().unwrap().len(), 11);
 
         let note = http(post("/mcp/s1", &token, &json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }))).await;
         assert!(note.starts_with("HTTP/1.1 202 Accepted"), "{}", note);

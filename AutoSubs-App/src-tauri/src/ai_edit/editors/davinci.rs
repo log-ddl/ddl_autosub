@@ -10,8 +10,9 @@ use serde_json::{json, Value};
 
 use crate::ai_edit::actions::{ActionOutcome, Editor, MarkerSpec, SegmentUpdate, StoryboardItem, TextSpec, TimeRange};
 use crate::ai_edit::mcp::tools::{
-    delete_tool, marker_tool, remove_ranges_tool, split_tool, storyboard_tool, text_item, tool,
+    delete_tool, marker_tool, remove_marker_tool, remove_ranges_tool, split_tool, storyboard_tool, text_item, tool,
 };
+use crate::ai_edit::editors::davinci_titles::{self, LeftClip};
 use crate::bridges::davinci::bridge::send_resolve_payload;
 
 const RESOLVE_TIMEOUT: Duration = Duration::from_secs(300);
@@ -116,6 +117,17 @@ pub async fn add_markers(markers: Vec<MarkerSpec>) -> Result<ActionOutcome, Stri
     })
 }
 
+pub async fn delete_markers(at_secs: Vec<f64>) -> Result<ActionOutcome, String> {
+    let requested = at_secs.len();
+    let reply = call_resolve(json!({ "func": "DeleteMarkers", "atSec": at_secs })).await?;
+    let deleted = reply.get("deleted").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+    Ok(ActionOutcome {
+        message: format!("Removed {}/{} marker(s) in Resolve.", deleted, requested),
+        partial: deleted < requested,
+        lines: string_lines(&reply),
+    })
+}
+
 /// Split `text` into words spread evenly over [start, end], for caption
 /// templates that animate word by word.
 fn even_words(text: &str, start: f64, end: f64) -> Vec<Value> {
@@ -136,6 +148,14 @@ pub async fn add_text(
     track: Option<String>,
 ) -> Result<ActionOutcome, String> {
     let count = texts.len();
+    let template = template.filter(|t| !t.trim().is_empty()).unwrap_or_else(|| "Default Template".into());
+    place_titles(&texts, &template, track).await?;
+    Ok(ActionOutcome::ok(format!("Added {} text clip(s) in Resolve using '{}'.", count, template)))
+}
+
+/// Place Text+ titles and remember each one's text (davinci_titles), so a
+/// later cut through one can re-create its pieces.
+async fn place_titles(texts: &[TextSpec], template: &str, track: Option<String>) -> Result<Value, String> {
     let segments: Vec<Value> = texts
         .iter()
         .map(|t| {
@@ -147,8 +167,7 @@ pub async fn add_text(
             })
         })
         .collect();
-    let template = template.filter(|t| !t.trim().is_empty()).unwrap_or_else(|| "Default Template".into());
-    call_resolve(json!({
+    let reply = call_resolve(json!({
         "func": "AddSubtitles",
         "templateName": template,
         "trackIndex": track.unwrap_or_else(|| "0".into()),
@@ -161,7 +180,84 @@ pub async fn add_text(
         },
     }))
     .await?;
-    Ok(ActionOutcome::ok(format!("Added {} text clip(s) in Resolve using '{}'.", count, template)))
+    davinci_titles::remember(&reply, template);
+    Ok(reply)
+}
+
+/// Clips a cut or split left whole because Resolve cannot rebuild them.
+/// Titles AI Edit placed are re-created as `pieces_of` says (deleted, then
+/// placed again piece by piece with the same text, template and track); the
+/// rest are reported with what the agent can do. Returns how many titles
+/// were re-created, and the new pieces as "V2 <id> 18.00-20.00".
+async fn recreate_titles(
+    left: Vec<LeftClip>,
+    pieces_of: impl Fn(&LeftClip) -> Vec<(f64, f64)>,
+    lines: &mut Vec<String>,
+) -> (usize, Vec<String>) {
+    let mut done = 0;
+    let mut new_pieces = Vec::new();
+    for clip in left {
+        let Some(title) = davinci_titles::get(&clip.id) else {
+            let track = match clip.kind.as_str() {
+                "audio" => "A",
+                "subtitle" => "S",
+                _ => "V",
+            };
+            lines.push(format!(
+                "Left \"{}\" on {}{} ({:.2}-{:.2}s) whole: {}. Its text is unknown (not added by AutoSubs), so \
+                 delete it or re-add the parts with add_text.",
+                clip.name, track, clip.track, clip.start_sec, clip.end_sec, clip.reason
+            ));
+            continue;
+        };
+        let pieces = pieces_of(&clip);
+        if let Err(e) = call_resolve(json!({ "func": "DeleteClips", "ids": [clip.id], "ripple": false })).await {
+            lines.push(format!("Could not cut the title \"{}\": {}", title.text, e));
+            continue;
+        }
+        davinci_titles::forget(&clip.id);
+        if pieces.is_empty() {
+            done += 1;
+            continue;
+        }
+        let texts: Vec<TextSpec> =
+            pieces.iter().map(|(a, b)| TextSpec { text: title.text.clone(), start: *a, end: *b }).collect();
+        let track = title.track.unwrap_or(clip.track).to_string();
+        match place_titles(&texts, &title.template, Some(track)).await {
+            Ok(reply) => {
+                done += 1;
+                new_pieces.extend(piece_lines(reply.get("items"), "V"));
+            }
+            Err(e) => lines.push(format!(
+                "Deleted the title \"{}\" but could not place its pieces again: {}. Re-add them with add_text.",
+                title.text, e
+            )),
+        }
+    }
+    (done, new_pieces)
+}
+
+/// "V1 <id> 0.00-1.50" for each piece a reply lists (`pieces` from a split,
+/// `items` from placed titles), so the agent can edit one right away.
+fn piece_lines(list: Option<&Value>, default_track: &str) -> Vec<String> {
+    list.and_then(|l| l.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|p| {
+                    let id = p.get("id")?.as_str()?;
+                    let track = match p.get("track") {
+                        Some(Value::String(t)) => t.clone(),
+                        Some(Value::Number(n)) => format!("{}{}", default_track, n),
+                        _ => default_track.to_string(),
+                    };
+                    let start = p.get("startSec").or_else(|| p.get("start")).and_then(|v| v.as_f64())?;
+                    let end = p.get("endSec").or_else(|| p.get("end")).and_then(|v| v.as_f64())?;
+                    Some(format!("{} {} {:.2}-{:.2}", track, id, start, end))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 pub async fn update_segment(u: SegmentUpdate) -> Result<ActionOutcome, String> {
@@ -223,23 +319,45 @@ pub async fn delete_segments(ids: Vec<String>, ripple: bool) -> Result<ActionOut
 
 pub async fn split_clips(at_sec: f64, ids: Vec<String>) -> Result<ActionOutcome, String> {
     let reply = call_resolve(json!({ "func": "SplitClips", "atSec": at_sec, "ids": ids })).await?;
-    let split = reply.get("split").and_then(|v| v.as_u64()).unwrap_or(0);
-    let lines = string_lines(&reply);
+    let mut lines = string_lines(&reply);
+    let (titles, title_pieces) = recreate_titles(
+        davinci_titles::left_clips(&reply),
+        |c| vec![(c.start_sec, at_sec), (at_sec, c.end_sec)],
+        &mut lines,
+    )
+    .await;
+    let split = reply.get("split").and_then(|v| v.as_u64()).unwrap_or(0) + titles as u64;
+    if split == 0 {
+        return Err(format!("Nothing was split at {:.2}s. {}", at_sec, lines.join(" ")));
+    }
+    let mut pieces = piece_lines(reply.get("pieces"), "V");
+    pieces.extend(title_pieces);
     Ok(ActionOutcome {
-        message: format!("Split {} clip(s) at {:.2}s in Resolve.", split, at_sec),
+        message: format!(
+            "Split {} clip(s) at {:.2}s in Resolve. New ids: {}.",
+            split,
+            at_sec,
+            if pieces.is_empty() { "see get_timeline".into() } else { pieces.join("; ") }
+        ),
         partial: !lines.is_empty(),
         lines,
     })
 }
 
-pub async fn remove_ranges(ranges: Vec<TimeRange>, ripple: bool) -> Result<ActionOutcome, String> {
+pub async fn remove_ranges(ranges: Vec<TimeRange>, ripple: bool, tracks: Vec<String>) -> Result<ActionOutcome, String> {
     let total: f64 = ranges.iter().map(|r| r.end - r.start).sum();
     let count = ranges.len();
-    let reply = call_resolve(json!({ "func": "RemoveRanges", "ranges": ranges, "ripple": ripple })).await?;
-    let cut = reply.get("cut").and_then(|v| v.as_u64()).unwrap_or(0);
+    let reply = call_resolve(json!({ "func": "RemoveRanges", "ranges": ranges, "ripple": ripple, "tracks": tracks })).await?;
+    let mut problems = string_lines(&reply);
+    let (titles, _) = recreate_titles(
+        davinci_titles::left_clips(&reply),
+        |c| davinci_titles::kept_after_cut(c.start_sec, c.end_sec, &ranges, ripple),
+        &mut problems,
+    )
+    .await;
+    let cut = reply.get("cut").and_then(|v| v.as_u64()).unwrap_or(0) + titles as u64;
     let deleted = reply.get("deleted").and_then(|v| v.as_u64()).unwrap_or(0);
     let mut lines = vec![format!("{} clip(s) cut at the span edges, {} piece(s) deleted.", cut, deleted)];
-    let problems = string_lines(&reply);
     let partial = !problems.is_empty();
     lines.extend(problems);
     Ok(ActionOutcome {
@@ -268,7 +386,8 @@ pub const MARKER_COLORS: &[&str] = &[
 
 /// What cutting costs in Resolve, appended to the split and remove tools.
 const REBUILD_NOTE: &str = " Resolve rebuilds a cut clip from its media: the pieces keep the transform but lose the \
-     color grade and Fusion effects, and titles, generators and speed-changed clips cannot be cut.";
+     color grade and Fusion effects. Titles added with add_text are cut too (re-created as pieces with \
+     the same text); titles made by hand, generators and speed-changed clips are left whole and reported.";
 
 /// The edit tools, in the order the agent sees them.
 pub fn edit_tools() -> Vec<Value> {
@@ -330,12 +449,22 @@ pub fn edit_tools() -> Vec<Value> {
                 REBUILD_NOTE
             ),
         ),
+        remove_marker_tool("DaVinci Resolve"),
     ]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lists_new_piece_ids() {
+        let split = json!([{ "id": "a", "track": "V1", "startSec": 0.0, "endSec": 1.5 }]);
+        assert_eq!(piece_lines(Some(&split), "V"), ["V1 a 0.00-1.50"]);
+        let titles = json!([{ "id": "t", "text": "Hi", "start": 18.0, "end": 20.0, "track": 2 }]);
+        assert_eq!(piece_lines(Some(&titles), "V"), ["V2 t 18.00-20.00"]);
+        assert!(piece_lines(None, "V").is_empty());
+    }
 
     #[test]
     fn spreads_words_over_the_cue() {

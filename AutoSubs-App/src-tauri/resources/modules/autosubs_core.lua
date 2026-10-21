@@ -3878,6 +3878,28 @@ function AddSubtitles(req)
 
             local applyStats = apply_subtitle_text(timelineItems, #clipList, subtitles, clipSubtitleIndex, speakers,
                 speakersExist, presetSettings, speakerIndexById, transcriptId, resolvedTemplateName)
+
+            -- What was placed, for AI Edit: it remembers each title's text so
+            -- a later cut can re-create the pieces (a Text+ cannot be read
+            -- back from the bridge loop, and has no media to rebuild from).
+            local createdItems = {}
+            for k = 1, #clipList do
+                local item = timelineItems[k]
+                local sub = subtitles[clipSubtitleIndex[k]]
+                if sub and is_live_item(item) then
+                    local okId, id = pcall(item.GetUniqueId, item)
+                    local okTrack, _, trackIdx = pcall(item.GetTrackTypeAndIndex, item)
+                    if okId and id then
+                        createdItems[#createdItems + 1] = {
+                            id = id,
+                            text = sub.text,
+                            start = sub.start,
+                            ["end"] = sub["end"],
+                            track = okTrack and tonumber(trackIdx) or nil,
+                        }
+                    end
+                end
+            end
             if skippedBounds > 0 then
                 applyStats.failed = applyStats.failed + skippedBounds
                 applyStats.total = applyStats.total + skippedBounds
@@ -3898,6 +3920,7 @@ function AddSubtitles(req)
                 return {
                     ok = true,
                     fontSwap = fontSwap,
+                    items = createdItems,
                     failed = applyStats.failed,
                     total = applyStats.total,
                     noFusionComp = applyStats.noFusionComp,
@@ -3915,7 +3938,7 @@ function AddSubtitles(req)
                 return make_error(short, applyStats.firstError, errCode)
             end
 
-            return { ok = true, fontSwap = fontSwap }
+            return { ok = true, fontSwap = fontSwap, items = createdItems }
         end)() -- end of inner placement function
     end)
 
@@ -4631,6 +4654,7 @@ local handlers = {
     ResetResolveRpc = function() return ResetResolveRpc() end,
     GetTimelineSnapshot = function() return ai_edit.get_timeline_snapshot() end,
     AddMarkers = function(req) return ai_edit.add_markers(req) end,
+    DeleteMarkers = function(req) return ai_edit.delete_markers(req) end,
     UpdateClip = function(req) return ai_edit.update_clip(req) end,
     DeleteClips = function(req) return ai_edit.delete_clips(req) end,
     SplitClips = function(req) return ai_edit.split_clips(req) end,

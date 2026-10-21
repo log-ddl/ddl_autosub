@@ -1,4 +1,5 @@
 import * as React from "react";
+import i18n from "i18next";
 import { intro, userAndMemorySections, workspaceSection } from "../prompts/shared";
 import { editorLabel } from "../ai-edit-helpers";
 import { useCapCutAdapter } from "./capcut";
@@ -39,7 +40,7 @@ function unsupportedAdapter(integration: string): EditorAdapter {
     projectId: null,
     projectName: null,
     workspaceProject: null,
-    title: `${name} (AI Edit chưa hỗ trợ dựng)`,
+    title: i18n.t("aiEdit.unsupportedEditor", { name }),
     refreshAfterEdit: async () => {},
     buildPrompt: async (userSystemPrompt, workspaceInfo) =>
       [

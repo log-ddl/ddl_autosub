@@ -42,6 +42,7 @@ interface AiEditChatState {
   createConversation: () => string;
   selectConversation: (id: string) => void;
   deleteConversation: (id: string) => void;
+  deleteConversations: (ids: string[]) => void;
   clearConversationMessages: (id: string) => void;
   addMessage: (conversationId: string, message: ContentMessage) => void;
   setAdapter: (adapter: ContentCliAdapter) => void;
@@ -74,7 +75,8 @@ function newConversation(): ContentConversation {
   const now = Date.now();
   return {
     id: crypto.randomUUID(),
-    title: "Cuộc trò chuyện mới",
+    // Empty until the first message names it; the UI shows a localized "New chat".
+    title: "",
     createdAt: now,
     updatedAt: now,
     messages: [],
@@ -121,6 +123,20 @@ export const useAiEditChatStore = create<AiEditChatState>()(
       },
       selectConversation: (activeConversationId) =>
         set({ activeConversationId }),
+      deleteConversations: (ids) =>
+        set((state) => {
+          const gone = new Set(ids);
+          const conversations = state.conversations.filter(
+            (item) => !gone.has(item.id),
+          );
+          return {
+            conversations,
+            activeConversationId:
+              state.activeConversationId && gone.has(state.activeConversationId)
+                ? (conversations[0]?.id ?? null)
+                : state.activeConversationId,
+          };
+        }),
       deleteConversation: (id) =>
         set((state) => {
           const conversations = state.conversations.filter(

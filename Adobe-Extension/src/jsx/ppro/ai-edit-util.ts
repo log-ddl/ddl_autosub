@@ -262,3 +262,150 @@ export function createRazor(seq: any): (kind: string, index: number, secs: numbe
     return false;
   };
 }
+
+// ------------------------------------------------------------------------------
+// Clip lookup with its track, QE items and effect names
+// ------------------------------------------------------------------------------
+
+/** The clip with this id, its track kind ("V"/"A") and 0-based track index, or null. */
+export function locate(seq: any, id: string): any {
+  var found: any = null;
+  eachClip(seq, function (clip, kind, t, c, track) {
+    if (!found && clipId(clip, kind, t, c) === id) found = { clip: clip, kind: kind, index: t, track: track };
+  });
+  return found;
+}
+
+/**
+ * The QE item of a DOM clip. QE tracks also list gaps and transitions, so
+ * the DOM clip index points at the wrong item once anything precedes it;
+ * match on the start time instead.
+ */
+export function qeClipFor(kind: string, index: number, clip: any): any {
+  app.enableQE();
+  // @ts-ignore - qe is the QE DOM global, enabled above.
+  var qeSeq: any = qe.project.getActiveSequence();
+  if (!qeSeq) return null;
+  var qeTrack = kind === "V" ? qeSeq.getVideoTrackAt(index) : qeSeq.getAudioTrackAt(index);
+  if (!qeTrack) return null;
+  var want = String(clip.start.ticks);
+  var best: any = null;
+  var bestDelta = -1;
+  for (var i = 0; i < qeTrack.numItems; i++) {
+    var item = qeTrack.getItemAt(i);
+    if (!item) continue;
+    try {
+      if (String(item.type) !== "Clip") continue;
+    } catch (e) {
+      continue;
+    }
+    var ticks = "";
+    try {
+      ticks = String(item.start.ticks);
+    } catch (e) {}
+    if (ticks === want) return item;
+    var delta = Math.abs(parseFloat(ticks) - parseFloat(want));
+    if (!isNaN(delta) && (bestDelta < 0 || delta < bestDelta)) {
+      best = item;
+      bestDelta = delta;
+    }
+  }
+  return best;
+}
+
+/** Lower case without spaces, dashes or underscores, for forgiving name matches. */
+export function foldName(s: any): string {
+  var text = String(s || "").toLowerCase();
+  var out = "";
+  for (var i = 0; i < text.length; i++) {
+    var ch = text.charAt(i);
+    if (ch !== " " && ch !== "-" && ch !== "_" && ch !== "/" && ch !== ".") out += ch;
+  }
+  return out;
+}
+
+var QE_GETTERS: any = {
+  videoEffect: ["getVideoEffectByName", "getVideoEffectList"],
+  audioEffect: ["getAudioEffectByName", "getAudioEffectList"],
+  videoTransition: ["getVideoTransitionByName", "getVideoTransitionList"],
+  audioTransition: ["getAudioTransitionByName", "getAudioTransitionList"],
+};
+
+/** Every name Premiere lists for a kind ("videoEffect", "audioTransition", ...). */
+export function qeNames(kind: string): string[] {
+  app.enableQE();
+  var out: string[] = [];
+  try {
+    // @ts-ignore - qe is the QE DOM global, enabled above.
+    var list = qe.project[QE_GETTERS[kind][1]]();
+    for (var i = 0; list && i < list.length; i++) out[out.length] = String(list[i]);
+  } catch (e) {}
+  return out;
+}
+
+/** A QE effect or transition by name, matched loosely when the exact name misses. */
+export function qeNamed(kind: string, name: string): any {
+  app.enableQE();
+  var getter = QE_GETTERS[kind][0];
+  try {
+    // @ts-ignore - qe is the QE DOM global, enabled above.
+    var direct = qe.project[getter](name);
+    if (direct) return direct;
+  } catch (e) {}
+  var names = qeNames(kind);
+  for (var i = 0; i < names.length; i++) {
+    if (foldName(names[i]) === foldName(name)) {
+      try {
+        // @ts-ignore
+        return qe.project[getter](names[i]);
+      } catch (e) {}
+    }
+  }
+  return null;
+}
+
+/** Up to `max` of `names` that contain `wanted` or one of its words, for "did you mean". */
+export function closeNames(names: string[], wanted: string, max: number): string[] {
+  var w = foldName(wanted);
+  var words = String(wanted || "").toLowerCase().split(" ");
+  var out: string[] = [];
+  for (var i = 0; i < names.length && out.length < max; i++) {
+    var n = foldName(names[i]);
+    var hit = n.indexOf(w) >= 0 || (n.length > 2 && w.indexOf(n) >= 0);
+    for (var k = 0; !hit && k < words.length; k++) {
+      if (words[k].length > 2 && names[i].toLowerCase().indexOf(words[k]) >= 0) hit = true;
+    }
+    if (hit) out[out.length] = names[i];
+  }
+  return out;
+}
+
+/** First video track at or above `minIndex` free over [start, end), adding one when all are taken. -1 if none. */
+export function freeVideoTrack(minIndex: number, start: number, end: number): number {
+  var seq = app.project.activeSequence;
+  for (var t = minIndex; t < seq.videoTracks.numTracks; t++) {
+    var busy = false;
+    var track = seq.videoTracks[t];
+    for (var c = 0; c < track.clips.numItems && !busy; c++) {
+      var s = getTimeSeconds(track.clips[c].start);
+      var e = getTimeSeconds(track.clips[c].end);
+      if (s < end - 0.001 && e > start + 0.001) busy = true;
+    }
+    if (!busy) return t;
+  }
+  // Every track from minIndex up is busy (or missing): add tracks on top
+  // until there is one at minIndex or above.
+  try {
+    app.enableQE();
+    // @ts-ignore - qe is the QE DOM global, enabled above.
+    var qeSeq: any = qe.project.getActiveSequence();
+    for (var guard = 0; guard < 8; guard++) {
+      var n = app.project.activeSequence.videoTracks.numTracks;
+      qeSeq.addTracks(1, n, 0);
+      var now = app.project.activeSequence.videoTracks.numTracks;
+      if (now === n) return -1;
+      if (now - 1 >= minIndex) return now - 1;
+    }
+  } catch (e) {}
+  return -1;
+}

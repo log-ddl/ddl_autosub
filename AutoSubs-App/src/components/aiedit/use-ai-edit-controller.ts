@@ -1,10 +1,12 @@
 import * as React from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
 import {
   ensureCliWorkspace,
   copyCliAsset,
+  importCliSkills,
   getCliModels,
   getCliRuntimeStatus,
   runCliTextTask,
@@ -31,6 +33,7 @@ import { useAiEditPreview } from "./ai-edit-preview-panel";
 import { listPreviewCandidates } from "@/api/preview-api";
 
 export function useAiEditController() {
+  const { t } = useTranslation();
   const { selectedIntegration } = useIntegration();
   // Everything editor-specific (target, project, snapshot, prompt, refresh)
   // lives in ./editors/<editor>.ts.
@@ -190,13 +193,13 @@ export function useAiEditController() {
           .filter(Boolean)
           .join(" · ") ||
         activeConversation.boundProjectId ||
-        "Mặc định",
+        t("aiEdit.defaultProject"),
       currentIntegration: selectedIntegration,
       currentProjectId: activeProjectId,
       currentProjectName:
         [editor.workspaceProject?.name, activeProjectName]
           .filter(Boolean)
-          .join(" · ") || "Chưa chọn",
+          .join(" · ") || t("aiEdit.notSelected"),
     };
   }, [
     activeConversation,
@@ -281,13 +284,14 @@ export function useAiEditController() {
     async (cmd: TimelineActionCommand) => {
       const target = editor.target;
       if (!target) {
-        toast.error("AI Edit chưa hỗ trợ trình dựng này.");
+        toast.error(t("aiEdit.errors.unsupported"));
         return;
       }
       try {
         const outcome = await runTimelineAction(
           target,
           cmd as unknown as Record<string, unknown>,
+          workspaceInfo?.path,
         );
         if (outcome.partial) {
           toast.warning(outcome.message, { description: outcome.lines.join("\n") || undefined });
@@ -302,22 +306,16 @@ export function useAiEditController() {
     [editor],
   );
 
-  // The agent edits through the MCP tools in the backend; mirror each edit
-  // here so the user sees it happen and the timeline view stays current.
+  // The agent edits through the MCP tools in the backend; refresh after each
+  // edit so the timeline view stays current. No toast: the tool result already
+  // shows in the chat, and one popup per edit was too noisy.
   const refreshAfterEdit = editor.refreshAfterEdit;
   React.useEffect(() => {
     let unlisten: (() => void) | undefined;
     let disposed = false;
-    void listen<{ ok: boolean; partial: boolean; message: string }>(
-      "ai-edit-timeline-changed",
-      (event) => {
-        const { ok, partial, message } = event.payload;
-        if (!ok) toast.error(message);
-        else if (partial) toast.warning(message);
-        else toast.success(message);
-        void refreshAfterEdit();
-      },
-    ).then((fn) => {
+    void listen("ai-edit-timeline-changed", () => {
+      void refreshAfterEdit();
+    }).then((fn) => {
       if (disposed) fn();
       else unlisten = fn;
     });
@@ -332,7 +330,7 @@ export function useAiEditController() {
     const picked = await openDialog({
       directory: true,
       multiple: false,
-      title: "Chọn thư mục Workspace cho AI",
+      title: t("aiEdit.pickWorkspaceTitle"),
     });
     if (typeof picked === "string" && picked.trim()) {
       setConversationWorkspace(activeConversation.id, picked.trim());
@@ -343,7 +341,7 @@ export function useAiEditController() {
     const picked = await openDialog({
       directory: false,
       multiple: true,
-      title: "Chọn file hoặc media đính kèm cho AI",
+      title: t("aiEdit.attachTitle"),
     });
     if (!picked) return;
     const list = Array.isArray(picked) ? picked : [picked];
@@ -364,7 +362,7 @@ export function useAiEditController() {
   ) {
     await executeTimelineAction({
       action: "build_storyboard",
-      summary: `Đặt ${asset.name} lên Timeline`,
+      summary: t("aiEdit.assets.placeSummary", { name: asset.name }),
       items: [{ path: asset.path, start: 0, end: 4 }],
     });
   }
@@ -393,21 +391,53 @@ export function useAiEditController() {
   function handleSaveAsTemplate(
     asset: import("@/api/cli-chat-api").ProjectAssetItem,
   ) {
+    const skill = asset.category === "skills";
     return copyAsset(
       asset,
-      workspaceInfo?.templatesDir,
-      `Đã lưu "${asset.name}" vào Global Templates`,
+      skill ? workspaceInfo?.librarySkillsDir : workspaceInfo?.templatesDir,
+      t(skill ? "aiEdit.assets.savedSkill" : "aiEdit.assets.savedTemplate", {
+        name: asset.name,
+      }),
     );
   }
 
   function handleUseTemplate(
     asset: import("@/api/cli-chat-api").ProjectAssetItem,
   ) {
-    return copyAsset(
-      asset,
-      workspaceInfo?.motionGraphicsDir,
-      `Đã chép "${asset.name}" vào project`,
-    );
+    // Library files are copied in, never linked: the project keeps working
+    // if the library changes.
+    const destination =
+      asset.category === "library-music"
+        ? workspaceInfo?.musicDir
+        : asset.category === "library-sfx"
+          ? workspaceInfo?.sfxDir
+          : asset.category === "library-skills"
+            ? workspaceInfo?.skillsDir
+            : workspaceInfo?.motionGraphicsDir;
+    return copyAsset(asset, destination, t("aiEdit.assets.copied", { name: asset.name }));
+  }
+
+  /** Picks a folder holding one skill (or several) and copies it into the project or the library. */
+  async function handleImportSkills(toLibrary: boolean) {
+    const destination = toLibrary
+      ? workspaceInfo?.librarySkillsDir
+      : workspaceInfo?.skillsDir;
+    if (!destination) return;
+    const picked = await openDialog({
+      directory: true,
+      multiple: false,
+      title: t("aiEdit.assets.importSkillTitle"),
+    });
+    if (typeof picked !== "string" || !picked.trim()) return;
+    try {
+      const names = await importCliSkills(picked, destination);
+      await refreshWorkspace();
+      toast.success(
+        t("aiEdit.assets.importedSkills", { names: names.join(", ") }),
+      );
+    } catch (err: any) {
+      toast.error(err?.message || String(err));
+    }
   }
 
   async function handlePreviewAsset(
@@ -439,7 +469,7 @@ export function useAiEditController() {
       );
       setWorkspaceInfo(info);
       setMemoryOpen(false);
-      toast.success("Đã lưu Bộ nhớ 2-Tier (Project & Global)");
+      toast.success(t("aiEdit.memory.saved"));
     } catch (err: any) {
       toast.error(err?.message || String(err));
     } finally {
@@ -477,14 +507,14 @@ export function useAiEditController() {
 
     if (contextMismatch) {
       toast.error(
-        "Cuộc trò chuyện này đã gắn với một Dự án / Đầu nối khác. Hãy tạo cuộc trò chuyện mới để tránh lẫn lộn context!",
+        t("aiEdit.errors.mismatch"),
       );
       return;
     }
 
     if (projectUnknown) {
       toast.error(
-        `Chưa đọc được project đang mở trong ${editor.title}. Hãy mở project và timeline rồi thử lại.`,
+        t("aiEdit.errors.projectUnknown", { editor: editor.title }),
       );
       return;
     }
@@ -609,7 +639,10 @@ export function useAiEditController() {
         addMessage(convId, {
           id: crypto.randomUUID(),
           role: "assistant",
-          content: `⚠️ **Lỗi thực thi (${cliLabel(targetAdapter)})**: ${msg}`,
+          content: t("aiEdit.message.runError", {
+            cli: cliLabel(targetAdapter),
+            error: msg,
+          }),
           thinking: streamedThinking.trim() || undefined,
           steps: finalSteps.length > 0 ? finalSteps : undefined,
           createdAt: Date.now(),
@@ -618,7 +651,7 @@ export function useAiEditController() {
         addMessage(convId, {
           id: crypto.randomUUID(),
           role: "assistant",
-          content: `${streamed}\n\n*(Đã dừng bởi người dùng)*`,
+          content: `${streamed}\n\n${t("aiEdit.message.stopped")}`,
           thinking: streamedThinking.trim() || undefined,
           steps: finalSteps.length > 0 ? finalSteps : undefined,
           createdAt: Date.now(),
@@ -726,10 +759,12 @@ export function useAiEditController() {
     listPreviewTargets,
     handleSaveAsTemplate,
     handleUseTemplate,
+    handleImportSkills,
     handleSaveMemory,
     handleSendPrompt,
     handleStopRunning,
     preview,
     workspaceProject,
+    openProjectName: editor.workspaceProject?.name ?? null,
   };
 }

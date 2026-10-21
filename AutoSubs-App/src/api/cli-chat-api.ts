@@ -26,7 +26,20 @@ export interface CliModelsResult {
 export interface ProjectAssetItem {
   name: string;
   path: string;
-  category: "motion-graphics" | "ai-broll" | "exports" | "templates" | string;
+  /** Project: video, images, music, sfx, motion-graphics, exports, skills. Shared: templates, library-music, library-sfx, library-skills. */
+  category:
+    | "video"
+    | "images"
+    | "music"
+    | "sfx"
+    | "motion-graphics"
+    | "exports"
+    | "templates"
+    | "library-music"
+    | "library-sfx"
+    | "skills"
+    | "library-skills"
+    | string;
   isDir: boolean;
   sizeBytes: number;
   modifiedSec: number;
@@ -49,9 +62,19 @@ export interface WorkspaceInfo {
   memory: string;
   globalMemory: string;
   motionGraphicsDir: string;
-  aiBrollDir: string;
+  videoDir: string;
+  imagesDir: string;
+  musicDir: string;
+  sfxDir: string;
   exportsDir: string;
+  /** library/motion-graphics: shared templates. */
   templatesDir: string;
+  libraryMusicDir: string;
+  librarySfxDir: string;
+  /** `.agent/skills` of this project; listed to the agent on every run. */
+  skillsDir: string;
+  /** library/skills: shared skills. */
+  librarySkillsDir: string;
   assets: ProjectAssetItem[];
 }
 
@@ -108,11 +131,52 @@ export async function saveCliMemory(
 }
 
 /** Copies a project asset into the template library, or a template into a project. Returns the new path. */
+/** One project folder AI Edit keeps (media, motion graphics, exports). */
+export interface WorkspaceProjectEntry {
+  path: string;
+  editor: string;
+  name: string;
+  id: string | null;
+  sizeBytes: number;
+  lastUsedSec: number;
+}
+
+export async function listWorkspaceProjects(): Promise<WorkspaceProjectEntry[]> {
+  return invoke<WorkspaceProjectEntry[]>("cli_list_workspace_projects");
+}
+
+/** Moves the project's folder to the Trash; the project in the editor is untouched. */
+export async function deleteWorkspaceProject(path: string): Promise<void> {
+  return invoke<void>("cli_delete_workspace_project", { path });
+}
+
+/** Whether a conversation's files live in this project folder. */
+export function conversationUsesProject(
+  workspace: WorkspaceProject | null | undefined,
+  entry: WorkspaceProjectEntry,
+): boolean {
+  if (!workspace || workspace.editor !== entry.editor) return false;
+  return entry.id ? workspace.id === entry.id : !workspace.id && workspace.name === entry.name;
+}
+
+/** Shared library entries (templates, music and SFX packs), not this project's own files. */
+export function isLibraryAsset(asset: ProjectAssetItem): boolean {
+  return asset.category === "templates" || asset.category.startsWith("library-");
+}
+
 export async function copyCliAsset(
   source: string,
   destinationDir: string,
 ): Promise<string> {
   return invoke<string>("cli_copy_asset", { source, destinationDir });
+}
+
+/** Copies the skills in `source` (itself, or its subfolders with a SKILL.md) into `destinationDir`. */
+export async function importCliSkills(
+  source: string,
+  destinationDir: string,
+): Promise<string[]> {
+  return invoke<string[]>("cli_import_skills", { source, destinationDir });
 }
 
 export async function cancelCliTextTask(requestId: string): Promise<boolean> {

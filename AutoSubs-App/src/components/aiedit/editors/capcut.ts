@@ -1,4 +1,5 @@
 import * as React from "react";
+import i18n from "i18next";
 import { getCapCutTimelineSnapshot, type CapCutTimelineSnapshot } from "@/api/capcut-api";
 import { useCapCut } from "@/contexts/CapCutContext";
 import { buildCapCutPrompt } from "../prompts";
@@ -42,7 +43,7 @@ export function useCapCutAdapter(active: boolean): EditorAdapter {
               id: snapshot?.draftId || selectedDraftId || null,
             }
           : null,
-      title: `CapCut (${snapshot?.draftName || "Chưa chọn"})`,
+      title: `CapCut (${snapshot?.draftName || i18n.t("aiEdit.notSelected")})`,
       refreshAfterEdit: async () => {
         await refresh();
         await loadSnapshot();

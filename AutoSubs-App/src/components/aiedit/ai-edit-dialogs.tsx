@@ -1,7 +1,10 @@
 import * as React from "react";
+import { Trans, useTranslation } from "react-i18next";
 import {
   BookmarkPlus,
+  BookOpen,
   CopyPlus,
+  FolderInput,
   Film,
   Folder,
   Layers,
@@ -22,7 +25,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import type { ProjectAssetItem, WorkspaceInfo } from "@/api/cli-chat-api";
+import {
+  isLibraryAsset,
+  type ProjectAssetItem,
+  type WorkspaceInfo,
+} from "@/api/cli-chat-api";
 
 export interface AiEditDialogsProps {
   systemPromptOpen: boolean;
@@ -50,6 +57,8 @@ export interface AiEditDialogsProps {
   onSaveAsTemplate: (asset: ProjectAssetItem) => void;
   /** Copy a template into this project's motion-graphics. */
   onUseTemplate: (asset: ProjectAssetItem) => void;
+  /** Pick a folder of skills and copy it into the project, or the library. */
+  onImportSkills: (toLibrary: boolean) => void;
 
   renameTarget: { id: string; title: string } | null;
   onClearRenameTarget: () => void;
@@ -80,20 +89,27 @@ export function AiEditDialogs({
   onPreviewAsset,
   onSaveAsTemplate,
   onUseTemplate,
+  onImportSkills,
   renameTarget,
   onClearRenameTarget,
   renameDraft,
   onRenameDraftChange,
   onConfirmRename,
 }: AiEditDialogsProps) {
+  const { t } = useTranslation();
   const [memoryTab, setMemoryTab] = React.useState<"project" | "global">(
     "project",
   );
   const [assetCategory, setAssetCategory] = React.useState<string>("all");
 
   const assets = workspaceInfo?.assets || [];
-  // "All" is this project only; templates are a separate, shared library.
-  const projectAssets = assets.filter((a) => a.category !== "templates");
+  // "All" is this project's media only: the library is shared by every
+  // project, and skills have their own tab.
+  const projectAssets = assets.filter(
+    (a) => !isLibraryAsset(a) && a.category !== "skills",
+  );
+  const skillsTab =
+    assetCategory === "skills" || assetCategory === "library-skills";
   const filteredAssets =
     assetCategory === "all"
       ? projectAssets
@@ -106,18 +122,16 @@ export function AiEditDialogs({
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="text-base">
-              Chỉ dẫn hệ thống (System Prompt)
+              {t("aiEdit.systemPrompt.title")}
             </DialogTitle>
             <DialogDescription className="text-xs">
-              Chỉ dẫn riêng cho cuộc trò chuyện này (phong cách dựng, quy tắc
-              cắt, tỷ lệ khung hình...). Ngữ cảnh Timeline và Project Workspace
-              đã được tự động đính kèm.
+              {t("aiEdit.systemPrompt.description")}
             </DialogDescription>
           </DialogHeader>
           <Textarea
             value={systemPromptDraft}
             onChange={(e) => onSystemPromptDraftChange(e.target.value)}
-            placeholder="Ví dụ: Luôn dựng theo nhịp nhanh 2.5s/cảnh, ưu tiên zoom 1.15x vào các câu nhấn mạnh..."
+            placeholder={t("aiEdit.systemPrompt.placeholder")}
             className="min-h-36 text-xs"
           />
           <DialogFooter>
@@ -127,10 +141,10 @@ export function AiEditDialogs({
               size="sm"
               onClick={() => onSystemPromptOpenChange(false)}
             >
-              Hủy
+              {t("common.cancel")}
             </Button>
             <Button type="button" size="sm" onClick={onSaveSystemPrompt}>
-              Lưu chỉ dẫn
+              {t("aiEdit.systemPrompt.save")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -138,17 +152,21 @@ export function AiEditDialogs({
 
       {/* ── Dialog: 2-Tier Memory (Project memory.md + Global global-memory.md) */}
       <Dialog open={memoryOpen} onOpenChange={onMemoryOpenChange}>
-        <DialogContent className="sm:max-w-xl">
+        <DialogContent className="sm:max-w-xl grid-cols-[minmax(0,1fr)]">
           <DialogHeader>
             <DialogTitle className="text-base">
-              Bộ nhớ AI 2 Tầng (Project & Global Memory)
+              {t("aiEdit.memory.title")}
             </DialogTitle>
             <DialogDescription className="text-xs">
-              Tách biệt ngữ cảnh riêng của Project đang mở (
-              <span className="font-mono font-medium text-foreground">
-                {workspaceInfo?.projectSlug || "default-project"}
-              </span>
-              ) và phong cách dựng phim dùng chung cho mọi dự án.
+              <Trans
+                i18nKey="aiEdit.memory.description"
+                values={{
+                  project: workspaceInfo?.projectSlug || "default-project",
+                }}
+                components={{
+                  b: <span className="font-mono font-medium text-foreground" />,
+                }}
+              />
             </DialogDescription>
           </DialogHeader>
 
@@ -163,7 +181,9 @@ export function AiEditDialogs({
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
-              Theo Project ({workspaceInfo?.projectSlug || "memory.md"})
+              {t("aiEdit.memory.projectTab", {
+                project: workspaceInfo?.projectSlug || "memory.md",
+              })}
             </button>
             <button
               type="button"
@@ -175,12 +195,12 @@ export function AiEditDialogs({
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
-              Toàn cục (global-memory.md)
+              {t("aiEdit.memory.globalTab")}
             </button>
           </div>
 
           {memoryTab === "project" ? (
-            <div className="space-y-1.5">
+            <div className="min-w-0 space-y-1.5">
               <div className="text-[11px] text-muted-foreground font-mono truncate">
                 {workspaceInfo?.path
                   ? `${workspaceInfo.path}/memory.md`
@@ -189,12 +209,12 @@ export function AiEditDialogs({
               <Textarea
                 value={memoryDraft}
                 onChange={(e) => onMemoryDraftChange(e.target.value)}
-                placeholder="Ghi chú riêng cho video này: chủ đề, kịch bản, tone màu, nhân vật, yêu cầu đặc biệt..."
+                placeholder={t("aiEdit.memory.projectPlaceholder")}
                 className="min-h-44 font-mono text-xs"
               />
             </div>
           ) : (
-            <div className="space-y-1.5">
+            <div className="min-w-0 space-y-1.5">
               <div className="text-[11px] text-muted-foreground font-mono truncate">
                 {workspaceInfo?.globalPath
                   ? `${workspaceInfo.globalPath}/global-memory.md`
@@ -203,7 +223,7 @@ export function AiEditDialogs({
               <Textarea
                 value={globalMemoryDraft}
                 onChange={(e) => onGlobalMemoryDraftChange(e.target.value)}
-                placeholder="Phong cách dựng mặc định cho MỌI dự án: font chữ thương hiệu, bảng màu, nhịp cắt, thư mục nhạc nền..."
+                placeholder={t("aiEdit.memory.globalPlaceholder")}
                 className="min-h-44 font-mono text-xs"
               />
             </div>
@@ -216,7 +236,7 @@ export function AiEditDialogs({
               size="sm"
               onClick={() => onMemoryOpenChange(false)}
             >
-              Hủy
+              {t("common.cancel")}
             </Button>
             <Button
               type="button"
@@ -224,89 +244,125 @@ export function AiEditDialogs({
               disabled={savingMemory}
               onClick={onSaveMemory}
             >
-              {savingMemory ? "Đang lưu..." : "Lưu Bộ nhớ"}
+              {savingMemory ? t("aiEdit.memory.saving") : t("aiEdit.memory.save")}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* ── Dialog: 2-Tier Project Assets (Motion Graphics, AI B-Roll, Exports) */}
+      {/* ── Dialog: Project assets + shared library ─────────────────────────── */}
       <Dialog open={assetsOpen} onOpenChange={onAssetsOpenChange}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle className="text-base flex items-center gap-2">
               <Layers className="size-4 text-primary" />
-              Quản lý Project Assets ({workspaceInfo?.projectSlug || "Project"})
+              {t("aiEdit.assets.title", {
+                project: workspaceInfo?.projectSlug || "Project",
+              })}
             </DialogTitle>
             <DialogDescription className="text-xs">
-              Mỗi Project CapCut / DaVinci / Premiere có không gian lưu trữ riêng cho{" "}
-              <span className="font-medium text-foreground">
-                Motion Graphics
-              </span>
-              , <span className="font-medium text-foreground">B-Roll AI</span>{" "}
-              và <span className="font-medium text-foreground">Exports</span>{" "}
-              cùng kho Template toàn cục.
+              {t("aiEdit.assets.description")}
             </DialogDescription>
           </DialogHeader>
 
           <div className="grid grid-cols-2 gap-2 rounded-xl border border-border/60 bg-muted/20 p-2.5 text-[11px]">
             <div className="min-w-0">
-              <span className="text-muted-foreground">Motion Graphics: </span>
-              <span className="font-mono text-foreground truncate block">
-                {workspaceInfo?.motionGraphicsDir || "..."}
+              <span className="text-muted-foreground">
+                {t("aiEdit.assets.projectPath")}
+              </span>
+              <span
+                className="font-mono text-foreground truncate block"
+                title={workspaceInfo?.path}
+              >
+                {workspaceInfo?.path || "..."}
               </span>
             </div>
             <div className="min-w-0">
-              <span className="text-muted-foreground">B-Roll AI: </span>
-              <span className="font-mono text-foreground truncate block">
-                {workspaceInfo?.aiBrollDir || "..."}
+              <span className="text-muted-foreground">
+                {t("aiEdit.assets.libraryPath")}
               </span>
-            </div>
-            <div className="min-w-0">
-              <span className="text-muted-foreground">Exports (.mp4): </span>
-              <span className="font-mono text-foreground truncate block">
-                {workspaceInfo?.exportsDir || "..."}
-              </span>
-            </div>
-            <div className="min-w-0">
-              <span className="text-muted-foreground">Global Templates: </span>
-              <span className="font-mono text-foreground truncate block">
-                {workspaceInfo?.templatesDir || "..."}
+              <span
+                className="font-mono text-foreground truncate block"
+                title={workspaceInfo ? `${workspaceInfo.globalPath}/library` : ""}
+              >
+                {workspaceInfo ? `${workspaceInfo.globalPath}/library` : "..."}
               </span>
             </div>
           </div>
 
-          <div className="flex items-center gap-1 rounded-lg bg-muted/50 p-1 text-xs">
-            {[
-              { id: "all", label: `Tất cả (${projectAssets.length})` },
-              { id: "motion-graphics", label: "Motion Graphics" },
-              { id: "ai-broll", label: "B-Roll AI" },
-              { id: "exports", label: "Exports (.mp4)" },
-              { id: "templates", label: "Global Templates" },
-            ].map((tab) => (
-              <button
-                key={tab.id}
+          {[
+            [
+              {
+                id: "all",
+                label: t("aiEdit.assets.tabs.all", {
+                  count: projectAssets.length,
+                }),
+              },
+              { id: "video", label: t("aiEdit.assets.tabs.video") },
+              { id: "images", label: t("aiEdit.assets.tabs.images") },
+              { id: "music", label: t("aiEdit.assets.tabs.music") },
+              { id: "sfx", label: t("aiEdit.assets.tabs.sfx") },
+              { id: "motion-graphics", label: t("aiEdit.assets.tabs.motion") },
+              { id: "exports", label: t("aiEdit.assets.tabs.exports") },
+              { id: "skills", label: t("aiEdit.assets.tabs.skills") },
+            ],
+            [
+              { id: "templates", label: t("aiEdit.assets.tabs.templates") },
+              { id: "library-music", label: t("aiEdit.assets.tabs.libraryMusic") },
+              { id: "library-sfx", label: t("aiEdit.assets.tabs.librarySfx") },
+              { id: "library-skills", label: t("aiEdit.assets.tabs.librarySkills") },
+            ],
+          ].map((row, rowIndex) => (
+            <div
+              key={rowIndex}
+              className="flex items-center gap-1 rounded-lg bg-muted/50 p-1 text-xs"
+            >
+              {rowIndex === 1 && (
+                <span className="shrink-0 px-1.5 text-[10.5px] text-muted-foreground">
+                  {t("aiEdit.assets.library")}
+                </span>
+              )}
+              {row.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setAssetCategory(tab.id)}
+                  className={cn(
+                    "flex-1 rounded-md py-1.5 font-medium transition-colors truncate px-1.5",
+                    assetCategory === tab.id
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          ))}
+
+          {skillsTab && (
+            <div className="flex items-center justify-between gap-2 rounded-xl border border-dashed border-border/70 px-3 py-2 text-[11px] text-muted-foreground">
+              <span className="min-w-0">{t("aiEdit.assets.skillsHint")}</span>
+              <Button
                 type="button"
-                onClick={() => setAssetCategory(tab.id)}
-                className={cn(
-                  "flex-1 rounded-md py-1.5 font-medium transition-colors truncate px-1.5",
-                  assetCategory === tab.id
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
+                variant="secondary"
+                size="sm"
+                className="h-7 px-2.5 text-[11px] gap-1 shrink-0"
+                onClick={() => onImportSkills(assetCategory === "library-skills")}
+                title={t("aiEdit.assets.importSkillTooltip")}
               >
-                {tab.label}
-              </button>
-            ))}
-          </div>
+                <FolderInput className="size-3" />
+                {t("aiEdit.assets.importSkill")}
+              </Button>
+            </div>
+          )}
 
           <div className="max-h-64 min-h-40 overflow-y-auto space-y-1.5 pr-1">
             {filteredAssets.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-40 text-center text-xs text-muted-foreground gap-1.5">
                 <Sparkles className="size-5 opacity-50" />
                 <span>
-                  Chưa có asset nào trong mục này. Hãy yêu cầu AI tạo Motion
-                  Graphic hoặc B-Roll!
+                  {t(skillsTab ? "aiEdit.assets.emptySkills" : "aiEdit.assets.empty")}
                 </span>
               </div>
             ) : (
@@ -324,7 +380,10 @@ export function AiEditDialogs({
                     className="flex items-center justify-between gap-2 rounded-xl border border-border/50 bg-card/40 px-3 py-2 text-xs"
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
-                      {item.isDir ? (
+                      {item.category === "skills" ||
+                      item.category === "library-skills" ? (
+                        <BookOpen className="size-4 text-emerald-500 shrink-0" />
+                      ) : item.isDir ? (
                         <Folder className="size-4 text-amber-500 shrink-0" />
                       ) : (
                         <Film className="size-4 text-primary shrink-0" />
@@ -349,35 +408,36 @@ export function AiEditDialogs({
                           onInsertAssetPath(item.path);
                           onAssetsOpenChange(false);
                         }}
-                        title="Đính kèm đường dẫn vào khung chat (@)"
+                        title={t("aiEdit.assets.attachTooltip")}
                       >
                         <Paperclip className="size-3" />
-                        @Chat
+                        {t("aiEdit.assets.attach")}
                       </Button>
-                      {item.category === "motion-graphics" && (
+                      {(item.category === "motion-graphics" ||
+                        item.category === "skills") && (
                         <Button
                           type="button"
                           variant="ghost"
                           size="sm"
                           className="h-7 px-2 text-[11px] gap-1"
                           onClick={() => onSaveAsTemplate(item)}
-                          title="Chép sang Global Templates để dùng cho project khác"
+                          title={t("aiEdit.assets.saveTemplateTooltip")}
                         >
                           <BookmarkPlus className="size-3" />
-                          Lưu template
+                          {t("aiEdit.assets.saveTemplate")}
                         </Button>
                       )}
-                      {item.category === "templates" && (
+                      {isLibraryAsset(item) && (
                         <Button
                           type="button"
                           variant="ghost"
                           size="sm"
                           className="h-7 px-2 text-[11px] gap-1"
                           onClick={() => onUseTemplate(item)}
-                          title="Chép template này vào Motion Graphics của project hiện tại"
+                          title={t("aiEdit.assets.useTooltip")}
                         >
                           <CopyPlus className="size-3" />
-                          Dùng
+                          {t("aiEdit.assets.use")}
                         </Button>
                       )}
                       {isPreviewable && (
@@ -390,10 +450,10 @@ export function AiEditDialogs({
                             onPreviewAsset(item);
                             onAssetsOpenChange(false);
                           }}
-                          title="Xem preview code AI đã viết"
+                          title={t("aiEdit.preview.tooltip")}
                         >
                           <MonitorPlay className="size-3" />
-                          Preview
+                          {t("aiEdit.preview.button")}
                         </Button>
                       )}
                       {isPlayableMedia && !item.isDir && (
@@ -403,10 +463,10 @@ export function AiEditDialogs({
                           size="sm"
                           className="h-7 px-2.5 text-[11px] gap-1"
                           onClick={() => onQuickPlaceOnTimeline(item)}
-                          title="Đặt trực tiếp file này lên Timeline"
+                          title={t("aiEdit.assets.placeTooltip")}
                         >
                           <Play className="size-3" />
-                          Lên Timeline
+                          {t("aiEdit.assets.place")}
                         </Button>
                       )}
                     </div>
@@ -423,7 +483,7 @@ export function AiEditDialogs({
               size="sm"
               onClick={() => onAssetsOpenChange(false)}
             >
-              Đóng
+              {t("common.close")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -439,7 +499,7 @@ export function AiEditDialogs({
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle className="text-base">
-              Đổi tên cuộc trò chuyện
+              {t("aiEdit.rename.title")}
             </DialogTitle>
           </DialogHeader>
           <Input
@@ -459,7 +519,7 @@ export function AiEditDialogs({
               size="sm"
               onClick={onClearRenameTarget}
             >
-              Hủy
+              {t("common.cancel")}
             </Button>
             <Button
               type="button"
@@ -467,7 +527,7 @@ export function AiEditDialogs({
               disabled={!renameDraft.trim()}
               onClick={onConfirmRename}
             >
-              Lưu
+              {t("aiEdit.save")}
             </Button>
           </DialogFooter>
         </DialogContent>

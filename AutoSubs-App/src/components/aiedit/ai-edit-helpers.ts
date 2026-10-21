@@ -1,3 +1,4 @@
+import i18n from "i18next";
 import type { ContentCliAdapter } from "@/api/cli-chat-api";
 
 export interface TimelineActionCommand {
@@ -8,7 +9,10 @@ export interface TimelineActionCommand {
     | "update_segment"
     | "delete_segment"
     | "split_clips"
-    | "remove_ranges";
+    | "remove_ranges"
+    | "remove_marker"
+    | "add_effects"
+    | "add_transitions";
   summary?: string;
   mode?: "replace" | "insert" | "overlay" | "append";
   targetVideoTrack?: number;
@@ -55,40 +59,13 @@ export interface TimelineActionCommand {
   }>;
 }
 
-export const AI_EDIT_QUICK_STARTERS = [
-  {
-    title: "Phân tích Timeline hiện tại",
-    prompt:
-      "Hãy kiểm tra toàn bộ các track và clip đang có trên timeline hiện tại, nhận xét bố cục và đề xuất cách làm video cuốn hút hơn.",
-  },
-  {
-    title: "Tạo hiệu ứng Punch-in Zoom",
-    prompt:
-      "Hãy giúp tôi zoom nhẹ (1.18x) vào clip đầu tiên trên timeline để tạo điểm nhấn mở đầu (hook).",
-  },
-  {
-    title: "Cắt khoảng lặng & từ đệm",
-    prompt:
-      "Đọc transcript của timeline, tìm các khoảng lặng dài hơn 0.7 giây và các từ đệm (ờ, à, ừm, um, uh), rồi cắt bỏ chúng và dồn timeline lại cho liền mạch.",
-  },
-  {
-    title: "Chèn Motion Graphic 3s",
-    prompt:
-      "Tạo một Motion Graphic 3s hiện đại trong thư mục motion-graphics của project, xuất ra exports và chèn đè lên trên timeline tại giây đầu tiên.",
-  },
-  {
-    title: "Lên kịch bản Visual Plan & B-Roll",
-    prompt:
-      "Hãy lập bảng Visual Plan (chọn câu nào dùng B-Roll, câu nào dùng HyperFrames, câu nào Punch-in Zoom) và lưu vào visual-plan.json của dự án này.",
-  },
-] as const;
-
+/** Descriptions are `aiEdit.slash.<name>` in the locale files. */
 export const AI_EDIT_SLASH_COMMANDS = [
-  { name: "new", desc: "Tạo cuộc trò chuyện mới" },
-  { name: "clear", desc: "Xóa lịch sử cuộc trò chuyện hiện tại" },
-  { name: "assets", desc: "Quản lý Motion Graphics, B-Roll AI & Bộ nhớ Project" },
-  { name: "memory", desc: "Mở và chỉnh sửa memory.md & global-memory.md" },
-  { name: "folder", desc: "Chọn thư mục Workspace làm việc riêng" },
+  { name: "new" },
+  { name: "clear" },
+  { name: "assets" },
+  { name: "memory" },
+  { name: "folder" },
 ] as const;
 
 /** Display name of an editor integration ("short" for compact badges). */
@@ -179,61 +156,79 @@ export function formatModelParts(
 
 // AutoSubs MCP tools, as the CLIs name them ("mcp__autosubs__add_marker",
 // "autosubs/add_marker", ...); matched on the part after the server name.
-const AUTOSUBS_TOOL_NAMES: Record<string, string> = {
-  get_timeline: "Đọc Timeline",
-  get_transcript: "Đọc Transcript",
-  build_storyboard: "Đặt clip lên Timeline",
-  add_marker: "Đặt Marker",
-  add_text: "Thêm chữ",
-  update_clip: "Chỉnh clip",
-  delete_clips: "Xóa clip",
-  split_clips: "Cắt đôi clip",
-  remove_ranges: "Cắt bỏ đoạn",
-  apply_actions: "Áp nhiều thao tác",
-  render_motion: "Render motion graphic",
-  list_media: "Xem thư mục media",
-  inspect_media: "Xem link video",
-  download_media: "Tải video",
-  save_article: "Lưu bài báo",
-  remove_background: "Tách nền ảnh",
-};
+// Labels are `aiEdit.steps.<name>` in the locale files.
+const AUTOSUBS_TOOL_NAMES = new Set([
+  "get_timeline",
+  "get_transcript",
+  "build_storyboard",
+  "add_marker",
+  "add_text",
+  "update_clip",
+  "delete_clips",
+  "split_clips",
+  "remove_ranges",
+  "remove_marker",
+  "add_effects",
+  "add_transitions",
+  "apply_actions",
+  "render_motion",
+  "list_media",
+  "inspect_media",
+  "download_media",
+  "save_article",
+  "remove_background",
+]);
 
 function autosubsToolLabel(rawTool: string): string | undefined {
   const m = /autosubs(?:__|\/|\.|:)([a-z_]+)$/.exec(rawTool);
-  return m ? AUTOSUBS_TOOL_NAMES[m[1]] : undefined;
+  return m && AUTOSUBS_TOOL_NAMES.has(m[1])
+    ? i18n.t(`aiEdit.steps.${m[1]}`)
+    : undefined;
 }
 
-const FRIENDLY_TOOL_NAMES: Record<string, string> = {
-  thinking: "Suy luận",
-  run_command: "Chạy lệnh Terminal",
-  write_to_file: "Tạo / ghi file",
-  create_file: "Tạo file",
-  replace_file_content: "Chỉnh sửa file",
-  edit_file: "Chỉnh sửa file",
-  multi_replace_file_content: "Chỉnh sửa nhiều đoạn",
-  sed_file: "Chỉnh sửa file (sed)",
-  view_file: "Đọc file",
-  list_dir: "Xem danh sách thư mục",
-  list_directory: "Xem danh sách thư mục",
-  find_by_name: "Tìm kiếm file",
-  find_file: "Tìm kiếm file",
-  grep_search: "Tìm kiếm trong code",
-  search_directory: "Tìm kiếm trong thư mục",
-  search_web: "Tìm kiếm trên Web",
-  read_url_content: "Đọc trang Web",
-  generate_image: "Tạo ảnh AI",
-  invoke_subagent: "Gọi Subagent",
-  Bash: "Chạy lệnh Bash",
-  Write: "Ghi file",
-  Edit: "Chỉnh sửa file",
-  MultiEdit: "Chỉnh sửa file",
-  Read: "Đọc file",
-  Glob: "Tìm file",
-  Grep: "Tìm trong code",
-  LS: "Xem thư mục",
-  WebSearch: "Tìm kiếm Web",
-  WebFetch: "Đọc trang Web",
+// CLI tool name -> `aiEdit.steps.<key>`.
+const FRIENDLY_TOOL_KEYS: Record<string, string> = {
+  thinking: "thinking",
+  run_command: "runCommand",
+  write_to_file: "writeFile",
+  create_file: "createFile",
+  replace_file_content: "editFile",
+  edit_file: "editFile",
+  multi_replace_file_content: "editMany",
+  sed_file: "editFile",
+  view_file: "readFile",
+  list_dir: "listDir",
+  list_directory: "listDir",
+  find_by_name: "findFile",
+  find_file: "findFile",
+  grep_search: "searchCode",
+  search_directory: "searchDir",
+  search_web: "searchWeb",
+  read_url_content: "readWeb",
+  generate_image: "generateImage",
+  invoke_subagent: "subagent",
+  Bash: "runCommand",
+  Write: "writeFile",
+  Edit: "editFile",
+  MultiEdit: "editFile",
+  Read: "readFile",
+  Glob: "findFile",
+  Grep: "searchCode",
+  LS: "listDir",
+  WebSearch: "searchWeb",
+  WebFetch: "readWeb",
 };
+
+function friendlyToolLabel(rawTool: string): string | undefined {
+  const key = FRIENDLY_TOOL_KEYS[rawTool];
+  if (key) return i18n.t(`aiEdit.steps.${key}`);
+  for (const [k, v] of Object.entries(FRIENDLY_TOOL_KEYS)) {
+    if (rawTool.startsWith(k)) {
+      return i18n.t(`aiEdit.steps.${v}`) + rawTool.slice(k.length);
+    }
+  }
+  return undefined;
+}
 
 /**
  * Parse a step string emitted by `ai_cli/chat.rs`:
@@ -265,19 +260,11 @@ export function formatStepLabel(raw: string): {
       state,
       toolName: "thinking",
       detail,
-      label: detail || "Suy luận & lập kế hoạch",
+      label: detail || i18n.t("aiEdit.steps.planning"),
     };
   }
 
-  let friendlyTool = autosubsToolLabel(rawTool) ?? FRIENDLY_TOOL_NAMES[rawTool];
-  if (!friendlyTool) {
-    for (const [k, v] of Object.entries(FRIENDLY_TOOL_NAMES)) {
-      if (rawTool.startsWith(k)) {
-        friendlyTool = v + rawTool.slice(k.length);
-        break;
-      }
-    }
-  }
+  const friendlyTool = autosubsToolLabel(rawTool) ?? friendlyToolLabel(rawTool);
   const baseLabel = friendlyTool || rawTool;
   const label = detail ? `${baseLabel}: ${detail}` : baseLabel;
 

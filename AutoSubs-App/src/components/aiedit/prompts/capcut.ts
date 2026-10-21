@@ -6,6 +6,7 @@ import {
   REMOVE_RANGES_DOC,
   SPLIT_DOC,
   STORYBOARD_DOC,
+  timelineBrief,
   toolsSection,
   userAndMemorySections,
   workspaceSection,
@@ -73,35 +74,19 @@ const CAPCUT_ADD_TEXT_DOC = `**Thêm chữ / tiêu đề lên Timeline CapCut** 
 \`\`\``;
 
 function capcutContext(snapshot: CapCutTimelineSnapshot, useTools: boolean): string {
-  const markerSummary = (snapshot.markers ?? [])
-    .map(
-      (m) =>
-        `  - "${m.title}" tại ${m.startSec.toFixed(2)}s${m.durationSec > 0 ? ` (dài ${m.durationSec.toFixed(2)}s)` : ""}`,
-    )
-    .join("\n");
-  const trackSummary = snapshot.tracks
-    .map((tr) => {
-      const segs = tr.segments
-        .slice(0, 40)
-        .map(
-          (s) =>
-            `  - [id="${s.id}"] (${s.kind}) "${s.name}" từ ${s.startSec.toFixed(2)}s -> ${(s.startSec + s.durationSec).toFixed(2)}s (dài ${s.durationSec.toFixed(2)}s, zoom=${(s.zoom || 1).toFixed(2)}${s.text ? `, text="${s.text}"` : ""}${s.mediaPath ? `, path="${s.mediaPath}"` : ""})`,
-        )
-        .join("\n");
-      return `Track "${tr.name}" (${tr.trackType}, ${tr.segments.length} clips):\n${segs || "  (trống)"}`;
-    })
-    .join("\n\n");
+  const counters: Record<string, number> = {};
+  const tracks = snapshot.tracks.map((tr) => {
+    const letter = tr.trackType === "audio" ? "A" : tr.trackType === "text" ? "T" : tr.trackType === "video" ? "V" : "E";
+    counters[letter] = (counters[letter] ?? 0) + 1;
+    return { label: `${letter}${counters[letter]}`, count: tr.segments.length };
+  });
 
   return `### Ngữ cảnh Project CapCut hiện tại:
 - Tên Project: "${snapshot.draftName}" (ID: ${snapshot.draftId})
 - Thư mục Draft CapCut: "${snapshot.folderPath}"
 - Đường dẫn file Timeline JSON trực tiếp: "${snapshot.jsonPath}"
-- Độ phân giải: ${snapshot.canvasWidth}x${snapshot.canvasHeight} @ ${snapshot.fps}fps
-- Tổng thời lượng: ${snapshot.durationSec.toFixed(2)}s
-- Chi tiết các Track trên Timeline:
-${trackSummary || "(Timeline hiện đang trống)"}
-- Marker đang có trên Timeline:
-${markerSummary || "  (Chưa có marker nào)"}${useTools ? "" : `
+- Độ phân giải: ${snapshot.canvasWidth}x${snapshot.canvasHeight}
+${timelineBrief(snapshot.fps, snapshot.durationSec, tracks, (snapshot.markers ?? []).length)}${useTools ? "" : `
 
 ${capcutJsonGuide(snapshot)}`}`;
 }

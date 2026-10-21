@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 
 use crate::ai_edit::actions::{ActionOutcome, Editor, MarkerSpec, SegmentUpdate, StoryboardItem, TextSpec, TimeRange};
 use crate::ai_edit::mcp::tools::{
-    delete_tool, marker_tool, remove_ranges_tool, split_tool, storyboard_tool, text_item, tool,
+    delete_tool, marker_tool, remove_marker_tool, remove_ranges_tool, split_tool, storyboard_tool, text_item, tool,
 };
 use crate::bridges::capcut::cut::{capcut_remove_ranges, capcut_split_segments};
 use crate::bridges::capcut::bridge::{append_text_track, capcut_get_status, save_draft_json, TextCue};
@@ -16,7 +16,7 @@ use crate::bridges::capcut::storyboard::{
     capcut_build_storyboard, CapCutBuildStoryboardSpec, CapCutStoryboardEffect, CapCutStoryboardItem,
 };
 use crate::bridges::capcut::timeline::{
-    capcut_add_markers, capcut_delete_segment, capcut_get_timeline_snapshot, capcut_update_segment,
+    capcut_add_markers, capcut_delete_markers, capcut_delete_segment, capcut_get_timeline_snapshot, capcut_update_segment,
     CapCutMarkerInput, CapCutUpdateSegmentArgs,
 };
 
@@ -57,6 +57,19 @@ pub async fn build_storyboard(
     })
     .await?;
     Ok(ActionOutcome::placed(Editor::Capcut, track, res.appended as u64, res.requested as u64, res.lines))
+}
+
+pub async fn delete_markers(draft: Option<String>, at_secs: Vec<f64>) -> Result<ActionOutcome, String> {
+    let requested = at_secs.len();
+    let removed = capcut_delete_markers(draft, at_secs).await?;
+    Ok(ActionOutcome {
+        message: format!(
+            "Removed {}/{} marker(s) from the CapCut project. Re-open the project in CapCut to see it.",
+            removed, requested
+        ),
+        partial: removed < requested,
+        lines: Vec::new(),
+    })
 }
 
 pub async fn add_markers(draft: Option<String>, markers: Vec<MarkerSpec>) -> Result<ActionOutcome, String> {
@@ -158,10 +171,12 @@ pub async fn remove_ranges(
     draft: Option<String>,
     ranges: Vec<TimeRange>,
     ripple: bool,
+    tracks: Vec<String>,
 ) -> Result<ActionOutcome, String> {
     let total: f64 = ranges.iter().map(|r| r.end - r.start).sum();
     let count = ranges.len();
-    let stats = capcut_remove_ranges(draft, ranges.into_iter().map(|r| (r.start, r.end)).collect(), ripple).await?;
+    let stats =
+        capcut_remove_ranges(draft, ranges.into_iter().map(|r| (r.start, r.end)).collect(), ripple, tracks).await?;
     let mut outcome = ActionOutcome::ok(format!(
         "Removed {} span(s) ({:.2}s) from the CapCut timeline{}.",
         count,
@@ -232,6 +247,7 @@ pub fn edit_tools() -> Vec<Value> {
         ),
         delete_tool("CapCut", false),
         split_tool("CapCut", ""),
-        remove_ranges_tool("CapCut", " Markers inside a span are removed and later ones move with the clips."),
+        remove_ranges_tool("CapCut", " With ripple, markers inside a span are removed and later ones move with the clips."),
+        remove_marker_tool("CapCut"),
     ]
 }

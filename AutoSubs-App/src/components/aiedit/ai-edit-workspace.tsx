@@ -19,6 +19,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { PreviewTarget } from "@/api/preview-api";
+import { isLibraryAsset } from "@/api/cli-chat-api";
 
 export type { TimelineActionCommand };
 
@@ -26,8 +27,7 @@ export function AiEditWorkspace() {
   const { t } = useTranslation();
   const c = useAiEditController();
   const assetCount =
-    c.workspaceInfo?.assets?.filter((a) => a.category !== "templates").length ??
-    0;
+    c.workspaceInfo?.assets?.filter((a) => !isLibraryAsset(a)).length ?? 0;
 
   return (
     <div className="flex h-full min-h-0 w-full overflow-hidden bg-background">
@@ -36,7 +36,8 @@ export function AiEditWorkspace() {
           conversations={c.visibleConversations}
           activeConversationId={c.activeConversation?.id ?? null}
           runningTexts={c.runningTexts}
-          defaultAdapter={c.adapter}
+          openProjectName={c.openProjectName}
+          openEditor={c.selectedIntegration}
           searchQuery={c.searchQuery}
           onSearchQueryChange={c.setSearchQuery}
           onCreateConversation={() => c.createConversation()}
@@ -62,19 +63,19 @@ export function AiEditWorkspace() {
                 size="icon"
                 className="size-7 rounded-lg text-muted-foreground hover:text-foreground"
                 onClick={() => c.setSidebarCollapsed(false)}
-                title="Mở danh sách hội thoại"
+                title={t("aiEdit.sidebar.expand")}
               >
                 <PanelLeftOpen className="size-3.5" />
               </Button>
             )}
 
             <span className="text-xs font-medium text-muted-foreground truncate max-w-md">
-              {c.activeConversation?.title || "Cuộc trò chuyện mới"}
+              {c.activeConversation?.title || t("aiEdit.newChat")}
             </span>
             {c.workspaceProject?.name && (
               <span
                 className="shrink-0 truncate max-w-48 rounded-full bg-muted px-2 py-0.5 text-[10.5px] text-muted-foreground"
-                title="Project chứa asset của cuộc trò chuyện này"
+                title={t("aiEdit.header.projectTooltip")}
               >
                 {c.workspaceProject.name}
               </span>
@@ -118,7 +119,6 @@ export function AiEditWorkspace() {
           activeRunText={c.activeRunText}
           activeThinkingText={c.activeThinkingText}
           activeStepList={c.activeStepList}
-          onSendPrompt={(prompt) => void c.handleSendPrompt(prompt)}
           onExecuteTimelineAction={(cmd) => void c.executeTimelineAction(cmd)}
           onOpenPreview={c.preview.open}
           endRef={c.endRef}
@@ -185,7 +185,7 @@ export function AiEditWorkspace() {
             );
           }
           c.setSystemPromptOpen(false);
-          toast.success("Đã lưu System Prompt");
+          toast.success(t("aiEdit.systemPrompt.saved"));
         }}
         memoryOpen={c.memoryOpen}
         onMemoryOpenChange={c.setMemoryOpen}
@@ -205,6 +205,7 @@ export function AiEditWorkspace() {
         onPreviewAsset={(asset) => void c.handlePreviewAsset(asset)}
         onSaveAsTemplate={(asset) => void c.handleSaveAsTemplate(asset)}
         onUseTemplate={(asset) => void c.handleUseTemplate(asset)}
+        onImportSkills={(toLibrary) => void c.handleImportSkills(toLibrary)}
         renameTarget={c.renameTarget}
         onClearRenameTarget={() => c.setRenameTarget(null)}
         renameDraft={c.renameDraft}
@@ -233,6 +234,7 @@ function PreviewMenu({
   onOpen: (target: PreviewTarget) => void;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const [targets, setTargets] = React.useState<PreviewTarget[] | null>(null);
 
   return (
@@ -251,43 +253,42 @@ function PreviewMenu({
               ? "flex items-center gap-1.5 rounded-full border border-primary/50 bg-primary/10 px-2.5 py-1 text-[11px] text-foreground transition-colors"
               : "flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/30 px-2.5 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
           }
-          title="Xem preview code AI đã viết"
+          title={t("aiEdit.preview.tooltip")}
         >
           <MonitorPlay className="size-3 text-primary" />
-          <span>Preview</span>
+          <span>{t("aiEdit.preview.button")}</span>
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-72">
         <DropdownMenuLabel className="text-xs">
-          Motion Graphics của project
+          {t("aiEdit.preview.menuTitle")}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         {targets === null ? (
           <div className="px-2 py-1.5 text-xs text-muted-foreground">
-            Đang tải...
+            {t("aiEdit.preview.loading")}
           </div>
         ) : targets.length === 0 ? (
           <div className="px-2 py-1.5 text-xs text-muted-foreground">
-            Chưa có gì để preview. Hãy yêu cầu AI tạo motion trong
-            motion-graphics.
+            {t("aiEdit.preview.empty")}
           </div>
         ) : (
-          targets.map((t) => (
+          targets.map((target) => (
             <DropdownMenuItem
-              key={t.path}
-              onSelect={() => onOpen(t)}
+              key={target.path}
+              onSelect={() => onOpen(target)}
               className="flex items-center justify-between gap-2 text-xs"
-              title={t.path}
+              title={target.path}
             >
               <span
                 className={
-                  t.path === activePath ? "truncate font-medium" : "truncate"
+                  target.path === activePath ? "truncate font-medium" : "truncate"
                 }
               >
-                {t.name}
+                {target.name}
               </span>
               <span className="shrink-0 text-[10px] text-muted-foreground">
-                {t.kind === "dev" ? "Dev server" : "HTML/TS"}
+                {target.kind === "dev" ? "Dev server" : "HTML/TS"}
               </span>
             </DropdownMenuItem>
           ))
@@ -297,7 +298,7 @@ function PreviewMenu({
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={onClose} className="gap-2 text-xs">
               <X className="size-3" />
-              Đóng preview
+              {t("aiEdit.preview.close")}
             </DropdownMenuItem>
           </>
         )}
