@@ -21,7 +21,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::ai_edit::actions::{execute, timeline_snapshot, ActionOutcome, EditTarget, TimelineAction};
-use crate::ai_edit::mcp::tools::{assets, media, motion};
+use crate::ai_edit::mcp::external;
+use crate::ai_edit::mcp::tools::{analyze, assets, media, motion, project, search};
 use crate::ai_edit::mcp::tools::transcript::{get_transcript, transcripts_dir, TranscriptArgs};
 use crate::ai_edit::mcp::tools::tool_definitions;
 
@@ -44,6 +45,12 @@ struct Session {
     allow_edits: bool,
     /// The run's project workspace, where the download tools save files.
     workspace: Option<PathBuf>,
+    /// An agent app outside AutoSubs (`external`), following the open project.
+    external: bool,
+    /// Project name, known for external sessions.
+    label: Option<String>,
+    /// False for an external session before the app has seen an editor project.
+    connected: bool,
 }
 
 /// Where an agent run reaches the server: URL plus the Authorization header.
@@ -122,7 +129,10 @@ fn open_debug_session() {
 pub fn open_session(target: EditTarget, allow_edits: bool, workspace: Option<PathBuf>) -> Option<McpEndpoint> {
     let srv = server().get()?;
     let session = uuid::Uuid::new_v4().simple().to_string();
-    sessions().lock().ok()?.insert(session.clone(), Session { target, allow_edits, workspace });
+    sessions()
+        .lock()
+        .ok()?
+        .insert(session.clone(), Session { target, allow_edits, workspace, external: false, label: None, connected: true });
     Some(McpEndpoint {
         url: format!("http://127.0.0.1:{}/mcp/{}", srv.port, session),
         token: srv.token.clone(),
@@ -191,12 +201,18 @@ async fn read_request(stream: &mut TcpStream) -> Result<HttpRequest, String> {
 }
 
 async fn respond(stream: &mut TcpStream, status: &str, body: Option<&Value>) -> Result<(), String> {
+    respond_with(stream, status, body, "").await
+}
+
+/// `extra` is more header lines, each ending in CRLF.
+async fn respond_with(stream: &mut TcpStream, status: &str, body: Option<&Value>, extra: &str) -> Result<(), String> {
     let payload = body.map(|b| b.to_string()).unwrap_or_default();
     let content_type = if body.is_some() { "Content-Type: application/json\r\n" } else { "" };
     let head = format!(
-        "HTTP/1.1 {}\r\n{}Content-Length: {}\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {}\r\n{}{}Content-Length: {}\r\nConnection: close\r\n\r\n",
         status,
         content_type,
+        extra,
         payload.len()
     );
     stream.write_all(head.as_bytes()).await.map_err(|e| e.to_string())?;
@@ -257,6 +273,88 @@ async fn serve_connection(mut stream: TcpStream) -> Result<(), String> {
     }
 }
 
+/// A connection on the external agents' port (see `external`): its own
+/// token, and a session that follows the project open in the app. Clients
+/// get an `Mcp-Session-Id` on initialize so the UI can tell them apart.
+pub async fn serve_external(mut stream: TcpStream) -> Result<(), String> {
+    let req = read_request(&mut stream).await?;
+    let Some(token) = external::token() else {
+        return respond(&mut stream, "503 Service Unavailable", None).await;
+    };
+    if !req.headers.get("authorization").is_some_and(|v| v == &format!("Bearer {}", token)) {
+        return respond(&mut stream, "401 Unauthorized", None).await;
+    }
+    match req.method.as_str() {
+        "POST" => {}
+        "DELETE" => return respond(&mut stream, "200 OK", None).await,
+        _ => return respond(&mut stream, "405 Method Not Allowed", None).await,
+    }
+    let message: Value = match serde_json::from_slice(&req.body) {
+        Ok(v) => v,
+        Err(e) => {
+            let err = rpc_error(Value::Null, -32700, &format!("Parse error: {}", e));
+            return respond(&mut stream, "400 Bad Request", Some(&err)).await;
+        }
+    };
+
+    let session = external_session();
+    let app = app_handle().get();
+    let client = req.headers.get("mcp-session-id").cloned();
+    let user_agent = req.headers.get("user-agent").cloned().unwrap_or_default();
+    let mut extra = String::new();
+    let messages: Vec<&Value> = match message.as_array() {
+        Some(batch) => batch.iter().collect(),
+        None => vec![&message],
+    };
+    for m in &messages {
+        match m.get("method").and_then(|v| v.as_str()) {
+            Some("initialize") => {
+                let id = external::client_initialized(app, m.get("params").unwrap_or(&Value::Null), &user_agent);
+                extra = format!("Mcp-Session-Id: {}\r\n", id);
+            }
+            Some("tools/call") => {
+                let tool = m.pointer("/params/name").and_then(|v| v.as_str());
+                external::touch(app, client.as_deref(), &user_agent, tool);
+            }
+            _ => external::touch(app, client.as_deref(), &user_agent, None),
+        }
+    }
+
+    let mut out = Vec::new();
+    for m in messages {
+        if let Some(r) = handle_message(&session, m).await {
+            out.push(r);
+        }
+    }
+    let reply = if message.is_array() { (!out.is_empty()).then(|| Value::Array(out)) } else { out.pop() };
+    match reply {
+        Some(body) => respond_with(&mut stream, "200 OK", Some(&body), &extra).await,
+        None => respond_with(&mut stream, "202 Accepted", None, &extra).await,
+    }
+}
+
+/// The session of an external request: the project open in the app now.
+fn external_session() -> Session {
+    match external::current() {
+        Some(cur) => Session {
+            target: cur.target,
+            allow_edits: true,
+            workspace: cur.workspace,
+            external: true,
+            label: cur.label,
+            connected: true,
+        },
+        None => Session {
+            target: external::fallback_target(),
+            allow_edits: true,
+            workspace: None,
+            external: true,
+            label: None,
+            connected: false,
+        },
+    }
+}
+
 // ---------------------------------------------------------------------------
 // JSON-RPC / MCP
 // ---------------------------------------------------------------------------
@@ -294,8 +392,11 @@ async fn handle_message(session: &Session, msg: &Value) -> Option<Value> {
         "ping" => rpc_result(id, json!({})),
         "tools/list" => {
             let mut tools = tool_definitions(session.target.editor, session.allow_edits);
-            if session.workspace.is_some() {
+            if session.workspace.is_some() || session.external {
+                tools.extend(project::tools());
+                tools.extend(search::tools());
                 tools.extend(media::tools());
+                tools.extend(analyze::tools());
                 tools.extend(motion::tools());
                 tools.extend(assets::tools());
             }
@@ -311,20 +412,31 @@ async fn handle_message(session: &Session, msg: &Value) -> Option<Value> {
 }
 
 fn instructions(session: &Session) -> String {
-    let mut s = format!(
+    let mut s = String::new();
+    if session.external {
+        s.push_str(
+            "AutoSubs drives the user's video editor. This connection follows the editor project open \
+             in the AutoSubs app; call get_project_context first to see which one, its memory notes and \
+             the skills (read_skill) for longer jobs such as footage-planning. Keep multi-step plans \
+             with save_plan / read_plan. ",
+        );
+    }
+    s.push_str(&format!(
         "Timeline tools for the {} project this conversation is bound to. Times are seconds from the \
          start of the timeline. Call get_timeline to see clip ids and get_transcript to see what is said \
          (with word timings for precise cuts), then edit; every edit tool reports \
          what it did, so read the result and fix anything that failed.",
         session.target.editor.display_name()
-    );
+    ));
     if session.workspace.is_some() {
         s.push_str(
-            " inspect_media, download_media, save_article and remove_background fetch videos, web \
-             articles and remove image backgrounds into the project workspace (media/video, \
+            " search_media finds footage on YouTube, Pexels and Pixabay. inspect_media, download_media, \
+             save_article and remove_background fetch videos, web articles and remove image backgrounds into the project workspace (media/video, \
              media/images, articles/); media from outside the project (a library/ sfx pack, \
              Downloads) is copied into media/ when build_storyboard places it; \
              download_media and remove_background return paths build_storyboard takes. \
+             analyze_media shows the shots and contact sheets of a video, to pick the srcIn/srcOut \
+             section build_storyboard places (the editor trims; files are never cut). \
              render_motion renders a Remotion project from motion-graphics/ into exports/ and waits \
              for the file. list_media lists a folder (a sound effect pack) with ids and lengths. Every \
              file these tools return has a short id (m12); pass it as path instead of the full path.",
@@ -343,7 +455,48 @@ fn tool_text(text: impl Into<String>, is_error: bool) -> Value {
     json!({ "content": [{ "type": "text", "text": text.into() }], "isError": is_error })
 }
 
-async fn call_tool(session: &Session, name: &str, mut args: Value) -> Value {
+async fn call_tool(session: &Session, name: &str, args: Value) -> Value {
+    let result = call_tool_inner(session, name, args).await;
+    if !session.external {
+        return result;
+    }
+    // Paths in the project folder become paths under the agent home's
+    // `project` link, which agent apps read without asking.
+    let app = app_handle().get();
+    let mut result = result;
+    if let Some(items) = result.get_mut("content").and_then(|c| c.as_array_mut()) {
+        for item in items {
+            if let Some(text) = item.get("text").and_then(|t| t.as_str()).map(str::to_string) {
+                item["text"] = Value::String(external::agent_paths(app, text));
+            }
+        }
+    }
+    result
+}
+
+async fn call_tool_inner(session: &Session, name: &str, mut args: Value) -> Value {
+    if let Some(app) = app_handle().get() {
+        let ctx = project::Context {
+            editor: session.target.editor,
+            label: session.label.as_deref(),
+            connected: session.connected,
+            workspace: session.workspace.as_deref(),
+        };
+        if let Some(r) = project::call(app, &ctx, name, &args) {
+            return match r {
+                Ok(text) => tool_text(text, false),
+                Err(e) => tool_text(e, true),
+            };
+        }
+    }
+    // Searching needs no project; everything else saves into or edits one.
+    if !session.connected && !matches!(name, "search_media" | "inspect_media") {
+        return tool_text(
+            "AutoSubs has no editor project open yet. Ask the user to open AutoSubs and their project in \
+             DaVinci Resolve, Premiere Pro or CapCut, then try again.",
+            true,
+        );
+    }
     // Media ids (m12) in any path argument become their paths.
     if let Some(ws) = session.workspace.as_deref() {
         if let Err(e) = assets::resolve_ids(ws, &mut args) {
@@ -385,11 +538,17 @@ async fn call_tool(session: &Session, name: &str, mut args: Value) -> Value {
 
     if let Some(app) = app_handle().get() {
         let workspace = session.workspace.as_deref();
-        let result = match media::call(app, workspace, name, &args).await {
+        let result = match search::call(app, name, &args).await {
             Some(r) => Some(r),
-            None => match motion::call(app, workspace, name, &args).await {
+            None => match media::call(app, workspace, name, &args).await {
                 Some(r) => Some(r),
-                None => assets::call(workspace, name, &args),
+                None => match analyze::call(workspace, name, &args).await {
+                    Some(r) => Some(r),
+                    None => match motion::call(app, workspace, name, &args).await {
+                        Some(r) => Some(r),
+                        None => assets::call(workspace, name, &args),
+                    },
+                },
             },
         };
         if let Some(result) = result {
@@ -548,7 +707,14 @@ mod tests {
     use crate::ai_edit::actions::Editor;
 
     fn session(editor: Editor, allow_edits: bool) -> Session {
-        Session { target: EditTarget { editor, draft_id: None, transcript_file: None }, allow_edits, workspace: None }
+        Session {
+            target: EditTarget { editor, draft_id: None, transcript_file: None },
+            allow_edits,
+            workspace: None,
+            external: false,
+            label: None,
+            connected: true,
+        }
     }
 
     #[tokio::test]

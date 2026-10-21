@@ -796,6 +796,86 @@ pub async fn media_download_analyze(
     })
 }
 
+/// One YouTube search hit, from yt-dlp's flat listing (no per-video request).
+#[derive(Clone, Debug)]
+pub struct YoutubeHit {
+    pub id: String,
+    pub title: String,
+    pub channel: Option<String>,
+    pub duration: Option<f64>,
+    pub views: Option<u64>,
+}
+
+/// Search YouTube through a results page URL (`/results?search_query=..&sp=..`),
+/// so the page's own filters (license, length, upload date, sort) apply. Flat:
+/// one request, no player JS, so it is quick and rarely rate limited.
+pub async fn search_youtube(app: &AppHandle, results_url: &str, limit: usize) -> Result<Vec<YoutubeHit>, String> {
+    let binary = ytdlp_binary(app)?;
+    if !binary.exists() {
+        return Err("yt-dlp is not installed yet".to_string());
+    }
+    let mut args: Vec<String> = vec![
+        "--dump-single-json".into(),
+        "--flat-playlist".into(),
+        "--no-warnings".into(),
+        "--playlist-end".into(),
+        limit.to_string(),
+    ];
+    let site = site_session::site_for_url(results_url);
+    let cookies = match site {
+        Some(_) => session_cookies(app, site, &uuid::Uuid::new_v4().simple().to_string()).await,
+        None => None,
+    };
+    if let Some(c) = &cookies {
+        args.push("--cookies".into());
+        args.push(c.0.to_string_lossy().to_string());
+    }
+    args.push(results_url.to_string());
+
+    let output = Command::new(&binary)
+        .args(&args)
+        .hidden()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run yt-dlp: {}", e))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(if stderr.trim().is_empty() {
+            "YouTube search failed".to_string()
+        } else {
+            explain_error(stderr.trim().to_string(), site).0
+        });
+    }
+    let data: serde_json::Value =
+        serde_json::from_slice(&output.stdout).map_err(|e| format!("Bad yt-dlp output: {}", e))?;
+    Ok(parse_youtube_hits(&data))
+}
+
+fn parse_youtube_hits(data: &serde_json::Value) -> Vec<YoutubeHit> {
+    let entries = data.get("entries").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    entries
+        .iter()
+        // Channels and playlists in the results have no duration and a non-video id.
+        .filter(|e| e.get("ie_key").and_then(|k| k.as_str()).map_or(true, |k| k == "Youtube"))
+        .filter_map(|e| {
+            let id = e.get("id")?.as_str()?.to_string();
+            Some(YoutubeHit {
+                title: e.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled").to_string(),
+                channel: e
+                    .get("channel")
+                    .or_else(|| e.get("uploader"))
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+                duration: e.get("duration").and_then(|v| v.as_f64()),
+                views: e.get("view_count").and_then(|v| v.as_u64()),
+                id,
+            })
+        })
+        .collect()
+}
+
 // ----------------------------------------------------------------------------
 // Download
 // ----------------------------------------------------------------------------

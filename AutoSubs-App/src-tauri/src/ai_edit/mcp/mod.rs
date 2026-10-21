@@ -4,6 +4,7 @@
 //! about editors; `tools` holds the tool schemas, which each editor module
 //! assembles for itself.
 
+pub mod external;
 mod server;
 pub mod tools;
 

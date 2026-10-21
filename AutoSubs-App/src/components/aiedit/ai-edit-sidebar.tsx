@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { ContentConversation } from "@/stores/ai-edit-chat-store";
 import { editorLabel } from "./ai-edit-helpers";
+import { OpenAgentAppButtons } from "@/components/external-agent/external-agent-badge";
 
 /** Short editor tag in front of each chat title. */
 const EDITOR_TAGS: Record<string, { label: string; name: string; className: string }> = {
@@ -223,6 +224,9 @@ export function AiEditSidebar({
           );
         })}
       </div>
+
+      {/* Open Claude / Antigravity in the agent folder */}
+      <OpenAgentAppButtons />
     </aside>
   );
 }

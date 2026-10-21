@@ -26,6 +26,8 @@ import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle }
 import { Field, FieldGroup } from "@/components/ui/field";
 import { initI18n, normalizeUiLanguage } from "@/i18n";
 import { AiEditProjects } from "@/components/settings/ai-edit-projects";
+import { StockFootageKeys } from "@/components/settings/stock-footage-keys";
+import { ExternalAgentPanel } from "@/components/external-agent/external-agent-panel";
 import { uiLanguages } from "@/lib/languages";
 import { useRef } from "react";
 import { getVersion } from "@tauri-apps/api/app";
@@ -350,6 +352,12 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
             {/* Folders AI Edit keeps per editor project */}
             <AiEditProjects open={open} />
+
+            {/* Free stock footage keys for the AI Edit agent's search_media */}
+            <StockFootageKeys />
+
+            {/* Claude Code, Antigravity... driving AutoSubs from their own app */}
+            <ExternalAgentPanel />
 
             {/* Command-line tool */}
             {cliStatus && (

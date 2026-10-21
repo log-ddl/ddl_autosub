@@ -5,6 +5,7 @@ import { Captions, Download, Scissors, Sparkles, SquareTerminal } from "lucide-r
 import { cn } from "@/lib/utils"
 import { IntegrationStatus } from "@/components/layout/integration-status"
 import { SettingsDropdown } from "@/components/transcription/settings-dropdown"
+import { ExternalAgentDot } from "@/components/external-agent/external-agent-badge"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useAppModeStore, type AppMode } from "@/stores/app-mode-store"
 
@@ -116,6 +117,7 @@ export function WorkspaceShell({
           data-tauri-drag-region={isMacOs ? "false" : undefined}
         >
           <IntegrationStatus />
+          <ExternalAgentDot />
           <SettingsDropdown />
         </div>
       </header>

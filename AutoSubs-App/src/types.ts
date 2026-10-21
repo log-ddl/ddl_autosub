@@ -164,6 +164,10 @@ export interface Settings {
     customPrompt: string,
     customMaxCharsPerLine: number,
 
+    // Stock footage search (AI Edit search_media), read by the backend
+    pexelsApiKey: string;
+    pixabayApiKey: string;
+
     // Adobe integrations
     selectedInputTracksByApp: Record<Integration, string[]>;
     selectedOutputTrack: string;

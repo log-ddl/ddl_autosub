@@ -6,7 +6,9 @@
       "transcription": "Transcription",
       "language": "Language",
       "cli": "Command line",
-      "aiProjects": "AI Edit projects"
+      "aiProjects": "AI Edit projects",
+      "stockFootage": "Stock footage",
+      "externalAgent": "External agents"
     },
     "gpu": {
       "title": "GPU Acceleration",
@@ -60,6 +62,12 @@
       "confirm_one": "Delete \"{{name}}\" from AutoSubs? Its media, motion graphics and exports go to the Trash, and its chat is deleted. The project in {{editor}} is not touched.",
       "confirm_other": "Delete \"{{name}}\" from AutoSubs? Its media, motion graphics and exports go to the Trash, and its {{count}} chats are deleted. The project in {{editor}} is not touched.",
       "errorTitle": "Could not delete project"
+    },
+    "stockFootage": {
+      "keyTitle": "{{site}} API key",
+      "keyDescription": "Free key, lets AI Edit search stock B-roll",
+      "placeholder": "Paste key",
+      "getKey": "Get a free key"
     }
   },
   "common": {
@@ -1243,6 +1251,37 @@
       "remove_marker": "Remove markers",
       "add_effects": "Add effects",
       "add_transitions": "Add transitions"
+    }
+  },
+  "externalAgent": {
+    "enable": {
+      "title": "Let agent apps drive",
+      "description": "Claude Code, Antigravity on this Mac use AutoSubs"
+    },
+    "status": {
+      "notListening": "Not running",
+      "connected": "Connected: {{names}}",
+      "waiting": "No agent app connected yet",
+      "editor": "Editor: {{editor}} · {{project}}",
+      "noProjectName": "no project name",
+      "noEditor": "No editor project open in AutoSubs",
+      "driving": "Driving now: {{name}} ({{tool}}, {{ago}} ago)",
+      "idle": "No agent is driving right now"
+    },
+    "lastTool": "{{tool}}, {{ago}} ago",
+    "seen": "seen {{ago}} ago",
+    "folderHint": "Open your agent app in this folder:",
+    "openFolder": "Show in Finder",
+    "changeFolder": "Change",
+    "connectLabel": "Connect:",
+    "connectTooltip": "Add AutoSubs to {{name}} (once)",
+    "copyConfig": "Copy config",
+    "copyTooltip": "MCP config for other agent apps",
+    "errorTitle": "External agents",
+    "openTooltip": "Open {{name}} in the agent folder",
+    "pickProject": {
+      "title": "Pick the {{name}} project",
+      "description": "Antigravity was already open: choose {{name}} in its projects"
     }
   }
 }

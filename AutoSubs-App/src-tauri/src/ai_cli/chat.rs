@@ -172,12 +172,23 @@ fn run_cli_blocking(
     let mut stdin_text: Option<String> = None;
     let mut prompt_tmp_file: Option<PathBuf> = None;
     let mut mcp_config_file: Option<PathBuf> = None;
+    // agy only reads its global MCP config, where the external agents'
+    // `autosubs-app` may also sit: switched off for this run so the agent
+    // does not see every tool twice, and back on afterwards.
+    let mut agy_external_paused = false;
     let mcp_endpoint = payload
         .edit_target
         .clone()
         .and_then(|target| mcp::open_session(target, payload.allow_edits, Some(cwd_dir.clone())));
-    // Re-read every run, so a skill imported mid-conversation is seen next turn.
-    let skills = crate::ai_cli::workspace::skills_prompt(&cwd_dir);
+    // Re-read every run, so a skill imported mid-conversation is seen next
+    // turn. Shared subagents are written into the project for both CLIs.
+    let library = crate::ai_cli::workspace::global_workspace_root(app)
+        .and_then(|g| crate::ai_cli::workspace::ensure_library(&g))
+        .ok();
+    if let Some(lib) = &library {
+        crate::ai_cli::library::sync_agents(lib, &cwd_dir);
+    }
+    let skills = crate::ai_cli::workspace::skills_prompt(&cwd_dir, library.as_deref());
     let with_skills = |sys: Option<&str>| -> Option<String> {
         let parts: Vec<&str> = sys
             .into_iter()
@@ -222,6 +233,9 @@ fn run_cli_blocking(
             }
             if let Some(ep) = &mcp_endpoint {
                 register_agy_mcp(&bin, ep);
+                if crate::ai_edit::mcp::external::agy_registered(app) {
+                    agy_external_paused = set_agy_mcp_enabled(&bin, crate::ai_edit::mcp::external::SERVER_NAME, false);
+                }
             }
         }
         "claude" => {
@@ -261,6 +275,12 @@ fn run_cli_blocking(
                     args.extend(["--mcp-config".into(), tmp.to_string_lossy().into_owned()]);
                     mcp_config_file = Some(tmp);
                 }
+                // The external agents' server, if the user registered it,
+                // would list every tool a second time.
+                args.extend([
+                    "--disallowedTools".into(),
+                    format!("mcp__{}", crate::ai_edit::mcp::external::SERVER_NAME),
+                ]);
             }
             stdin_text = Some(payload.prompt.clone());
         }
@@ -336,6 +356,9 @@ fn run_cli_blocking(
     if let Some(ep) = &mcp_endpoint {
         mcp::close_session(&ep.session);
     }
+    if agy_external_paused {
+        set_agy_mcp_enabled(&bin, crate::ai_edit::mcp::external::SERVER_NAME, true);
+    }
 
     if let (Some(key), Some(sid)) = (payload.session_key, parse_state.result_session_id.clone()) {
         if let Ok(mut map) = sessions_map().lock() {
@@ -409,6 +432,19 @@ fn claude_mcp_config(ep: &McpEndpoint) -> Value {
 
 /// Antigravity only reads MCP servers from its own config, so point its
 /// `autosubs` entry at this run's session ("add" also updates an existing one).
+/// `agy mcp enable|disable <name>`; true when it worked.
+fn set_agy_mcp_enabled(bin: &std::path::Path, name: &str, enabled: bool) -> bool {
+    Command::new(bin)
+        .args(["mcp", if enabled { "enable" } else { "disable" }, name])
+        .env("PATH", build_cli_path_env())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .hidden()
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
 fn register_agy_mcp(bin: &std::path::Path, ep: &McpEndpoint) {
     let status = Command::new(bin)
         .args([

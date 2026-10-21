@@ -61,6 +61,10 @@ export const DEFAULT_SETTINGS: Settings = {
   customPrompt: "",
   customMaxCharsPerLine: 38,
 
+  // Stock footage API keys
+  pexelsApiKey: "",
+  pixabayApiKey: "",
+
   // Resolve settings
   selectedInputTracksByApp: {
     davinci: ["1"],
@@ -136,6 +140,9 @@ export const useSettingsStore = create<SettingsStore>()(
           timesDismissedSurvey: state.timesDismissedSurvey,
           lastSurveyDate: state.lastSurveyDate,
           lastSeenVersion: state.lastSeenVersion,
+          // Keys the user pasted in are not preferences; keep them.
+          pexelsApiKey: state.pexelsApiKey,
+          pixabayApiKey: state.pixabayApiKey,
         })),
 
       setHydrated: () => set({ isHydrated: true }),

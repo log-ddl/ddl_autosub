@@ -99,12 +99,15 @@ ${DOWNLOAD_TOOLS_DOC}`;
 
 // The download tools work in Manual runs too (they never touch the timeline),
 // so both the tools section and the manual actions section carry this.
-export const DOWNLOAD_TOOLS_DOC = `### Tải video, bài báo và tách nền ảnh (MCP server \`autosubs\`)
-- \`inspect_media\`: xem một link video (tiêu đề, độ dài, độ phân giải) mà chưa tải. Dùng được với YouTube, TikTok, Facebook, Instagram, X, Vimeo, trang báo và hầu hết trang có video nhúng.
-- \`download_media\`: tải video về thư mục \`media/video\` của project và trả về đường dẫn file để đưa vào \`build_storyboard\`. Làm B-roll thì truyền \`startSec\` / \`endSec\` để chỉ tải đúng đoạn cần, nhanh hơn rất nhiều so với tải cả video.
-- \`save_article\`: lưu một bài báo / bài viết (chữ thành \`article.md\`, ảnh trong \`images/\`) vào thư mục \`articles\` của project, để nghiên cứu nội dung hoặc lấy ảnh minh họa.
-- \`remove_background\`: tách nền ảnh (nhân vật, người thật, vật thể, icon, tranh vẽ) và xuất ra file PNG trong suốt trong thư mục \`media/images\` để đưa vào \`build_storyboard\`. Hỗ trợ \`mode: "auto"\` (mặc định dùng AI RMBG-1.4), \`"ai"\` (tách nền ảnh chụp phức tạp), hoặc \`"solid"\` (tách nền đơn sắc cực nhanh cho hình vẽ / stickman / icon), kèm \`cropToContent\` để cắt sát viền.
-- Nếu tool báo cần đăng nhập, nói với người dùng đăng nhập trang đó từ nút tài khoản ở tab Download rồi thử lại. Chỉ tải nội dung mà người dùng có quyền sử dụng.`;
+export const DOWNLOAD_TOOLS_DOC = `### Tìm, tải và xem footage (MCP server \`autosubs\`)
+- Tìm footage minh họa cho một kịch bản hay voice: đọc và làm theo skill \`footage-planning\` (các bước ghi ra \`plan/script.json\`, \`plan/candidates.json\`, \`plan/shotlist.json\`; subagent \`footage-scout\` tìm và \`clip-analyst\` xem video chạy song song).
+- \`search_media\`: tìm trên YouTube, Pexels, Pixabay; nhiều từ khóa thì gom vào \`queries\` trong MỘT lần gọi.
+- \`inspect_media\`: xem một link video (tiêu đề, độ dài, độ phân giải) mà chưa tải.
+- \`download_media\`: tải về \`media/video\`, trả id. \`startSec\` / \`endSec\` chỉ tải đúng đoạn cần; \`preview: true\` tải bản 360p vào \`media/preview\` để xem trước khi chọn đoạn.
+- \`analyze_media\`: các shot và contact sheet (ảnh lưới có ghi giây) của video đã tải; mở ảnh để xem rồi chọn \`srcIn\` / \`srcOut\` cho \`build_storyboard\`. Không tự cắt file: trình dựng sẽ cắt khi đặt clip.
+- \`save_article\`: lưu bài báo (chữ thành \`article.md\`, ảnh trong \`images/\`) vào \`articles\`.
+- \`remove_background\`: tách nền ảnh ra PNG trong suốt trong \`media/images\`.
+- Tool báo cần đăng nhập thì nhờ người dùng đăng nhập trang đó ở tab Download rồi thử lại. Tool báo thiếu API key Pexels / Pixabay thì nhờ người dùng thêm key miễn phí trong Cài đặt. Chỉ tải nội dung người dùng có quyền sử dụng.`;
 
 export const SPLIT_DOC = `**Cắt đôi clip tại một thời điểm** (\`split_clips\`, như dao cắt Razor):
 - \`atSec\`: thời điểm cắt (giây từ đầu timeline).

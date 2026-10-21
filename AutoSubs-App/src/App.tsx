@@ -27,6 +27,7 @@ import { AutoEditWorkspace } from "@/components/autoedit/auto-edit-workspace"
 import { AutoEditPythonSetup } from "@/components/autoedit/autoedit-python-setup"
 import { DownloadWorkspace } from "@/components/download/download-workspace"
 import { AiEditWorkspace } from "@/components/aiedit/ai-edit-workspace"
+import { ExternalAgentSync } from "@/components/external-agent/external-agent-badge"
 
 const MIN_TRANSCRIPTION_PANEL_WIDTH = 370
 const MIN_SUBTITLE_PANEL_WIDTH = 280
@@ -357,6 +358,8 @@ function AppRouter() {
   // down the Resolve connection or an in-progress transcription.
   return (
     <EditorWorkspaceProviders>
+      {/* Points external agent apps at the editor project open here, on every tab. */}
+      <ExternalAgentSync />
       <WorkspaceShell
         autocut={<AutoEditWorkspace />}
         subtitles={<AppContentBody />}

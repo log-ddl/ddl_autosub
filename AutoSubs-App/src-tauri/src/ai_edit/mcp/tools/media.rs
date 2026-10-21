@@ -29,6 +29,10 @@ const ARTICLE_PREVIEW_CHARS: usize = 6000;
 const MAX_DOWNLOADS: usize = 10;
 const PARALLEL_DOWNLOADS: usize = 4;
 
+/// Low-resolution copies to look at before choosing a section.
+pub const PREVIEW_DIR: &str = "media/preview";
+const PREVIEW_QUALITY: &str = "360";
+
 pub fn tools() -> Vec<Value> {
     vec![
         tool(
@@ -49,7 +53,8 @@ pub fn tools() -> Vec<Value> {
              much faster than the whole video. quality is a height such as 1080 (default best). For \
              several clips pass them all in items (up to 10) in ONE call: they download 4 at a time, \
              while separate calls run one after another. Only download what the user has the right \
-             to use.",
+             to use. preview: true fetches a small 360p copy into media/preview to look at with \
+             analyze_media before choosing a section; download the chosen section afterwards.",
             json!({
                 "type": "object",
                 "properties": {
@@ -57,6 +62,7 @@ pub fn tools() -> Vec<Value> {
                     "startSec": { "type": "number", "description": "Section start inside the video, seconds" },
                     "endSec": { "type": "number", "description": "Section end inside the video, seconds" },
                     "quality": { "type": "string", "description": "\"best\" or a height like \"1080\"" },
+                    "preview": { "type": "boolean", "description": "Small 360p copy for analyze_media, into media/preview" },
                     "items": {
                         "type": "array",
                         "maxItems": MAX_DOWNLOADS,
@@ -67,7 +73,8 @@ pub fn tools() -> Vec<Value> {
                                 "url": { "type": "string" },
                                 "startSec": { "type": "number" },
                                 "endSec": { "type": "number" },
-                                "quality": { "type": "string" }
+                                "quality": { "type": "string" },
+                                "preview": { "type": "boolean" }
                             },
                             "required": ["url"]
                         }
@@ -170,8 +177,6 @@ async fn inspect(app: &AppHandle, args: &Value) -> Result<String, String> {
 async fn download(app: &AppHandle, workspace: Option<&Path>, args: &Value) -> Result<String, String> {
     require_downloader(app)?;
     let workspace = workspace.ok_or("This run has no project workspace to download into.")?;
-    let dir = workspace.join(VIDEO_DIR);
-    tokio::fs::create_dir_all(&dir).await.map_err(|e| format!("Could not create {}: {}", dir.display(), e))?;
     let items: Vec<&Value> = match args.get("items").and_then(|v| v.as_array()) {
         Some(list) if !list.is_empty() => list.iter().collect(),
         _ => vec![args],
@@ -180,17 +185,17 @@ async fn download(app: &AppHandle, workspace: Option<&Path>, args: &Value) -> Re
         return Err(format!("download_media takes at most {} items; split them over several calls.", MAX_DOWNLOADS));
     }
     if items.len() == 1 {
-        return download_one(app, workspace, &dir, items[0]).await;
+        return download_one(app, workspace, items[0]).await;
     }
 
-    // Owned futures: borrowing app/dir through the map closure trips the
-    // Send check on the MCP server's spawned task.
+    // Owned futures: borrowing app through the map closure trips the Send
+    // check on the MCP server's spawned task.
     let jobs: Vec<_> = items
         .into_iter()
         .cloned()
         .map(|item| {
-            let (app, dir) = (app.clone(), dir.clone());
-            async move { download_one(&app, workspace, &dir, &item).await }
+            let app = app.clone();
+            async move { download_one(&app, workspace, &item).await }
         })
         .collect();
     let results: Vec<Result<String, String>> = stream::iter(jobs).buffered(PARALLEL_DOWNLOADS).collect().await;
@@ -216,8 +221,11 @@ async fn download(app: &AppHandle, workspace: Option<&Path>, args: &Value) -> Re
 /// downloaded"). Each clip therefore lands in its own temp folder and moves
 /// into media/video/ under a name carrying its section, without the brackets
 /// shells read as glob patterns.
-async fn download_one(app: &AppHandle, workspace: &Path, dir: &Path, args: &Value) -> Result<String, String> {
+async fn download_one(app: &AppHandle, workspace: &Path, args: &Value) -> Result<String, String> {
     let url = url_arg(args)?;
+    let preview = args.get("preview").and_then(|v| v.as_bool()).unwrap_or(false);
+    let dir = workspace.join(if preview { PREVIEW_DIR } else { VIDEO_DIR });
+    let dir = dir.as_path();
     let sec = |key: &str| args.get(key).and_then(|v| v.as_f64()).filter(|v| *v >= 0.0);
     let (start, end) = (sec("startSec"), sec("endSec"));
     let job = uuid::Uuid::new_v4().simple().to_string();
@@ -228,7 +236,11 @@ async fn download_one(app: &AppHandle, workspace: &Path, dir: &Path, args: &Valu
         url,
         batch_file: None,
         output_directory: tmp.to_string_lossy().to_string(),
-        quality: args.get("quality").and_then(|q| q.as_str()).map(str::to_string),
+        quality: match args.get("quality").and_then(|q| q.as_str()) {
+            Some(q) => Some(q.to_string()),
+            None if preview => Some(PREVIEW_QUALITY.to_string()),
+            None => None,
+        },
         start_time: start.map(|v| v.to_string()),
         end_time: end.map(|v| v.to_string()),
     };
@@ -240,7 +252,7 @@ async fn download_one(app: &AppHandle, workspace: &Path, dir: &Path, args: &Valu
                 let to = dir.join(clip_file_name(&from, start, end));
                 match tokio::fs::rename(&from, &to).await {
                     Ok(()) => Ok(format!("Saved {}", assets::describe(workspace, &to))),
-                    Err(e) => Err(format!("Downloaded {} but could not move it into media/video: {}", p, e)),
+                    Err(e) => Err(format!("Downloaded {} but could not move it into {}: {}", p, dir.display(), e)),
                 }
             }
             None => Err("The download finished without a file.".into()),

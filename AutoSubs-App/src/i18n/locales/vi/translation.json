@@ -6,7 +6,9 @@
       "transcription": "Phiên âm",
       "language": "Ngôn ngữ",
       "cli": "Dòng lệnh",
-      "aiProjects": "Project AI Edit"
+      "aiProjects": "Project AI Edit",
+      "stockFootage": "Footage miễn phí",
+      "externalAgent": "Agent bên ngoài"
     },
     "gpu": {
       "title": "Tăng tốc GPU",
@@ -60,6 +62,12 @@
       "confirm_one": "Xóa \"{{name}}\" khỏi AutoSubs? Media, motion graphics và exports của project sẽ chuyển vào Thùng rác, hội thoại liên quan bị xóa. Project trong {{editor}} được giữ nguyên.",
       "confirm_other": "Xóa \"{{name}}\" khỏi AutoSubs? Media, motion graphics và exports của project sẽ chuyển vào Thùng rác, {{count}} hội thoại liên quan bị xóa. Project trong {{editor}} được giữ nguyên.",
       "errorTitle": "Không xóa được project"
+    },
+    "stockFootage": {
+      "keyTitle": "API key {{site}}",
+      "keyDescription": "Key miễn phí, để AI Edit tìm B-roll",
+      "placeholder": "Dán key",
+      "getKey": "Lấy key miễn phí"
     }
   },
   "common": {
@@ -1243,6 +1251,37 @@
       "remove_marker": "Xoá Marker",
       "add_effects": "Thêm hiệu ứng",
       "add_transitions": "Thêm chuyển cảnh"
+    }
+  },
+  "externalAgent": {
+    "enable": {
+      "title": "Cho agent khác điều khiển",
+      "description": "Claude Code, Antigravity trên máy này dùng AutoSubs"
+    },
+    "status": {
+      "notListening": "Chưa chạy",
+      "connected": "Đã kết nối: {{names}}",
+      "waiting": "Chưa có agent nào kết nối",
+      "editor": "Editor: {{editor}} · {{project}}",
+      "noProjectName": "chưa có tên project",
+      "noEditor": "AutoSubs chưa mở project nào trong editor",
+      "driving": "Đang điều khiển: {{name}} ({{tool}}, {{ago}} trước)",
+      "idle": "Không có agent nào đang điều khiển"
+    },
+    "lastTool": "{{tool}}, {{ago}} trước",
+    "seen": "thấy {{ago}} trước",
+    "folderHint": "Mở app agent trong folder này:",
+    "openFolder": "Mở trong Finder",
+    "changeFolder": "Đổi",
+    "connectLabel": "Kết nối:",
+    "connectTooltip": "Thêm AutoSubs vào {{name}} (một lần)",
+    "copyConfig": "Copy cấu hình",
+    "copyTooltip": "Cấu hình MCP cho app agent khác",
+    "errorTitle": "Agent bên ngoài",
+    "openTooltip": "Mở {{name}} ở folder agent",
+    "pickProject": {
+      "title": "Chọn project {{name}}",
+      "description": "Antigravity đang mở sẵn: chọn project {{name}} trong danh sách"
     }
   }
 }

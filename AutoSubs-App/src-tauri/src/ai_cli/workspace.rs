@@ -79,7 +79,7 @@ pub fn library_root(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 /// Creates `library/` and moves the old `templates/motion-graphics` into it.
-fn ensure_library(global_dir: &Path) -> Result<PathBuf, String> {
+pub fn ensure_library(global_dir: &Path) -> Result<PathBuf, String> {
     let library = global_dir.join("library");
     let templates = library.join("motion-graphics");
     let old = global_dir.join("templates").join("motion-graphics");
@@ -89,10 +89,11 @@ fn ensure_library(global_dir: &Path) -> Result<PathBuf, String> {
             let _ = fs::remove_dir(global_dir.join("templates"));
         }
     }
-    for sub in ["music", "sfx", "motion-graphics", "skills"] {
+    for sub in ["music", "sfx", "motion-graphics", "skills", crate::ai_cli::library::AGENTS_DIR] {
         fs::create_dir_all(library.join(sub))
             .map_err(|e| format!("Failed to create library/{}: {}", sub, e))?;
     }
+    crate::ai_cli::library::seed_defaults(&library);
     Ok(library)
 }
 
@@ -624,7 +625,7 @@ pub async fn cli_import_skills(
 
 /// `name` and `description` from a SKILL.md frontmatter. Handles plain,
 /// quoted and folded (`>` / `|`) values.
-fn skill_frontmatter(text: &str) -> (Option<String>, Option<String>) {
+pub fn skill_frontmatter(text: &str) -> (Option<String>, Option<String>) {
     let mut lines = text.lines();
     if lines.next().map(str::trim) != Some("---") {
         return (None, None);
@@ -673,27 +674,36 @@ fn skill_frontmatter(text: &str) -> (Option<String>, Option<String>) {
     (name, desc)
 }
 
-/// The system prompt block listing this project's skills, or None when it
-/// has none. Only names and descriptions go in; the agent reads a SKILL.md
-/// itself when a task matches, so every CLI gets skills the same way.
-pub fn skills_prompt(workspace: &Path) -> Option<String> {
-    let dirs = find_skill_dirs(&workspace.join(SKILLS_DIR));
-    let entries: Vec<String> = dirs
-        .iter()
-        .filter_map(|dir| {
-            let text = fs::read_to_string(dir.join("SKILL.md")).ok()?;
+/// The system prompt block listing the skills, or None when there are none:
+/// this project's own, then the shared `library/skills` ones it does not
+/// override by name. Only names and descriptions go in; the agent reads a
+/// SKILL.md itself when a task matches, so every CLI gets skills the same way.
+pub fn skills_prompt(workspace: &Path, library: Option<&Path>) -> Option<String> {
+    let mut seen: Vec<String> = Vec::new();
+    let mut entries: Vec<String> = Vec::new();
+    let mut add = |dirs: Vec<PathBuf>, shown: &dyn Fn(&str) -> String| {
+        for dir in dirs {
+            let Ok(text) = fs::read_to_string(dir.join("SKILL.md")) else { continue };
             let (name, desc) = skill_frontmatter(&text);
-            let folder = dir.file_name()?.to_string_lossy().into_owned();
+            let Some(folder) = dir.file_name().map(|f| f.to_string_lossy().into_owned()) else { continue };
             let name = name.unwrap_or_else(|| folder.clone());
-            let desc = desc.unwrap_or_default();
-            Some(format!("- {name} (`{SKILLS_DIR}/{folder}/SKILL.md`): {desc}"))
-        })
-        .collect();
+            if seen.contains(&name) {
+                continue;
+            }
+            entries.push(format!("- {name} (`{}`): {}", shown(&folder), desc.unwrap_or_default()));
+            seen.push(name);
+        }
+    };
+    add(find_skill_dirs(&workspace.join(SKILLS_DIR)), &|folder| format!("{SKILLS_DIR}/{folder}/SKILL.md"));
+    if let Some(lib) = library {
+        let root = lib.join("skills");
+        add(find_skill_dirs(&root), &|folder| root.join(folder).join("SKILL.md").to_string_lossy().into_owned());
+    }
     if entries.is_empty() {
         return None;
     }
     Some(format!(
-        "<skills>\nProject skills. When a task matches one, or the user names it, read its SKILL.md first and follow it; files it mentions are relative to its folder.\n{}\n</skills>",
+        "<skills>\nSkills. When a task matches one, or the user names it, read its SKILL.md first and follow it; files it mentions are relative to its folder.\n{}\n</skills>",
         entries.join("\n")
     ))
 }
@@ -799,11 +809,23 @@ mod tests {
 
         assert_eq!(find_skill_dirs(&skills).len(), 2);
         assert_eq!(find_skill_dirs(&skills.join("plain")).len(), 1);
-        let prompt = skills_prompt(tmp.path()).unwrap();
+        let prompt = skills_prompt(tmp.path(), None).unwrap();
         assert!(prompt.contains("- script-split (`.agent/skills/script-split/SKILL.md`): Split a script into scenes."));
         assert!(prompt.contains("- plain (`.agent/skills/plain/SKILL.md`): "));
         assert!(!prompt.contains("not-a-skill"));
-        assert!(skills_prompt(&tmp.path().join("empty")).is_none());
+        assert!(skills_prompt(&tmp.path().join("empty"), None).is_none());
+
+        // Shared skills follow, unless the project has one of the same name.
+        let lib = tmp.path().join("library");
+        for name in ["script-split", "shared"] {
+            fs::create_dir_all(lib.join("skills").join(name)).unwrap();
+            fs::write(lib.join("skills").join(name).join("SKILL.md"), format!("---\nname: {name}\ndescription: lib\n---\n")).unwrap();
+        }
+        let prompt = skills_prompt(tmp.path(), Some(&lib)).unwrap();
+        assert_eq!(prompt.matches("script-split").count(), 2, "listed once: name + its project path");
+        let shared = lib.join("skills/shared/SKILL.md").to_string_lossy().into_owned();
+        assert!(prompt.contains(&format!("- shared (`{shared}`): lib")));
+        assert!(skills_prompt(&tmp.path().join("empty"), Some(&lib)).unwrap().contains("script-split (`"));
     }
 
     #[test]

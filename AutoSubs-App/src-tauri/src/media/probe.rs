@@ -60,7 +60,7 @@ fn wav_duration(path: &Path) -> Option<f64> {
     None
 }
 
-fn ffmpeg_binary() -> PathBuf {
+pub fn ffmpeg_binary() -> PathBuf {
     let name = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
     std::env::current_exe()
         .ok()

@@ -2,6 +2,7 @@
 //! logins they share, background removal, Remotion renders for motion
 //! graphics, and scanning local media folders.
 
+pub mod analyze;
 pub mod article;
 pub mod bg_remove;
 pub mod download;
@@ -9,3 +10,4 @@ pub mod probe;
 pub mod remotion;
 pub mod scan;
 pub mod site_session;
+pub mod stock;

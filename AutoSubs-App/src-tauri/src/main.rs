@@ -422,6 +422,7 @@ fn main() {
             resolve_bridge::clear_stale_request();
             resolve_bridge::init_http_compat_proxy();
             ai_edit::mcp::start(app.handle().clone());
+            ai_edit::mcp::external::start(app.handle());
 
             // Release builds install/refresh the Resolve launcher themselves so
             // app updates land it without a reinstall. Dev builds must not:
@@ -471,6 +472,12 @@ fn main() {
             ai_cli::runtime::cli_get_status,
             ai_cli::runtime::cli_get_models,
             ai_cli::workspace::cli_ensure_workspace,
+            ai_edit::mcp::external::external_agent_status,
+            ai_edit::mcp::external::external_agent_set_enabled,
+            ai_edit::mcp::external::external_agent_set_home,
+            ai_edit::mcp::external::external_agent_set_target,
+            ai_edit::mcp::external::external_agent_connect,
+            ai_edit::mcp::external::external_agent_open_app,
             ai_cli::workspace::cli_save_memory,
             ai_cli::workspace::cli_copy_asset,
             ai_cli::workspace::cli_import_skills,

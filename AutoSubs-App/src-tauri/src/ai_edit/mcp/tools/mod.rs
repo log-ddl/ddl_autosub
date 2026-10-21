@@ -2,9 +2,12 @@
 //! editor module (`editors/*.rs`) assembles its own list from them in
 //! `edit_tools()`, so the agent only sees what that editor supports.
 
+pub mod analyze;
 pub mod assets;
 pub mod media;
 pub mod motion;
+pub mod project;
+pub mod search;
 pub mod transcript;
 
 use serde_json::{json, Value};
