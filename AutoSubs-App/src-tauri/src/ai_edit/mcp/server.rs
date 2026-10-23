@@ -299,7 +299,6 @@ pub async fn serve_external(mut stream: TcpStream) -> Result<(), String> {
     };
 
     let session = external_session();
-    let listed_for = session.connected.then_some(session.target.editor);
     let app = app_handle().get();
     let client = req.headers.get("mcp-session-id").cloned();
     let user_agent = req.headers.get("user-agent").cloned().unwrap_or_default();
@@ -318,24 +317,13 @@ pub async fn serve_external(mut stream: TcpStream) -> Result<(), String> {
                 let tool = m.pointer("/params/name").and_then(|v| v.as_str());
                 external::touch(app, client.as_deref(), &user_agent, tool);
             }
-            Some("tools/list") => {
-                external::touch(app, client.as_deref(), &user_agent, None);
-                external::tools_listed(client.as_deref(), &user_agent, listed_for);
-            }
             _ => external::touch(app, client.as_deref(), &user_agent, None),
         }
     }
 
     let mut out = Vec::new();
     for m in messages {
-        if let Some(mut r) = handle_message(&session, m).await {
-            if m.get("method").and_then(|v| v.as_str()) == Some("tools/call") {
-                if let Some(note) = external::stale_list_note(client.as_deref(), &user_agent) {
-                    if let Some(items) = r.pointer_mut("/result/content").and_then(|c| c.as_array_mut()) {
-                        items.push(json!({ "type": "text", "text": note }));
-                    }
-                }
-            }
+        if let Some(r) = handle_message(&session, m).await {
             out.push(r);
         }
     }
@@ -491,15 +479,16 @@ fn instructions(session: &Session) -> String {
     ));
     if session.workspace.is_some() {
         s.push_str(
-            " search_media finds footage on YouTube, Pexels and Pixabay. inspect_media, download_media, \
-             save_article and remove_background fetch videos, web articles and remove image backgrounds into the project workspace (media/video, \
-             media/images, articles/); media from outside the project (a library/ sfx pack, \
+            " search_media finds footage on YouTube, Pexels and Pixabay. inspect_media, download_media \
+             and save_article fetch videos and web articles into the project workspace (media/video, \
+             media/images, articles/); remove_background cuts a flat (white) background out of an image, \
+             only when the user asks for it; media from outside the project (a library/ sfx pack, \
              Downloads) is copied into media/ when build_storyboard places it; \
-             download_media and remove_background return paths build_storyboard takes. \
+             download_media returns paths build_storyboard takes. \
              analyze_media shows the shots and contact sheets of a video, to pick the srcIn/srcOut \
              section build_storyboard places (the editor trims; files are never cut). \
              preview_motion shows a Remotion project from motion-graphics/ as a contact sheet of \
-             frames; render_motion renders it into exports/ and waits for the file. list_media lists a folder (a sound effect pack) with ids and lengths. Every \
+             frames; render_motion renders it into exports/ and waits for the file. list_media lists a folder (a sound effect pack) with ids and lengths, and images with their size and, for cut-outs, where the figure and its feet are. Every \
              file these tools return has a short id (m12); pass it as path instead of the full path.",
         );
     }
@@ -579,6 +568,18 @@ async fn call_tool_inner(session: &Session, name: &str, mut args: Value) -> Valu
                 let filter = crate::ai_edit::mcp::tools::TimelineFilter::from_args(&args);
                 tool_text(crate::ai_edit::mcp::tools::timeline_text(&snapshot, &filter), false)
             }
+            Err(e) => tool_text(e, true),
+        };
+    }
+    if name == "preview_timeline" {
+        // Spreading frames over the whole timeline needs its length.
+        let duration = if args.get("atSec").is_none() && args.get("toSec").is_none() {
+            timeline_snapshot(&session.target).await.ok().and_then(|s| s.get("durationSec").and_then(|d| d.as_f64()))
+        } else {
+            None
+        };
+        return match crate::ai_edit::mcp::tools::preview::call(&session.target, session.workspace.as_deref(), &args, duration).await {
+            Ok(text) => tool_text(text, false),
             Err(e) => tool_text(e, true),
         };
     }

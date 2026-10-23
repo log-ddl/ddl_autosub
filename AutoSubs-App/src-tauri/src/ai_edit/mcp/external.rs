@@ -18,8 +18,7 @@
 //!
 //! The tool list is the open editor's only, so an agent never sees another
 //! editor's tools. When the editor changes, clients holding the event stream
-//! (GET) get `notifications/tools/list_changed`; a client still on an old
-//! list is told so in every tool result until it lists the tools again.
+//! (GET) get `notifications/tools/list_changed` and list them again.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -76,9 +75,6 @@ struct Client {
     last_seen: u64,
     last_tool: Option<String>,
     last_tool_at: u64,
-    /// The editor its last tools/list was for: None before it listed,
-    /// Some(None) when no project was open then.
-    listed: Option<Option<Editor>>,
 }
 
 #[derive(Default)]
@@ -257,7 +253,6 @@ pub fn client_initialized(app: Option<&AppHandle>, params: &Value, user_agent: &
             last_seen: t,
             last_tool: None,
             last_tool_at: 0,
-            listed: None,
         },
     );
     if let Some(app) = app {
@@ -297,44 +292,6 @@ fn client_key(st: &State, session: Option<&str>, user_agent: &str) -> Option<Str
             .filter(|(_, c)| !user_agent.is_empty() && c.user_agent == user_agent)
             .max_by_key(|(_, c)| c.last_seen)
             .map(|(k, _)| k.clone())
-    })
-}
-
-/// A client's tools/list, answered for `editor` (None: no project open).
-pub fn tools_listed(session: Option<&str>, user_agent: &str, editor: Option<Editor>) {
-    let mut st = lock();
-    if let Some(key) = client_key(&st, session, user_agent) {
-        if let Some(c) = st.clients.get_mut(&key) {
-            c.listed = Some(editor);
-        }
-    }
-}
-
-/// Said with every tool result while a client's tool list is from another
-/// editor than the open one (its app did not refresh on list_changed).
-pub fn stale_list_note(session: Option<&str>, user_agent: &str) -> Option<String> {
-    let st = lock();
-    let key = client_key(&st, session, user_agent)?;
-    let listed = st.clients.get(&key)?.listed?;
-    let open = st.current.as_ref().map(|c| c.target.editor);
-    if listed == open {
-        return None;
-    }
-    let had = match listed {
-        Some(e) => format!("{}'s tools", e.display_name()),
-        None => "the tools from before a project was open".into(),
-    };
-    Some(match open {
-        Some(e) => format!(
-            "Note: the project open in AutoSubs is now in {}, but this connection still has {}. \
-             Edit tools act on {} and may take arguments your list does not show. Tell the user to \
-             reconnect the autosubs-app MCP server (in Claude Code: /mcp, then reconnect) to get {}'s tools.",
-            e.display_name(),
-            had,
-            e.display_name(),
-            e.display_name()
-        ),
-        None => "Note: no editor project is open in AutoSubs any more.".into(),
     })
 }
 
@@ -940,8 +897,7 @@ fn shell_quote(s: &str) -> String {
 mod tests {
     use super::*;
 
-    /// Editor switches reach clients: list_changed on the event stream, and a
-    /// note on tool results for a client still holding the old list.
+    /// Editor switches reach clients as list_changed on the event stream.
     #[tokio::test]
     async fn tells_clients_when_the_editor_changes() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -960,8 +916,6 @@ mod tests {
         let n = sse.read(&mut buf).await.unwrap();
         assert!(String::from_utf8_lossy(&buf[..n]).contains("text/event-stream"));
 
-        let id = client_initialized(None, &json!({ "clientInfo": { "name": "claude-code" } }), "ua");
-        tools_listed(Some(&id), "ua", Some(Editor::Davinci));
         lock().current = Some(Current {
             target: EditTarget { editor: Editor::Premiere, draft_id: None, transcript_file: None },
             label: None,
@@ -971,10 +925,6 @@ mod tests {
         let n = tokio::time::timeout(std::time::Duration::from_secs(5), sse.read(&mut buf)).await.unwrap().unwrap();
         assert!(String::from_utf8_lossy(&buf[..n]).contains("notifications/tools/list_changed"));
 
-        let note = stale_list_note(Some(&id), "ua").unwrap();
-        assert!(note.contains("Premiere Pro") && note.contains("DaVinci Resolve"));
-        tools_listed(Some(&id), "ua", Some(Editor::Premiere));
-        assert!(stale_list_note(Some(&id), "ua").is_none());
         lock().current = None;
     }
 

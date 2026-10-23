@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
+use crate::ai_edit::mcp::tools::preview::FrameShot;
 use crate::ai_edit::actions::{ActionOutcome, Editor, MarkerSpec, SegmentUpdate, StoryboardItem, TextSpec, TimeRange};
 use crate::ai_edit::mcp::tools::{
     delete_tool, marker_tool, remove_marker_tool, remove_ranges_tool, split_tool, storyboard_tool, text_item, tool,
@@ -58,6 +59,23 @@ fn string_lines(v: &Value) -> Vec<String> {
 
 pub async fn timeline_snapshot() -> Result<Value, String> {
     call_resolve(json!({ "func": "GetTimelineSnapshot" })).await
+}
+
+/// The timeline's picture at `times` as PNGs in `dir` (playhead moves, then
+/// ExportCurrentFrameAsStill), for preview_timeline.
+pub async fn export_frames(dir: &std::path::Path, times: &[f64]) -> Result<Vec<FrameShot>, String> {
+    let reply = call_resolve(json!({ "func": "ExportFrames", "dir": dir.to_string_lossy(), "times": times })).await?;
+    Ok(reply
+        .get("frames")
+        .and_then(|f| f.as_array())
+        .into_iter()
+        .flatten()
+        .map(|f| FrameShot {
+            sec: f.get("sec").and_then(|s| s.as_f64()).unwrap_or(0.0),
+            candidates: f.get("path").and_then(|p| p.as_str()).filter(|p| !p.is_empty()).map(|p| vec![p.into()]).unwrap_or_default(),
+            error: f.get("error").and_then(|e| e.as_str()).map(str::to_string),
+        })
+        .collect())
 }
 
 pub async fn build_storyboard(

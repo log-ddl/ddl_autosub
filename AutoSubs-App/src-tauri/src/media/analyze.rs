@@ -288,7 +288,7 @@ fn glyph(c: char) -> [u8; 7] {
 }
 
 /// White text on a black box, each glyph pixel drawn 2x2.
-fn draw_label(img: &mut RgbImage, x: u32, y: u32, text: &str) {
+pub(crate) fn draw_label(img: &mut RgbImage, x: u32, y: u32, text: &str) {
     const SCALE: u32 = 2;
     let (w, h) = (text.chars().count() as u32 * 6 * SCALE + 2 * SCALE, 7 * SCALE + 4 * SCALE);
     for dy in 0..h {

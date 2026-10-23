@@ -25,6 +25,22 @@ const DEFAULTS: &[(&str, &str)] = &[
         "skills/remotion-motion/SKILL.md",
         include_str!("../../templates/library/skills/remotion-motion/SKILL.md"),
     ),
+    (
+        "skills/story-planning/SKILL.md",
+        include_str!("../../templates/library/skills/story-planning/SKILL.md"),
+    ),
+    (
+        "skills/premiere-full-edit/SKILL.md",
+        include_str!("../../templates/library/skills/premiere-full-edit/SKILL.md"),
+    ),
+    (
+        "skills/remotion-full-video/SKILL.md",
+        include_str!("../../templates/library/skills/remotion-full-video/SKILL.md"),
+    ),
+    (
+        "skills/remotion-premiere-hybrid/SKILL.md",
+        include_str!("../../templates/library/skills/remotion-premiere-hybrid/SKILL.md"),
+    ),
 ];
 
 pub const AGENTS_DIR: &str = "agents";

@@ -4154,6 +4154,49 @@ local function extract_frame(timeline, timelineItem, exportDir)
     return outputPath
 end
 
+-- AI Edit's preview_timeline: export the timeline's picture at each of
+-- `req.times` (seconds from the timeline start) as PNGs in `req.dir`, then put
+-- the playhead back. Same still route as extract_frame, without hiding tracks.
+function ExportFrames(req)
+    project = projectManager:GetCurrentProject()
+    local timeline = project and project:GetCurrentTimeline()
+    if not timeline then
+        return { error = "No timeline is open." }
+    end
+    local dir = req and req.dir
+    local times = (req and req.times) or {}
+    if not dir or #times == 0 then
+        return { error = "dir and times are required" }
+    end
+    local frameRate = tonumber(timeline:GetSetting("timelineFrameRate")) or 24
+    local drop = timeline:GetSetting("timelineDropFrameTimecode")
+    local start = timeline:GetStartFrame()
+    local original = timeline:GetCurrentTimecode()
+    local frames = {}
+    for i, secs in ipairs(times) do
+        local path = join_path(dir, "frame-" .. i .. ".png")
+        local ok, err = pcall(function()
+            local tc = timecode.timecode_from_frame_auto(start + math.floor(secs * frameRate + 0.5), frameRate, drop)
+            if not timeline:SetCurrentTimecode(tc) then
+                error("could not move the playhead to " .. tostring(tc))
+            end
+            bmd.wait(0.3)
+            if project:ExportCurrentFrameAsStill(path) ~= true then
+                error("ExportCurrentFrameAsStill failed")
+            end
+            local deadline = os.time() + 10
+            while not bmd.fileexists(path) and os.time() < deadline do
+                bmd.wait(0.1)
+            end
+        end)
+        frames[#frames + 1] = { sec = secs, path = (ok and bmd.fileexists(path)) and path or "", error = (not ok) and tostring(err) or nil }
+    end
+    if original then
+        pcall(function() timeline:SetCurrentTimecode(original) end)
+    end
+    return { frames = frames }
+end
+
 -- place example subtitle on timeline with theme and export frame
 -- `language` (optional): ISO code of the transcript this preview represents,
 -- used for language-aware font fallback on the AutoSubs Caption macro.
@@ -4653,6 +4696,7 @@ local handlers = {
     end,
     ResetResolveRpc = function() return ResetResolveRpc() end,
     GetTimelineSnapshot = function() return ai_edit.get_timeline_snapshot() end,
+    ExportFrames = function(req) return ExportFrames(req) end,
     AddMarkers = function(req) return ai_edit.add_markers(req) end,
     DeleteMarkers = function(req) return ai_edit.delete_markers(req) end,
     UpdateClip = function(req) return ai_edit.update_clip(req) end,

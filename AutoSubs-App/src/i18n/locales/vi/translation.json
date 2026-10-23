@@ -1066,13 +1066,14 @@
       "tooltip": "Mở tài nguyên của Project (Motion Graphics, AI B-Roll, Exports, Templates)",
       "menuItem": "Tài nguyên & Skill",
       "title": "Asset của project ({{project}})",
-      "description": "Mỗi project DaVinci / Premiere / CapCut có thư mục riêng (video, ảnh, nhạc, SFX, motion). Thư viện chung chỉ để đọc: bấm \"Dùng\" để chép một file vào project.",
+      "description": "Mỗi project DaVinci / Premiere / CapCut có thư mục riêng (video, ảnh, giọng đọc, nhạc, SFX, motion). Thư viện chung chỉ để đọc: bấm \"Dùng\" để chép một file vào project.",
       "projectPath": "Project: ",
       "libraryPath": "Thư viện chung (nhạc, SFX, template): ",
       "tabs": {
         "all": "Tất cả ({{count}})",
         "video": "Video",
         "images": "Ảnh",
+        "voice": "Giọng đọc",
         "music": "Nhạc",
         "sfx": "SFX",
         "motion": "Motion",
@@ -1232,7 +1233,6 @@
       "inspect_media": "Xem link video",
       "download_media": "Tải video",
       "save_article": "Lưu bài báo",
-      "remove_background": "Tách nền ảnh",
       "thinking": "Suy luận",
       "runCommand": "Chạy lệnh Terminal",
       "writeFile": "Ghi file",
@@ -1250,7 +1250,8 @@
       "subagent": "Gọi Subagent",
       "remove_marker": "Xoá Marker",
       "add_effects": "Thêm hiệu ứng",
-      "add_transitions": "Thêm chuyển cảnh"
+      "add_transitions": "Thêm chuyển cảnh",
+      "remove_background": "Tách nền ảnh"
     }
   },
   "externalAgent": {

@@ -1,7 +1,7 @@
 //! Download and image tools for the AI Edit agent: look at a video link,
 //! download a video (or just a section of it), save a web article as text plus
-//! images, and remove the background from an image. They run the Download tab's
-//! own code (`media_download`, `article`) plus `bg_remove`.
+//! images, and cut a flat background out of an image. They run the Download
+//! tab's own code (`media_download`, `article`) plus `bg_remove`.
 //!
 //! Files land in the conversation's project workspace: videos in `media/video/`,
 //! cutout PNGs in `media/images/`, articles in `articles/<slug>/`. None of these tools touch the
@@ -17,7 +17,7 @@ use tauri::AppHandle;
 
 use crate::ai_edit::mcp::tools::{assets, tool};
 use crate::media::article;
-use crate::media::bg_remove::{self, BgMode, RemoveBgOptions};
+use crate::media::bg_remove::{self, RemoveBgOptions};
 use crate::media::download::{self as media_download, DownloadRequest};
 
 /// Most article text a `save_article` result carries; the file has all of it.
@@ -95,20 +95,21 @@ pub fn tools() -> Vec<Value> {
         ),
         tool(
             "remove_background",
-            "Remove the background from an image (person, object, character, logo or illustration) \
-             and save a transparent PNG into the project's media/images folder, ready for build_storyboard. \
-             mode: \"auto\" (default, uses the local RMBG-1.4 AI segmentation model), \"ai\" (force AI \
-             model for photos and complex scenes), or \"solid\" (fast corner-sampled color keying for \
-             flat-colored illustrations, stickmen or icons). Set cropToContent to trim transparent margins.",
+            "Cut a flat background (white or one colour, like a scanned drawing or a sticker on white) \
+             out of an image and save a transparent PNG in media/images. Use it ONLY when the user asks to \
+             remove a background; never on your own as a step before placing an image. Only for an image that has such a \
+             background: a PNG that is already transparent needs nothing and is returned as is. It fills \
+             from the image's edges up to the outline, so white inside the outline stays. Photos and busy \
+             backgrounds come out poorly. Raise tolerance (default 38) when background is left around the \
+             edges, lower it when the outline gets eaten. cropToContent trims the transparent margins.",
             json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "description": "Absolute path to the source image" },
-                    "outputPath": { "type": "string", "description": "Optional output PNG path; defaults to media/images/<stem>_nobg.png" },
-                    "mode": { "type": "string", "enum": ["auto", "ai", "solid"], "description": "Segmentation mode (default \"auto\")" },
-                    "cropToContent": { "type": "boolean", "description": "Trim transparent borders around the cutout (default false)" },
-                    "padding": { "type": "integer", "minimum": 0, "description": "Transparent padding in pixels when cropToContent is true (default 8)" },
-                    "tolerance": { "type": "number", "description": "Color tolerance (4..240) when mode is \"solid\" (default 38)" }
+                    "path": { "type": "string", "description": "The image, or its media id" },
+                    "outputPath": { "type": "string", "description": "Default media/images/<name>_nobg.png" },
+                    "tolerance": { "type": "number", "description": "4-240, default 38" },
+                    "cropToContent": { "type": "boolean" },
+                    "padding": { "type": "integer", "minimum": 0, "description": "Pixels kept around the picture with cropToContent, default 8" }
                 },
                 "required": ["path"]
             }),
@@ -136,7 +137,7 @@ pub async fn call(app: &AppHandle, workspace: Option<&Path>, name: &str, args: &
         "inspect_media" => inspect(app, args).await,
         "download_media" => download(app, workspace, args).await,
         "save_article" => save_article(workspace, args).await,
-        "remove_background" => remove_background(app, workspace, args).await,
+        "remove_background" => remove_background(workspace, args).await,
         _ => return None,
     };
     Some(result)
@@ -319,77 +320,56 @@ async fn save_article(workspace: Option<&Path>, args: &Value) -> Result<String, 
     Ok(out)
 }
 
-async fn remove_background(
-    app: &AppHandle,
-    workspace: Option<&Path>,
-    args: &Value,
-) -> Result<String, String> {
-    let raw_path = args
+async fn remove_background(workspace: Option<&Path>, args: &Value) -> Result<String, String> {
+    let input = args
         .get("path")
         .and_then(|p| p.as_str())
         .map(str::trim)
         .filter(|p| !p.is_empty())
-        .ok_or("path is required and must be a non-empty file path.")?;
-    let input_path = PathBuf::from(raw_path);
-
-    let output_path = match args
-        .get("outputPath")
-        .and_then(|p| p.as_str())
-        .map(str::trim)
-        .filter(|p| !p.is_empty())
-    {
-        Some(custom) => PathBuf::from(custom),
+        .map(PathBuf::from)
+        .ok_or("path is required.")?;
+    let output = match args.get("outputPath").and_then(|p| p.as_str()).map(str::trim).filter(|p| !p.is_empty()) {
+        Some(p) => PathBuf::from(p),
         None => {
             let dir = match workspace {
                 Some(ws) => ws.join(IMAGES_DIR),
-                None => input_path
-                    .parent()
-                    .map(Path::to_path_buf)
-                    .unwrap_or_else(std::env::temp_dir),
+                None => input.parent().map(Path::to_path_buf).unwrap_or_else(std::env::temp_dir),
             };
-            let stem = input_path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .filter(|s| !s.is_empty())
-                .unwrap_or("image");
+            let stem = input.file_stem().and_then(|s| s.to_str()).filter(|s| !s.is_empty()).unwrap_or("image");
             dir.join(format!("{}_nobg.png", stem))
         }
     };
+    let tolerance = args.get("tolerance").and_then(|v| v.as_f64()).unwrap_or(38.0) as f32;
+    let crop_to_content = args.get("cropToContent").and_then(|v| v.as_bool()).unwrap_or(false);
+    let padding = args.get("padding").and_then(|v| v.as_u64()).unwrap_or(8) as u32;
 
-    let mode = BgMode::from_str(args.get("mode").and_then(|m| m.as_str()))?;
-    let crop_to_content = args
-        .get("cropToContent")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let padding = args
-        .get("padding")
-        .and_then(|v| v.as_u64())
-        .map(|v| v as u32)
-        .unwrap_or(8);
-    let tolerance = args
-        .get("tolerance")
-        .and_then(|v| v.as_f64())
-        .map(|v| v as f32)
-        .unwrap_or(38.0);
-
-    let outcome = bg_remove::remove_background(
-        app,
-        RemoveBgOptions {
-            input_path: &input_path,
-            output_path: &output_path,
-            mode,
+    let outcome = tokio::task::spawn_blocking(move || {
+        bg_remove::remove_background(RemoveBgOptions {
+            input_path: &input,
+            output_path: &output,
             crop_to_content,
             padding,
             tolerance,
-        },
-    )
-    .await?;
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())??;
 
     let saved = match workspace {
         Some(ws) => assets::describe(ws, &outcome.output_path),
         None => outcome.output_path.display().to_string(),
     };
-    Ok(format!("Saved transparent PNG {} ({}x{}, {})", saved, outcome.width, outcome.height, outcome.method_used))
+    if outcome.skipped {
+        return Ok(format!("{} is already transparent; use it as it is.", saved));
+    }
+    let mut text = format!("Saved transparent PNG {} ({}x{}).", saved, outcome.width, outcome.height);
+    if outcome.busy_background {
+        text.push_str(
+            " The corners are not one flat colour, so the cut may leave background or eat into the picture; \
+             look at it before using it.",
+        );
+    }
+    Ok(text)
 }
 
 #[cfg(test)]

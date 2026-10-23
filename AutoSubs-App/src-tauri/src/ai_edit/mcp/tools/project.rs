@@ -30,7 +30,8 @@ pub fn tools() -> Vec<Value> {
         tool(
             "read_skill",
             "Read a skill: the step-by-step instructions for a longer job (footage-planning finds \
-             footage for a script). get_project_context lists them.",
+             footage for a script, story-planning plans the pictures of a 2D story video). \
+             get_project_context lists them.",
             json!({
                 "type": "object",
                 "properties": { "name": { "type": "string" } },
@@ -39,8 +40,8 @@ pub fn tools() -> Vec<Value> {
         ),
         tool(
             "save_plan",
-            "Save a plan file (JSON or text) in the project's plan/ folder, like script.json or \
-             shotlist.json, so the work can be picked up later. Replaces the file.",
+            "Save a plan file (Markdown, JSON or text) in the project's plan/ folder, like SHOT_PLAN.md or \
+             script.json, so the work can be picked up later. Replaces the file.",
             json!({
                 "type": "object",
                 "properties": {
@@ -93,7 +94,7 @@ fn context(ctx: &Context, library: Option<&Path>) -> String {
     }
     if let Some(ws) = ctx.workspace {
         out.push_str(&format!(
-            "\nProject folder: {} (media/video, media/images, media/audio, analysis/, plan/, exports/)",
+            "\nProject folder: {} (media/video, media/images, media/audio/voice|music|sfx, analysis/, plan/, exports/)",
             ws.display()
         ));
         let memory = fs::read_to_string(ws.join("memory.md")).unwrap_or_default();

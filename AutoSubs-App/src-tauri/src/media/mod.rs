@@ -6,6 +6,7 @@ pub mod analyze;
 pub mod article;
 pub mod bg_remove;
 pub mod download;
+pub mod figure;
 pub mod probe;
 pub mod remotion;
 pub mod scan;

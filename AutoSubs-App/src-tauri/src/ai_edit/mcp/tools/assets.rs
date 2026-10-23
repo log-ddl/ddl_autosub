@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::ai_edit::mcp::tools::tool;
-use crate::media::probe;
+use crate::media::{figure, probe};
 
 const REGISTRY_FILE: &str = ".media-ids.json";
 /// Most files `list_media` lists before it answers with a folder summary.
@@ -114,9 +114,9 @@ fn ext_in(path: &Path, list: &[&str]) -> bool {
 
 /// Which `media/` folder a file from outside the project belongs in. Audio
 /// from `library/sfx` or `library/music` keeps its kind; other audio counts as
-/// a sound effect when its folder or name says so, else as music.
+/// a voiceover or a sound effect when its folder or name says so, else as music.
 fn media_subdir(path: &Path, library: Option<&Path>) -> Option<&'static str> {
-    use crate::ai_cli::workspace::{IMAGES_DIR, MUSIC_DIR, SFX_DIR, VIDEO_DIR};
+    use crate::ai_cli::workspace::{IMAGES_DIR, MUSIC_DIR, SFX_DIR, VIDEO_DIR, VOICE_DIR};
     if ext_in(path, VIDEO_EXTS) {
         return Some(VIDEO_DIR);
     }
@@ -130,6 +130,12 @@ fn media_subdir(path: &Path, library: Option<&Path>) -> Option<&'static str> {
         if path.starts_with(lib.join("music")) {
             return Some(MUSIC_DIR);
         }
+    }
+    static VOICE_HINT: Lazy<regex::Regex> = Lazy::new(|| {
+        regex::Regex::new(r"(?i)voice|narrat|\bvo\b|giọng|thuyết minh|lồng tiếng").unwrap()
+    });
+    if VOICE_HINT.is_match(&path.to_string_lossy()) {
+        return Some(VOICE_DIR);
     }
     static SFX_HINT: Lazy<regex::Regex> = Lazy::new(|| {
         regex::Regex::new(r"(?i)sfx|sound ?(fx|effect)|foley|whoosh|swoosh|impact|riser|transition|click|\bhit\b|\bpop\b")
@@ -199,10 +205,21 @@ fn import_walk(root: &Path, library: Option<&Path>, args: &mut Value) -> Result<
 
 /// `m12 name 3.4s`, the way every tool reports a file it made or found.
 pub fn describe(workspace: &Path, path: &Path) -> String {
-    let id = id_for(workspace, path);
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    match probe::duration_secs(path) {
-        Some(d) => format!("{} {} {:.1}s", id, name, d),
+    line(workspace, &name, path)
+}
+
+/// `<id> <name> <length>` for audio and video, `<id> <name> <size and
+/// visible area>` for images (see `media::figure`).
+fn line(workspace: &Path, name: &str, path: &Path) -> String {
+    let id = id_for(workspace, path);
+    let detail = if figure::is_image(path) {
+        figure::measure(path).map(|f| figure::summary(&f))
+    } else {
+        probe::duration_secs(path).map(|d| format!("{:.1}s", d))
+    };
+    match detail {
+        Some(d) => format!("{} {} {}", id, name, d),
         None => format!("{} {}", id, name),
     }
 }
@@ -212,6 +229,10 @@ pub fn tools() -> Vec<Value> {
         "list_media",
         "List the media files in a folder (video, audio, images), each with a short id and its length: \
          a sound effect pack, a music folder, or the project's own media/ and exports/ (the default). \
+         Images give their size instead, and a cut-out (transparent PNG) also where the figure really \
+         is on its canvas: its box (x and y from 0 to 1 across the canvas) and its feet, the bottom \
+         middle of what is visible. Use them to place it: the feet go on the ground of the background, \
+         the box height sets the zoom, and feet work as update_clip anchor. \
          Pass the id (like m12) as path to build_storyboard or any tool instead of the full path. Files \
          in subfolders are listed as subfolder/name. A folder with more files than limit answers with \
          its subfolders and counts; then list every subfolder you need in ONE call with folders, or \
@@ -331,13 +352,7 @@ fn list_media(workspace: &Path, args: &Value) -> Result<String, String> {
 
     let lines: Vec<String> = files
         .iter()
-        .map(|(rel, path)| {
-            let id = id_for(workspace, path);
-            match probe::duration_secs(path) {
-                Some(d) => format!("{} {} {:.1}s", id, rel, d),
-                None => format!("{} {}", id, rel),
-            }
-        })
+        .map(|(rel, path)| line(workspace, rel, path))
         .collect();
     Ok(format!("{} file(s):\n{}", lines.len(), lines.join("\n")))
 }
@@ -355,13 +370,15 @@ mod tests {
         std::fs::create_dir_all(&downloads).unwrap();
         std::fs::write(lib.join("sfx/Pack/boom.wav"), "a").unwrap();
         std::fs::write(downloads.join("song.mp3"), "bb").unwrap();
+        std::fs::write(downloads.join("voiceover_final.wav"), "d").unwrap();
         std::fs::write(ws.join("media/video/own.mp4"), "c").unwrap();
         let own = ws.join("media/video/own.mp4").canonicalize().unwrap();
         let mut args = json!({ "items": [
             { "path": lib.join("sfx/Pack/boom.wav") },
             { "path": downloads.join("song.mp3") },
             { "path": own },
-            { "path": lib.join("sfx/Pack/boom.wav") }
+            { "path": lib.join("sfx/Pack/boom.wav") },
+            { "path": downloads.join("voiceover_final.wav") }
         ]});
         import_external(&ws, Some(&lib), &mut args).unwrap();
         let items = args["items"].as_array().unwrap();
@@ -370,6 +387,7 @@ mod tests {
         assert!(p(1).ends_with("media/audio/music/song.mp3") && p(1).is_file());
         assert_eq!(p(2), own);
         assert_eq!(p(3), p(0), "same sound twice reuses one copy");
+        assert!(p(4).ends_with("media/audio/voice/voiceover_final.wav") && p(4).is_file());
     }
 
     use super::*;

@@ -198,7 +198,7 @@ export function snapToFrame(seq: any, secs: number): number {
   return f > 0 ? Math.round(secs / f) * f : secs;
 }
 
-function timecodeAt(seq: any, secs: number): string {
+export function timecodeAt(seq: any, secs: number): string {
   var t = secondsToTime(secs);
   var settings = seq.getSettings();
   return t.getFormatted(settings.videoFrameRate, settings.videoDisplayFormat);

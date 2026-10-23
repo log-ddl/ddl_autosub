@@ -14,6 +14,7 @@
 //!   ├── `memory.md`
 //!   ├── `visual-plan.json`
 //!   ├── `media/video/`, `media/images/`        downloaded or AI-made media
+//!   ├── `media/audio/voice/`                    the voiceover the video is cut to
 //!   ├── `media/audio/music/`, `media/audio/sfx/`
 //!   ├── `motion-graphics/`                      motion source code
 //!   ├── `exports/`                              rendered motion
@@ -31,7 +32,7 @@ use tauri::{AppHandle, Manager};
 pub struct ProjectAssetItem {
     pub name: String,
     pub path: String,
-    /// Project: "video" | "images" | "music" | "sfx" | "motion-graphics" | "exports" | "skills".
+    /// Project: "video" | "images" | "voice" | "music" | "sfx" | "motion-graphics" | "exports" | "skills".
     /// Shared library: "templates" | "library-music" | "library-sfx" | "library-skills".
     pub category: String,
     pub is_dir: bool,
@@ -51,6 +52,7 @@ pub struct WorkspaceInfo {
     pub exports_dir: String,
     pub video_dir: String,
     pub images_dir: String,
+    pub voice_dir: String,
     pub music_dir: String,
     pub sfx_dir: String,
     /// `library/motion-graphics`: shared templates.
@@ -67,6 +69,7 @@ pub struct WorkspaceInfo {
 /// Where each kind of media lives inside a project workspace.
 pub const VIDEO_DIR: &str = "media/video";
 pub const IMAGES_DIR: &str = "media/images";
+pub const VOICE_DIR: &str = "media/audio/voice";
 pub const MUSIC_DIR: &str = "media/audio/music";
 pub const SFX_DIR: &str = "media/audio/sfx";
 /// Skills live in a CLI-neutral folder; the app lists them in the system
@@ -425,11 +428,12 @@ pub fn build_workspace_info(
     let exports_dir = dir.join("exports");
     let video_dir = dir.join(VIDEO_DIR);
     let images_dir = dir.join(IMAGES_DIR);
+    let voice_dir = dir.join(VOICE_DIR);
     let music_dir = dir.join(MUSIC_DIR);
     let sfx_dir = dir.join(SFX_DIR);
     let skills_dir = dir.join(SKILLS_DIR);
 
-    for sub in [&dir, &mg_dir, &exports_dir, &video_dir, &images_dir, &music_dir, &sfx_dir, &skills_dir] {
+    for sub in [&dir, &mg_dir, &exports_dir, &video_dir, &images_dir, &voice_dir, &music_dir, &sfx_dir, &skills_dir] {
         fs::create_dir_all(sub)
             .map_err(|e| format!("Failed to create directory {}: {}", sub.display(), e))?;
     }
@@ -443,6 +447,7 @@ pub fn build_workspace_info(
     let mut assets = Vec::new();
     scan_category_dir(&video_dir, "video", &mut assets);
     scan_category_dir(&images_dir, "images", &mut assets);
+    scan_category_dir(&voice_dir, "voice", &mut assets);
     scan_category_dir(&music_dir, "music", &mut assets);
     scan_category_dir(&sfx_dir, "sfx", &mut assets);
     scan_category_dir(&mg_dir, "motion-graphics", &mut assets);
@@ -464,6 +469,7 @@ pub fn build_workspace_info(
         exports_dir: exports_dir.to_string_lossy().into_owned(),
         video_dir: video_dir.to_string_lossy().into_owned(),
         images_dir: images_dir.to_string_lossy().into_owned(),
+        voice_dir: voice_dir.to_string_lossy().into_owned(),
         music_dir: music_dir.to_string_lossy().into_owned(),
         sfx_dir: sfx_dir.to_string_lossy().into_owned(),
         templates_dir: templates_dir.to_string_lossy().into_owned(),

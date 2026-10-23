@@ -326,6 +326,105 @@ function scaleAxis(clip: any, path: string, lines: string[]): any {
   return prop ? { prop: prop, clip: clip } : null;
 }
 
+// ------------------------------------------------------------------------------
+// Anchor point (update_clip)
+// ------------------------------------------------------------------------------
+
+/** Pixel size of a clip's media, from the project's "Video Info" column ("1024 x 1024 (1.0)"). */
+function mediaSize(clip: any): number[] | null {
+  try {
+    var md = String(clip.projectItem.getProjectMetadata());
+    var m = md.match(/VideoInfo>\s*(\d+)\s*x\s*(\d+)/);
+    if (m) return [Number(m[1]), Number(m[2])];
+  } catch (e) {}
+  return null;
+}
+
+function sequenceSize(seq: any): number[] {
+  var w = Number(seq.frameWidth) || 0;
+  var h = Number(seq.frameHeight) || 0;
+  try {
+    if (!w || !h) {
+      var settings = seq.getSettings();
+      w = Number(settings.videoFrameWidth) || w;
+      h = Number(settings.videoFrameHeight) || h;
+    }
+  } catch (e) {}
+  return [w || 1920, h || 1080];
+}
+
+/** A point property's value now, as [x, y]. */
+function pointValue(prop: any): number[] {
+  var v = prop.getValue();
+  return [Number(v[0]), Number(v[1])];
+}
+
+/**
+ * Move a clip's Anchor Point to `args.anchor` ([0.5, 0.5] centre of its own
+ * picture, [0.5, 1] bottom middle) and move Position (every key of it) by the
+ * same amount on screen, so the picture stays put. Scale and Rotation are read
+ * at the playhead, so a clip already animating them can drift a little.
+ */
+export function applyAnchor(seq: any, clip: any, args: any, updated: string[], lines: string[]): void {
+  var a = args.anchor;
+  if (!a || a.length !== 2 || !num(a[0]) || !num(a[1])) return;
+  var motion = lastComponent(clip, "AE.ADBE Motion") || lastComponent(clip, "Motion");
+  var anchor = motion ? findProperty(motion, "Anchor Point") : null;
+  var position = motion ? findProperty(motion, "Position") : null;
+  if (!anchor || !position) {
+    note(lines, "This clip has no Anchor Point (audio clip?).");
+    return;
+  }
+  var media = mediaSize(clip);
+  var frame = sequenceSize(seq);
+  try {
+    var old = pointValue(anchor);
+    // Premiere reports the anchor as a fraction of the picture; older builds
+    // in pixels. Pixels need the media size to convert.
+    var pixels = Math.abs(old[0]) > 2 || Math.abs(old[1]) > 2;
+    if (pixels && !media) {
+      note(lines, "Could not read the picture size, so the anchor was not moved.");
+      return;
+    }
+    var size = media || frame;
+    var oldFrac = pixels ? [old[0] / size[0], old[1] / size[1]] : old;
+    var dx = (Number(a[0]) - oldFrac[0]) * size[0];
+    var dy = (Number(a[1]) - oldFrac[1]) * size[1];
+
+    var scale = findProperty(motion, "Scale");
+    var width = findProperty(motion, "Scale Width");
+    var uniform = findProperty(motion, "Uniform Scale");
+    var sy = scale ? Number(scale.getValue()) / 100 : 1;
+    var sx = sy;
+    try {
+      var u = uniform ? uniform.getValue() : true;
+      if (!(u === true || u === 1 || String(u) === "true") && width) sx = Number(width.getValue()) / 100;
+    } catch (e) {}
+    var rotation = findProperty(motion, "Rotation");
+    var r = rotation ? (Number(rotation.getValue()) * Math.PI) / 180 : 0;
+    // The anchor's move on screen, in pixels (y down, rotation clockwise).
+    var px = dx * sx * Math.cos(r) - dy * sy * Math.sin(r);
+    var py = dx * sx * Math.sin(r) + dy * sy * Math.cos(r);
+    var shift = [px / frame[0], py / frame[1]];
+
+    anchor.setValue(pixels ? [Number(a[0]) * size[0], Number(a[1]) * size[1]] : [Number(a[0]), Number(a[1])], true);
+    if (position.isTimeVarying && position.isTimeVarying()) {
+      var keys = position.getKeys() || [];
+      for (var k = 0; k < keys.length; k++) {
+        var v = position.getValueAtKey(keys[k]);
+        position.setValueAtKey(keys[k], [Number(v[0]) + shift[0], Number(v[1]) + shift[1]], true);
+      }
+    } else {
+      var p = pointValue(position);
+      position.setValue([p[0] + shift[0], p[1] + shift[1]], true);
+    }
+    if (!media) note(lines, "Could not read the picture size; the anchor assumed it fills the frame.");
+    updated[updated.length] = "anchor";
+  } catch (err: any) {
+    note(lines, "Could not move the anchor: " + err);
+  }
+}
+
 /** Keyframes from `args.keyframes`, each point placed relative to the clip's start or end. */
 export function applyKeyframes(hit: any, args: any, updated: string[], lines: string[]): void {
   var specs: any[] = args.keyframes || [];

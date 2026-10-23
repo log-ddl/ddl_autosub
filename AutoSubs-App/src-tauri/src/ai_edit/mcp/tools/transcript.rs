@@ -30,7 +30,13 @@ pub struct TranscriptArgs {
     pub words: bool,
     /// List pauses between words at least this long.
     pub min_pause_sec: Option<f64>,
+    /// The compact voice map (`voice_map`) instead of the plain listing.
+    #[serde(default)]
+    pub map: bool,
 }
+
+/// A pause at least this long is a natural break, marked in the voice map.
+const MAP_PAUSE: f64 = 0.8;
 
 /// Where the app saves transcripts.
 pub fn transcripts_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -159,6 +165,11 @@ pub fn render(doc: &Value, filename: &str, args: &TranscriptArgs) -> String {
         return out;
     }
 
+    if args.map {
+        out.push_str(&voice_map(&in_range, &segments));
+        return out;
+    }
+
     for seg in in_range.iter().take(MAX_SEGMENTS) {
         let speaker = seg
             .get("speaker_id")
@@ -212,6 +223,67 @@ pub fn render(doc: &Value, filename: &str, args: &TranscriptArgs) -> String {
         for (start, end) in pauses {
             out.push_str(&format!("  {}-{} ({}s)\n", fmt(start), fmt(end), fmt(end - start)));
         }
+    }
+    out
+}
+
+/// The voice map for planning: per sentence `[start-end] text`, with `‖ 1.2s`
+/// where the voice rests that long (inside the sentence or after it), and the
+/// words that carry a number or a name (capital letter mid-sentence) with
+/// their start time: where a picture or a cut can land. Every word timing
+/// would be ten times longer and pull the plan towards one picture per word.
+fn voice_map(in_range: &[&Value], all: &[Value]) -> String {
+    let mut out = String::from(
+        "Voice map: ‖ = a pause of at least 0.8 s (a natural break); after · the words with a number or a \
+         name, @ their start.\n",
+    );
+    let mut sentence_end = true;
+    for seg in in_range.iter().take(MAX_SEGMENTS) {
+        let start = num(seg, "start").unwrap_or(0.0);
+        let end = num(seg, "end").unwrap_or(start);
+        let words: Vec<&Value> = seg.get("words").and_then(|w| w.as_array()).map(|a| a.iter().collect()).unwrap_or_default();
+        let mut text = String::new();
+        let mut keys: Vec<String> = Vec::new();
+        if words.is_empty() {
+            text = text_of(seg, "text").split_whitespace().collect::<Vec<_>>().join(" ");
+            sentence_end = text.ends_with(['.', '!', '?', '…']);
+        } else {
+            let mut prev_end: Option<f64> = None;
+            for w in &words {
+                let word = text_of(w, "word").trim().to_string();
+                if word.is_empty() {
+                    continue;
+                }
+                let ws = num(w, "start").unwrap_or(0.0);
+                if let Some(p) = prev_end.filter(|p| ws - p >= MAP_PAUSE) {
+                    text.push_str(&format!(" ‖ {:.1}s", ws - p));
+                }
+                if !text.is_empty() {
+                    text.push(' ');
+                }
+                text.push_str(&word);
+                let bare: String = word.trim_matches(|c: char| !c.is_alphanumeric()).to_string();
+                let has_digit = bare.chars().any(|c| c.is_ascii_digit());
+                let name = !sentence_end && bare.chars().next().is_some_and(|c| c.is_uppercase());
+                if has_digit || name {
+                    keys.push(format!("{}@{}", bare, fmt(ws)));
+                }
+                sentence_end = word.ends_with(['.', '!', '?', '…', ':']);
+                prev_end = Some(num(w, "end").unwrap_or(ws));
+            }
+        }
+        out.push_str(&format!("[{}-{}] {}", fmt(start), fmt(end), text));
+        let next = all.iter().map(|s| num(s, "start").unwrap_or(0.0)).find(|s| *s >= end);
+        if let Some(gap) = next.map(|n| n - end).filter(|g| *g >= MAP_PAUSE) {
+            out.push_str(&format!(" ‖ {:.1}s", gap));
+        }
+        if !keys.is_empty() {
+            out.push_str(&format!("  · {}", keys.join(" ")));
+        }
+        out.push('\n');
+    }
+    if in_range.len() > MAX_SEGMENTS {
+        out.push_str(&format!("... {} more; read them with fromSec/toSec.\n", in_range.len() - MAX_SEGMENTS));
     }
     out
 }
@@ -315,6 +387,22 @@ mod tests {
         assert!(out.contains("words: Hello@0.00-0.50 there@1.50-2.00"));
         assert!(out.contains("0.50-1.50 (1.00s)"));
         assert!(out.contains("2.00-4.00 (2.00s)"));
+    }
+
+    #[test]
+    fn voice_map_marks_pauses_and_key_words() {
+        let doc = json!({ "segments": [
+            { "start": 0.0, "end": 3.0, "text": "In 1982 the Royal Navy sailed.", "words": [
+                { "word": "In", "start": 0.0, "end": 0.2 }, { "word": "1982", "start": 0.3, "end": 0.8 },
+                { "word": "the", "start": 1.8, "end": 1.9 }, { "word": "Royal", "start": 2.0, "end": 2.3 },
+                { "word": "Navy", "start": 2.3, "end": 2.6 }, { "word": "sailed.", "start": 2.6, "end": 3.0 } ] },
+            { "start": 4.0, "end": 5.0, "text": "They won.", "words": [
+                { "word": "They", "start": 4.0, "end": 4.4 }, { "word": "won.", "start": 4.5, "end": 5.0 } ] }
+        ]});
+        let out = render(&doc, "a.json", &TranscriptArgs { map: true, ..Default::default() });
+        assert!(out.contains("[0.00-3.00] In 1982 ‖ 1.0s the Royal Navy sailed. ‖ 1.0s  · 1982@0.30 Royal@2.00 Navy@2.30\n"), "{}", out);
+        // "They" starts a sentence, so it is not a name.
+        assert!(out.contains("[4.00-5.00] They won.\n"), "{}", out);
     }
 
     #[test]

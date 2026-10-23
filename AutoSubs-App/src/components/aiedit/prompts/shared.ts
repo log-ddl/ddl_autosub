@@ -34,7 +34,7 @@ export function workspaceSection(workspaceInfo: WorkspaceInfo | null): string[] 
   const rel = (p: string) => (p.startsWith(`${w.path}/`) ? p.slice(w.path.length + 1) : p);
   return [
     `### Thư mục của project **${w.projectSlug}**: \`${w.path}\` (các đường dẫn dưới đây tính từ đây)
-- Media: video/B-roll \`${rel(w.videoDir)}\`, ảnh \`${rel(w.imagesDir)}\`, nhạc \`${rel(w.musicDir)}\`, SFX \`${rel(w.sfxDir)}\`. File ngoài project (thư viện chung, Downloads...) đưa lên timeline sẽ được app TỰ CHÉP vào đây: chỉ cần truyền đường dẫn gốc hoặc id, không tự chép hay di chuyển file. Xem file đang có bằng \`list_media\`.
+- Media: video/B-roll \`${rel(w.videoDir)}\`, ảnh \`${rel(w.imagesDir)}\`, giọng đọc (voice) \`${rel(w.voiceDir)}\`, nhạc \`${rel(w.musicDir)}\`, SFX \`${rel(w.sfxDir)}\`. File ngoài project (thư viện chung, Downloads...) đưa lên timeline sẽ được app TỰ CHÉP vào đây: chỉ cần truyền đường dẫn gốc hoặc id, không tự chép hay di chuyển file. Xem file đang có bằng \`list_media\`.
 - Thành phẩm render: \`${rel(w.exportsDir)}\`. Kịch bản phân cảnh: \`visual-plan.json\`.
 - Motion graphic: mỗi cảnh một thư mục con trong \`${rel(w.motionGraphicsDir)}\`, xem trước được trong app. Không cần build thì có \`index.html\` (dùng được \`.ts\`/\`.tsx\`, CSS, JSON, ảnh, import gói như \`"gsap"\` tự tải từ esm.sh); cần bundler thì có \`package.json\` với script \`"dev"\` nhận \`--port\`. Hoạt ảnh tự chạy, nên lặp lại, khung 16:9.
 - Remotion (xuất ra video): chép \`${w.templatesDir}/remotion-starter\` sang \`${rel(w.motionGraphicsDir)}/<tên>\`, sửa \`src/Scene.tsx\` và \`src/Root.tsx\` (composition "Main", ảnh/font trong \`public/\`), đọc skill \`remotion-motion\` trước (kit có sẵn mọi thư viện Remotion kể cả 3D, kèm skill và docs chính thức của Remotion), xem bằng \`preview_motion\` rồi mới \`render_motion\`. KHÔNG tự chạy npm / pnpm / remotion, KHÔNG dựng Remotion từ đầu.
@@ -105,8 +105,8 @@ export const DOWNLOAD_TOOLS_DOC = `### Tìm, tải và xem footage (MCP server \
 - \`inspect_media\`: xem một link video (tiêu đề, độ dài, độ phân giải) mà chưa tải.
 - \`download_media\`: tải về \`media/video\`, trả id. \`startSec\` / \`endSec\` chỉ tải đúng đoạn cần; \`preview: true\` tải bản 360p vào \`media/preview\` để xem trước khi chọn đoạn.
 - \`analyze_media\`: các shot và contact sheet (ảnh lưới có ghi giây) của video đã tải; mở ảnh để xem rồi chọn \`srcIn\` / \`srcOut\` cho \`build_storyboard\`. Không tự cắt file: trình dựng sẽ cắt khi đặt clip.
+- \`remove_background\`: tách nền phẳng (trắng hoặc một màu) của ảnh ra PNG trong suốt trong \`media/images\`. CHỈ dùng khi người dùng bảo tách nền; không tự gọi như một bước chuẩn bị trước khi đặt ảnh. PNG đã trong suốt thì đặt thẳng lên timeline.
 - \`save_article\`: lưu bài báo (chữ thành \`article.md\`, ảnh trong \`images/\`) vào \`articles\`.
-- \`remove_background\`: tách nền ảnh ra PNG trong suốt trong \`media/images\`.
 - Tool báo cần đăng nhập thì nhờ người dùng đăng nhập trang đó ở tab Download rồi thử lại. Tool báo thiếu API key Pexels / Pixabay thì nhờ người dùng thêm key miễn phí trong Cài đặt. Chỉ tải nội dung người dùng có quyền sử dụng.`;
 
 export const SPLIT_DOC = `**Cắt đôi clip tại một thời điểm** (\`split_clips\`, như dao cắt Razor):

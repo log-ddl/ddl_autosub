@@ -26,10 +26,11 @@ export interface CliModelsResult {
 export interface ProjectAssetItem {
   name: string;
   path: string;
-  /** Project: video, images, music, sfx, motion-graphics, exports, skills. Shared: templates, library-music, library-sfx, library-skills. */
+  /** Project: video, images, voice, music, sfx, motion-graphics, exports, skills. Shared: templates, library-music, library-sfx, library-skills. */
   category:
     | "video"
     | "images"
+    | "voice"
     | "music"
     | "sfx"
     | "motion-graphics"
@@ -64,6 +65,7 @@ export interface WorkspaceInfo {
   motionGraphicsDir: string;
   videoDir: string;
   imagesDir: string;
+  voiceDir: string;
   musicDir: string;
   sfxDir: string;
   exportsDir: string;

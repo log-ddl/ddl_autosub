@@ -11,6 +11,7 @@ use std::time::Duration;
 use serde_json::{json, Value};
 
 use crate::bridges::adobe::bridge as adobe_bridge;
+use crate::ai_edit::mcp::tools::preview::FrameShot;
 use crate::ai_edit::actions::{
     ActionOutcome, CutPoint, EffectSpec, Editor, MarkerSpec, SegmentUpdate, StoryboardItem, TextSpec, TimeRange,
 };
@@ -65,6 +66,30 @@ pub async fn timeline_snapshot() -> Result<Value, String> {
         obj.remove("success");
     }
     Ok(snap)
+}
+
+/// The sequence's picture at `times` as PNGs in `dir` (QE exportFramePNG),
+/// for preview_timeline. A frame Premiere did not write has no path.
+pub async fn export_frames(dir: &std::path::Path, times: &[f64]) -> Result<Vec<FrameShot>, String> {
+    let reply = call_premiere("ExportFrames", json!({ "dir": dir.to_string_lossy(), "times": times })).await?;
+    let mut shots = Vec::new();
+    for f in reply.get("frames").and_then(|f| f.as_array()).into_iter().flatten() {
+        let sec = f.get("sec").and_then(|s| s.as_f64()).unwrap_or(0.0);
+        // Some versions write the file after the call returns, with or without ".png".
+        let base = f.get("base").and_then(|b| b.as_str()).unwrap_or("");
+        let named = f.get("path").and_then(|p| p.as_str()).filter(|p| !p.is_empty());
+        let candidates: Vec<std::path::PathBuf> = match named {
+            Some(p) => vec![p.into()],
+            None => vec![format!("{}.png", base).into(), base.into()],
+        };
+        shots.push(FrameShot { sec, candidates, error: None });
+    }
+    for line in string_lines(&reply) {
+        if let Some(shot) = shots.iter_mut().find(|s| s.error.is_none() && line.contains(&format!("at {}s", s.sec))) {
+            shot.error = Some(line);
+        }
+    }
+    Ok(shots)
 }
 
 pub async fn build_storyboard(
@@ -320,6 +345,7 @@ pub async fn update_clips(ids: Vec<String>, u: SegmentUpdate) -> Result<ActionOu
             "speed": u.speed,
             "reverse": u.reverse,
             "keyframes": u.keyframes,
+            "anchor": u.anchor,
         }),
     )
     .await?;
@@ -508,6 +534,10 @@ fn update_clip_tool() -> Value {
         "volume": { "type": "number", "description": "1.0 = unchanged" },
         "speed": { "type": "number", "description": "1.0 = normal, 2.0 = twice as fast, 0.5 = slow motion" },
         "reverse": { "type": "boolean", "description": "Play backwards" },
+        "anchor": {
+            "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2,
+            "description": "Point to scale and rotate around, as a fraction of the clip's own picture: [0.5, 0.5] centre, [0.5, 1] bottom middle, [0.1, 0.9] near the bottom left. The picture stays where it is on screen"
+        },
         "keyframes": {
             "type": "array",
             "items": {
@@ -545,7 +575,9 @@ fn update_clip_tool() -> Value {
              100%; Scale Width / Scale Height for one side, squash and stretch, turn Uniform Scale off; Position [0.5, 0.5] = centre, Opacity 0-100, Rotation degrees, an effect's parameter as \
              its control shows it): sec counts from the clip's start, or back from its end with fromEnd, so one \
              list fits clips of any length (a fade-out is Opacity 100 at sec 1 fromEnd, 0 at sec 0 fromEnd). \
-             Caption text cannot be changed.",
+             anchor sets the point the clip scales and rotates around, in its own picture (a hammer's grip, a \
+             character's feet for a squash), without moving it on screen; set it before keyframing Rotation or \
+             Scale, and Position then places that point. Caption text cannot be changed.",
             CLIP_TARGET_DOC
         ),
         json!({ "type": "object", "properties": props }),

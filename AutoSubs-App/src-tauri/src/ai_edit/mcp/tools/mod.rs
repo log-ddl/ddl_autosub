@@ -6,6 +6,7 @@ pub mod analyze;
 pub mod assets;
 pub mod media;
 pub mod motion;
+pub mod preview;
 pub mod project;
 pub mod search;
 pub mod transcript;
@@ -20,7 +21,7 @@ pub fn tool(name: &str, description: impl Into<String>, schema: Value) -> Value 
 }
 
 /// The tools for one session: the read tools (`get_timeline`,
-/// `get_transcript`) always, the edit tools only when the run may edit (Turbo).
+/// `get_transcript`, `preview_timeline` where the editor can export a frame) always, the edit tools only when the run may edit (Turbo).
 pub fn tool_definitions(editor: Editor, allow_edits: bool) -> Vec<Value> {
     let snapshot_fields = match editor {
         Editor::Davinci => davinci::SNAPSHOT_FIELDS,
@@ -47,6 +48,9 @@ pub fn tool_definitions(editor: Editor, allow_edits: bool) -> Vec<Value> {
             }
         }),
     ), transcript_tool()];
+    if preview::supported(editor) {
+        tools.push(preview::preview_tool(editor));
+    }
     if allow_edits {
         let edits = match editor {
             Editor::Davinci => davinci::edit_tools(),
@@ -260,7 +264,10 @@ fn transcript_tool() -> Value {
          ([start-end] speaker: text, seconds from the timeline start). Reads the transcript open in the \
          app, else the newest; the result lists the others by filename. Use words for per-word timings \
          (to cut a filler word or a bad take precisely) and minPauseSec to list silences, e.g. 0.7, \
-         then cut them with remove_ranges.",
+         then cut them with remove_ranges. map: true is the compact voice map for planning a video: one \
+         line per sentence with its times, long pauses marked ‖, and the words that carry a number or a \
+         name listed with their time (where a picture can land); look up other word times later with \
+         words and fromSec/toSec.",
         json!({
             "type": "object",
             "properties": {
@@ -268,6 +275,7 @@ fn transcript_tool() -> Value {
                 "fromSec": { "type": "number", "description": "Only segments ending after this time" },
                 "toSec": { "type": "number", "description": "Only segments starting before this time" },
                 "words": { "type": "boolean", "description": "Include per-word timings" },
+                "map": { "type": "boolean", "description": "Compact voice map for planning (sentences, pauses, key words)" },
                 "minPauseSec": { "type": "number", "description": "List pauses between words at least this long" }
             }
         }),
@@ -494,7 +502,8 @@ mod tests {
 
     #[test]
     fn manual_mode_is_read_only() {
-        assert_eq!(names(&tool_definitions(Editor::Davinci, false)), ["get_timeline", "get_transcript"]);
+        assert_eq!(names(&tool_definitions(Editor::Davinci, false)), ["get_timeline", "get_transcript", "preview_timeline"]);
+        assert_eq!(names(&tool_definitions(Editor::Premiere, false)), ["get_timeline", "get_transcript", "preview_timeline"]);
         assert_eq!(names(&tool_definitions(Editor::Capcut, false)), ["get_timeline", "get_transcript"]);
     }
 
@@ -507,18 +516,23 @@ mod tests {
             "get_timeline", "get_transcript", "build_storyboard", "add_marker", "add_text", "update_clip",
             "delete_clips", "split_clips", "remove_ranges", "remove_marker", "apply_actions",
         ];
-        assert_eq!(names(&davinci), all);
+        fn without_preview(tools: &[Value]) -> Vec<&str> {
+            names(tools).into_iter().filter(|n| *n != "preview_timeline").collect()
+        }
+        assert_eq!(without_preview(&davinci), all);
         assert_eq!(names(&capcut), all);
-        assert_eq!(names(&premiere)[..10], all[..10]);
-        assert_eq!(names(&premiere)[10..], ["add_effects", "add_transitions", "apply_actions"]);
-        assert!(premiere[5]["inputSchema"]["properties"].get("tracks").is_some());
-        let ripple = |tools: &[Value]| tools[6]["inputSchema"]["properties"].get("ripple").is_some();
-        assert!(ripple(&davinci));
-        assert!(!ripple(&capcut));
-        assert!(capcut[5]["inputSchema"]["properties"].get("zoomEnd").is_some());
-        assert!(davinci[5]["inputSchema"]["properties"].get("zoomEnd").is_none());
-        assert!(davinci[5]["inputSchema"]["properties"].get("startSec").is_some());
-        assert!(premiere[5]["inputSchema"]["properties"].get("volume").is_some());
+        assert_eq!(without_preview(&premiere)[..10], all[..10]);
+        assert_eq!(without_preview(&premiere)[10..], ["add_effects", "add_transitions", "apply_actions"]);
+        let props = |tools: &[Value], name: &str| {
+            tools.iter().find(|t| t["name"] == name).map(|t| t["inputSchema"]["properties"].clone()).unwrap()
+        };
+        assert!(props(&premiere, "update_clip").get("tracks").is_some());
+        assert!(props(&davinci, "delete_clips").get("ripple").is_some());
+        assert!(props(&capcut, "delete_clips").get("ripple").is_none());
+        assert!(props(&capcut, "update_clip").get("zoomEnd").is_some());
+        assert!(props(&davinci, "update_clip").get("zoomEnd").is_none());
+        assert!(props(&davinci, "update_clip").get("startSec").is_some());
+        assert!(props(&premiere, "update_clip").get("volume").is_some());
 
         let snapshot = json!({
             "name": "Seq", "fps": 23.976, "durationSec": 8.0,
@@ -546,7 +560,7 @@ mod tests {
         assert!(!part.contains("Markers"), "{}", part);
         let early = timeline_text(&snapshot, &TimelineFilter::from_args(&json!({ "toSec": 4.0 })));
         assert!(early.contains("V1 a1 0.00-4.00") && early.contains("A1 s1") && !early.contains("a2 4.00"), "{}", early);
-        let batch_tools = &davinci[10]["inputSchema"]["properties"]["actions"]["items"]["properties"]["tool"]["enum"];
+        let batch_tools = &props(&davinci, "apply_actions")["actions"]["items"]["properties"]["tool"]["enum"];
         assert_eq!(batch_tools, &json!(all[2..10]));
     }
 }

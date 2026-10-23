@@ -300,6 +300,7 @@ export function AiEditDialogs({
               },
               { id: "video", label: t("aiEdit.assets.tabs.video") },
               { id: "images", label: t("aiEdit.assets.tabs.images") },
+              { id: "voice", label: t("aiEdit.assets.tabs.voice") },
               { id: "music", label: t("aiEdit.assets.tabs.music") },
               { id: "sfx", label: t("aiEdit.assets.tabs.sfx") },
               { id: "motion-graphics", label: t("aiEdit.assets.tabs.motion") },

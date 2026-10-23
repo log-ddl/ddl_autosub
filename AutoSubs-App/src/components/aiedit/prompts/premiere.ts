@@ -57,6 +57,7 @@ ${PICK_CLIPS_NOTE}
 - \`volume\`: âm lượng của clip audio (hoặc audio đi liền với clip video): \`1.0\` = giữ nguyên, \`0.5\` ≈ -6 dB, \`0\` = tắt tiếng.
 - \`speed\`: tốc độ (\`2\` = nhanh gấp đôi, \`0.5\` = chậm một nửa; clip dài ra nên cần chỗ trống phía sau). \`reverse: true\` để phát ngược.
 - \`keyframes\`: keyframe cho bất kỳ thông số nào, theo đơn vị của Premiere: \`{ "property": "Opacity", "points": [{ "sec": 0, "value": 0 }, { "sec": 1, "value": 100 }], "interpolation": "ease" }\`. \`property\` là \`Scale\` (100 = 100%), \`Scale Width\` / \`Scale Height\` (chỉ chiều rộng hoặc cao, để nhún bẹt ra/dài ra; tự tắt Uniform Scale), \`Position\` (\`[0.5, 0.5]\` = giữa), \`Rotation\`, \`Opacity\`, \`Level\` hoặc \`"<Hiệu ứng>/<Thông số>"\`. \`sec\` tính từ đầu clip, thêm \`fromEnd: true\` để tính lùi từ cuối clip.
+- \`anchor\`: điểm xoay và co giãn, tính theo chính ảnh đó: \`[0.5, 0.5]\` = giữa, \`[0.5, 1]\` = giữa cạnh dưới (chân nhân vật), cán búa thì là chỗ tay cầm. Ảnh không bị dời trên màn hình. Đặt \`anchor\` trước khi keyframe \`Rotation\` / \`Scale\`; sau đó \`Position\` là vị trí của chính điểm đó.
 - Không đổi được nội dung caption.
 \`\`\`timeline-action
 {

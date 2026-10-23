@@ -1066,13 +1066,14 @@
       "tooltip": "Open the project's assets (Motion Graphics, AI B-Roll, Exports, Templates)",
       "menuItem": "Assets & Skills",
       "title": "Project assets ({{project}})",
-      "description": "Each DaVinci, Premiere or CapCut project has its own folder (video, images, music, SFX, motion). The shared library is read only: click \"Use\" to copy a file into the project.",
+      "description": "Each DaVinci, Premiere or CapCut project has its own folder (video, images, voice, music, SFX, motion). The shared library is read only: click \"Use\" to copy a file into the project.",
       "projectPath": "Project: ",
       "libraryPath": "Shared library (music, SFX, templates): ",
       "tabs": {
         "all": "All ({{count}})",
         "video": "Video",
         "images": "Images",
+        "voice": "Voice",
         "music": "Music",
         "sfx": "SFX",
         "motion": "Motion",
@@ -1232,7 +1233,6 @@
       "inspect_media": "Check video link",
       "download_media": "Download video",
       "save_article": "Save article",
-      "remove_background": "Remove image background",
       "thinking": "Reasoning",
       "runCommand": "Run terminal command",
       "writeFile": "Write file",
@@ -1250,7 +1250,8 @@
       "subagent": "Run subagent",
       "remove_marker": "Remove markers",
       "add_effects": "Add effects",
-      "add_transitions": "Add transitions"
+      "add_transitions": "Add transitions",
+      "remove_background": "Remove image background"
     }
   },
   "externalAgent": {

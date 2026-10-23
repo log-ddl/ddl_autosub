@@ -10,7 +10,8 @@
 // Times are seconds from the start of the sequence. Clip ids are TrackItem
 // nodeIds, which stay stable while the project is open.
 
-import { addEffects, addedEffects, addGraphics, addTransitions, applyKeyframes, applySpeed } from "./ai-edit-fx";
+import { addEffects, addedEffects, addGraphics, addTransitions, applyAnchor, applyKeyframes, applySpeed } from "./ai-edit-fx";
+import { exportFrames } from "./ai-edit-preview";
 import { aiEditBuildStoryboard } from "./ai-edit-storyboard";
 import {
   applyTransform,
@@ -268,6 +269,8 @@ function updateOne(seq: any, id: string, hit: any, args: any, updated: string[],
     }
   }
 
+  // Before the transform and keyframes, which then place the new anchor.
+  applyAnchor(seq, clip, args, updated, lines);
   applyTransform(clip, args, updated, lines);
 
   if (num(args.opacity)) {
@@ -541,6 +544,8 @@ export function aiEdit(requestJson: string): string {
         return addTransitions(seq, args);
       case "AddGraphics":
         return addGraphics(seq, args);
+      case "ExportFrames":
+        return exportFrames(seq, args);
       default:
         return fail("Invalid function name");
     }

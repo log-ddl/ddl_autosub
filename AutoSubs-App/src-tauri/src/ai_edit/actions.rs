@@ -387,6 +387,9 @@ pub struct SegmentUpdate {
     pub reverse: bool,
     #[serde(default)]
     pub keyframes: Vec<KeyframeSpec>,
+    /// The point the clip scales and rotates around, as a fraction of its
+    /// own picture: [0.5, 0.5] centre, [0.5, 1] bottom middle.
+    pub anchor: Option<[f64; 2]>,
 }
 
 impl SegmentUpdate {
@@ -400,6 +403,8 @@ impl SegmentUpdate {
             Some("keyframes")
         } else if self.speed.is_some() || self.reverse {
             Some("speed and reverse")
+        } else if self.anchor.is_some() {
+            Some("anchor")
         } else {
             None
         }
@@ -706,6 +711,9 @@ pub async fn execute(target: &EditTarget, action: TimelineAction) -> Result<Acti
                 if update.segment_id.is_empty() {
                     return Err("update_clip needs segmentId.".into());
                 }
+            }
+            if update.anchor.map_or(false, |a| !a.iter().all(|v| v.is_finite())) {
+                return Err("anchor takes two numbers, like [0.5, 1] for the bottom middle.".into());
             }
             if update.speed.map_or(false, |s| !(s.is_finite() && s > 0.0 && s <= 100.0)) {
                 return Err("speed must be above 0 (1.0 = normal, 2.0 = twice as fast).".into());
