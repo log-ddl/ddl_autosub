@@ -50,7 +50,7 @@ export interface ProjectAssetItem {
 export interface WorkspaceProject {
   editor: string;
   name: string | null;
-  /** Tells apart projects with the same name: Resolve id, .prproj path, CapCut draft id. */
+  /** Tells apart projects with the same name: the .prproj path. */
   id: string | null;
   /** Timeline / sequence name older builds keyed the folder by; moved in on first use. */
   legacyName?: string | null;

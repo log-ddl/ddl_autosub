@@ -85,7 +85,7 @@ pub fn call(app: &AppHandle, ctx: &Context, name: &str, args: &Value) -> Option<
 fn context(ctx: &Context, library: Option<&Path>) -> String {
     if !ctx.connected {
         return "AutoSubs has no editor project open yet. Ask the user to open AutoSubs and their project \
-                in DaVinci Resolve, Premiere Pro or CapCut, then call this again."
+                in Premiere Pro, then call this again."
             .into();
     }
     let mut out = format!("Editor: {}", ctx.editor.display_name());

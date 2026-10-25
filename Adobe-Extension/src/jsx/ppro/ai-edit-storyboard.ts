@@ -2,10 +2,8 @@
 // AI EDIT: PLACE MEDIA (build_storyboard)
 // ==============================================================================
 //
-// AI Edit's own copy of the Slideshow placement (buildStoryboard in ppro.ts),
-// so the two features change independently. On top of the Slideshow's append
-// it has the modes Resolve's BuildStoryboard has, and per-item effects:
-//   append  - after the last clip on the track (the Slideshow behaviour)
+// Places media for AI Edit, in one of four modes, with per-item effects:
+//   append  - after the last clip on the track
 //   replace - overwrite the track (video and its audio) from each start
 //   insert  - razor the target V/A tracks at the first start, push what is
 //             after right by the new clips' length, and place them in the gap
@@ -133,9 +131,8 @@ export function aiEditBuildStoryboard(spec: any): string {
      * seconds drifts: the snapped clip ends a fraction earlier or later than the
      * value we remembered, the next clip starts from the unsnapped number, and
      * because overwriteClip *overwrites*, a start one frame early eats a frame
-     * off the clip before it. Over a slideshow that compounds into the "off by a
-     * few frames" the Resolve side never shows — its whole layout is integer
-     * frames already.
+     * off the clip before it. Over a long storyboard that compounds into clips
+     * "off by a few frames".
      *
      * `sequence.timebase` is ticks per frame. A sequence that won't report it
      * leaves ticksPerFrame at 0, and the helpers below degrade to plain seconds.
@@ -551,7 +548,7 @@ export function aiEditBuildStoryboard(spec: any): string {
     var trackEnd = trackEndFrames(videoTrackAt(vIndex));
     var firstReq = items.length > 0 && items[0] && items[0].start > 0 ? toFrames(items[0].start) : 0;
 
-    // The same inference as Resolve's BuildStoryboard when no mode is given.
+    // Infer the mode when none is given.
     var mode = rawMode === "ripple" ? "insert" : rawMode === "broll" ? "overlay" : rawMode;
     if (mode !== "replace" && mode !== "insert" && mode !== "overlay" && mode !== "append") {
       if (targetTrack >= 2) mode = "overlay";

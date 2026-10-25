@@ -1,24 +1,19 @@
 import React, { createContext, useContext } from 'react';
-import { useSettingsStore } from '@/stores/settings-store';
 
-export type Integration = "davinci" | "premiere" | "aftereffects" | "capcut";
+/** The editor AutoSubs talks to. Premiere Pro is the only one left. */
+export type Integration = "premiere";
 
 interface IntegrationContextType {
   selectedIntegration: Integration;
-  setSelectedIntegration: (integration: Integration) => void;
 }
 
 const IntegrationContext = createContext<IntegrationContextType | null>(null);
 
-export function IntegrationProvider({ children }: { children: React.ReactNode }) {
-  const selectedIntegration = useSettingsStore((s) => s.preferredEditorIntegration);
-  const updateSetting = useSettingsStore((s) => s.updateSetting);
-  const setSelectedIntegration = React.useCallback((integration: Integration) => {
-    updateSetting("preferredEditorIntegration", integration);
-  }, [updateSetting]);
+const VALUE: IntegrationContextType = { selectedIntegration: "premiere" };
 
+export function IntegrationProvider({ children }: { children: React.ReactNode }) {
   return (
-    <IntegrationContext.Provider value={{ selectedIntegration, setSelectedIntegration }}>
+    <IntegrationContext.Provider value={VALUE}>
       {children}
     </IntegrationContext.Provider>
   );

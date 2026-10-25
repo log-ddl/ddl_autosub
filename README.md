@@ -1,7 +1,7 @@
 # AutoSubs
 
 
-Dùng độc lập, hoặc nối với DaVinci Resolve, Adobe Premiere Pro và After Effects.
+Dùng độc lập, hoặc nối với Adobe Premiere Pro (phụ đề, AI Edit, motion graphics bằng Remotion).
 
 
 ## Build

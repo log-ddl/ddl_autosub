@@ -27,6 +27,7 @@ Nếu thư mục `reference/` chưa có (máy chưa có git, hoặc kit đang c�
 2. Sửa `src/Scene.tsx` (nội dung) và `src/Root.tsx` (kích thước, fps, độ dài, `defaultProps`). Có thể thêm file trong `src/`. Ảnh, video, nhạc, font, Lottie JSON đặt trong `public/` của project và gọi bằng `staticFile("ten-file.png")`.
 3. `preview_motion` rồi MỞ contact sheet ra xem. Kiểm tra: chữ có tràn hay bị cắt, có nằm trong vùng an toàn (cách mép khoảng 5%), các phần có đè lên nhau, cỡ chữ đọc được trên điện thoại, màu có tương phản với footage, chuyển động qua các mốc thời gian có hợp lý. Sai thì sửa code và preview lại. Cần nhìn kỹ một khoảnh khắc thì truyền `atSec` 1 đến 2 mốc để có tile lớn.
 4. Chỉ khi sheet đã ổn mới `render_motion`. Overlay đè lên footage để `transparent: true` (mặc định, ProRes 4444 có alpha); card full khung có nền để `false` (H.264 nhẹ hơn nhiều).
+   Render chạy lần lượt trong cả app, cái gọi sau xếp hàng chờ. `wait: false` chỉ xếp vào hàng và trả về job id ngay (`r3`) để làm tiếp việc khác; `render_status` cho biết render nào đang chờ, đang chạy, xong (kèm id file `mXX`) hay lỗi, và `waitSec` để chờ chúng xong thay vì hỏi đi hỏi lại.
 5. Đặt file trong `exports/` bằng `build_storyboard`, đúng giây cần xuất hiện.
 
 Thay chữ hay số mà không đổi bố cục thì truyền `props` cho cả `preview_motion` và `render_motion`, không cần sửa code. Nhiều biến thể của một mẫu = một project, nhiều lần render với `props` và `output` khác nhau.

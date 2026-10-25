@@ -7,9 +7,6 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// The Python runtime is downloaded lazily on first AutoEdit entry — see
-// autoedit_python.rs — so no prep step is needed here.
-
 const platform = os.platform(); // 'darwin', 'win32', 'linux'
 const arch = os.arch(); // 'arm64', 'x64'
 

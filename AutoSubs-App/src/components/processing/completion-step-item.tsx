@@ -9,10 +9,8 @@ import {
 import { Download, FileText, Send, VolumeX } from "lucide-react"
 import { ExportPopover } from "@/components/common/export-popover"
 import { TimelineInfo } from "@/types"
-import type { Integration } from "@/contexts/IntegrationContext"
 import { useSubtitleDocument } from "@/contexts/SubtitleDocumentContext"
 import { useOutputPanelStore } from "@/stores/output-panel-store"
-import { useIsMobile } from "@/hooks/use-mobile"
 import { useTranslation } from "react-i18next"
 
 export interface CompletionStepProps {
@@ -20,17 +18,14 @@ export interface CompletionStepProps {
     onViewSubtitles?: () => void;
     isSubtitleViewerOpen?: boolean;
     timelineInfo: TimelineInfo;
-    selectedIntegration?: Integration;
 }
 
 export function CompletionStepItem({
     onViewSubtitles,
     isSubtitleViewerOpen = false,
     timelineInfo,
-    selectedIntegration
 }: CompletionStepProps) {
     const { t } = useTranslation()
-    const isMobile = useIsMobile()
     const openOutputPanel = useOutputPanelStore((s) => s.open)
     const {
         subtitles,
@@ -38,9 +33,7 @@ export function CompletionStepItem({
         exportSubtitlesAs,
     } = useSubtitleDocument()
 
-    const isResolveConnected = Boolean(timelineInfo?.timelineId) && selectedIntegration === "davinci"
-    const isAdobeConnected = Boolean(timelineInfo?.timelineId) && (selectedIntegration === "premiere" || selectedIntegration === "aftereffects")
-    const isCapCutConnected = Boolean(timelineInfo?.timelineId) && selectedIntegration === "capcut"
+    const isConnected = Boolean(timelineInfo?.timelineId)
     const hasSubtitles = subtitles.length > 0
 
     // Sending happens in the viewer's output sheet, where the settings are
@@ -83,23 +76,21 @@ export function CompletionStepItem({
                                   {t("completion.viewSubtitles")}
                                 </Button>
                             )}
-                            {(!isResolveConnected || !isMobile) && (
-                                <ExportPopover
-                                    onExport={(format) => exportSubtitlesAs(format, subtitles, speakers)}
-                                    hasSubtitles={hasSubtitles}
-                                    trigger={
-                                        <Button
-                                          variant="outline"
-                                          size="sm"
-                                          className="flex items-center gap-2"
-                                        >
-                                            <Download />
-                                            {t("completion.exportToFile")}
-                                        </Button>
-                                    }
-                                />
-                            )}
-                            {(isResolveConnected || isAdobeConnected || isCapCutConnected) && (
+                            <ExportPopover
+                                onExport={(format) => exportSubtitlesAs(format, subtitles, speakers)}
+                                hasSubtitles={hasSubtitles}
+                                trigger={
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="flex items-center gap-2"
+                                    >
+                                        <Download />
+                                        {t("completion.exportToFile")}
+                                    </Button>
+                                }
+                            />
+                            {isConnected && (
                                 <Button
                                     variant="outline"
                                     size="sm"

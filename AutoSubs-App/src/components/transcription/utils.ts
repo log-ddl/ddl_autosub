@@ -1,5 +1,3 @@
-import { ResolveApiError } from "@/api/resolve-api";
-
 export const SUPPORTED_MEDIA_EXTENSIONS = [
   "wav",
   "mp3",
@@ -75,22 +73,13 @@ export interface ProcessingStep {
 }
 
 /**
- * Normalise any thrown value (native `Error`, `ResolveApiError`, plain
- * strings from Tauri `invoke`, unknown) into the fields the error dialog
- * expects. `ResolveApiError` carries a richer `detail` from Resolve which
- * we surface in the dialog's collapsible "Show details" section.
+ * Normalise any thrown value (native `Error`, plain strings from Tauri
+ * `invoke`, unknown) into the fields the error dialog expects.
  */
 export function describeError(
   error: unknown,
   fallbackTitle: string,
 ): { title: string; message: string; detail?: string } {
-  if (error instanceof ResolveApiError) {
-    return {
-      title: fallbackTitle,
-      message: error.message,
-      detail: error.detail,
-    };
-  }
   if (error instanceof Error) {
     return { title: fallbackTitle, message: error.message || fallbackTitle };
   }

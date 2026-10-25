@@ -1,8 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
 import { Subtitle, Speaker, Settings } from '@/types';
-import { useResolve } from '@/contexts/ResolveContext';
 import { useAdobe } from '@/contexts/AdobeContext';
-import { useCapCut } from '@/contexts/CapCutContext';
 import { useIntegration, type Integration } from '@/contexts/IntegrationContext';
 import { getActiveCensorWords } from '@/censor/merge';
 import { open, save } from '@tauri-apps/plugin-dialog';
@@ -27,16 +25,7 @@ function getTranscriptSourceType(
   integration: Integration | undefined
 ): TranscriptSourceType {
   if (audioInputMode === "file") return "standalone";
-  switch (integration) {
-    case "premiere":
-      return "premiere";
-    case "aftereffects":
-      return "aftereffects";
-    case "davinci":
-      return "resolve";
-    default:
-      return "unknown";
-  }
+  return integration === "premiere" ? "premiere" : "unknown";
 }
 
 interface SubtitleDocumentContextType {
@@ -86,17 +75,8 @@ export function SubtitleDocumentProvider({ children }: { children: React.ReactNo
   // cycles from accumulating in the V8 heap when the user types quickly.
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSaveRef = useRef<{ subtitles: Subtitle[]; filename: string } | null>(null);
-  const { timelineInfo: resolveTimeline } = useResolve();
-  const { timelineInfo: adobeTimeline } = useAdobe();
-  const { timelineInfo: capcutTimeline } = useCapCut();
+  const { timelineInfo } = useAdobe();
   const { selectedIntegration } = useIntegration();
-  const isAdobeActive = selectedIntegration === "premiere" || selectedIntegration === "aftereffects";
-  const isCapCutActive = selectedIntegration === "capcut";
-  const timelineInfo = isCapCutActive
-    ? capcutTimeline
-    : isAdobeActive
-      ? adobeTimeline
-      : resolveTimeline;
 
   // Load subtitles when timelineId or fileInput changes
   const loadSubtitles = useCallback(async (audioInputMode: "file" | "timeline", fileInput: string | null, timelineId: string) => {

@@ -4,7 +4,4 @@
 //! schemas describing what that editor supports. `actions::execute` picks the
 //! module from `EditTarget::editor`.
 
-pub mod capcut;
-pub mod davinci;
-mod davinci_titles;
 pub mod premiere;

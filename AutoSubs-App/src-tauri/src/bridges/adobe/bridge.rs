@@ -64,7 +64,7 @@ fn bridge_app() -> &'static OnceLock<tauri::AppHandle> {
 }
 
 /// Send `{ type, payload, sessionId }` to the connected extension (`app_id`
-/// is "premiere" or "aftereffects") and wait for the message it sends back
+/// is "premiere") and wait for the message it sends back
 /// with the same sessionId. Returns that message's `payload`.
 pub async fn request(
     app_id: &str,

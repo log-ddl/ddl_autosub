@@ -10,6 +10,7 @@ Skill này **chỉ dựng**. Mọi quyết định kể bằng hình đã nằm 
 
 **Bắt đầu:** `get_project_context`, rồi `read_plan(name: "SHOT_PLAN.md")`.
 - Chưa có plan, hoặc plan chưa có mục **Bố cục**: `read_skill("story-planning")` và làm skill đó trước. Không tự chia kịch bản ở đây.
+- Video dài (khoảng 4 phút trở lên): đi theo `read_skill("long-video")`; skill này chỉ dựng từng chương (mục cuối "Khi làm theo chương").
 - Dựng đúng plan; thấy plan sai thì sửa plan (`save_plan`) rồi mới dựng.
 - **Không thêm** những gì plan không có: Host, chữ, bảng tên, hiệu ứng, chuyển cảnh, SFX.
 
@@ -65,3 +66,10 @@ Sai vị trí thì sửa **số trong `layout.ts`** (không vá riêng một ch�
 1. `preview_motion(project: "<slug>", frames: 12)` cả video, và `atSec` hai bên mỗi chỗ đổi cảnh.
 2. `render_motion(project: "<slug>", transparent: false, output: "<ten-video>")`: `output` **không có đuôi**, tool tự thêm `.mp4`.
 3. Báo người dùng đường dẫn file và sheet, lỗi còn lại, phần chưa kiểm được.
+
+## Khi làm theo chương (`long-video`)
+
+- Plan là `ch<NN>.md` của chương, mục **Bố cục** nằm trong `STORY.md`. Mốc là giây toàn phim.
+- Một project chung cho cả phim (`assets.ts`, `layout.ts`, các component dùng chung), mỗi chương một composition `Ch<NN>` có độ dài đúng bằng chương; voice phát từ giây đầu chương (`trimBefore` của `<Audio>`). Ranh giới chương đặt ở chỗ cắt thẳng (`STORY.md` đã chọn vậy).
+- Viết phần dùng chung trước (bạn tự làm), rồi mỗi chương một `motion-builder` song song: viết `Ch<NN>`, xem từng cụm theo mục 4, rồi `render_motion(composition: "Ch<NN>", transparent: false, output: "ch<NN>", wait: false)`.
+- Khi mọi chương đã render (`render_status`), đặt các file `ch<NN>.mp4` nối nhau trên timeline bằng `build_storyboard` (mỗi file ở đúng giây đầu chương), rồi `preview_timeline` hai bên mỗi ranh giới chương.

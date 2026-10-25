@@ -40,12 +40,3 @@ export async function requestImportSRT(filePath: string, sessionId?: string, int
 export async function requestJumpToTime(seconds: number, sessionId?: string, integration?: string) {
   return sendToAdobe('request_jump_to_time', { time: seconds }, sessionId, integration);
 }
-
-/**
- * Place a slideshow onto the active Premiere sequence: media laid out
- * sequentially plus an optional voice-over. `spec` is already snake_cased for
- * the ExtendScript side (see AdobeContext.buildStoryboard).
- */
-export async function requestBuildStoryboard(spec: any, sessionId?: string, integration?: string) {
-  return sendToAdobe('request_build_storyboard', spec, sessionId, integration);
-}

@@ -50,7 +50,6 @@ const allowedScriptFunctions = new Set<string>([
   "exportSequenceAudio",
   "importSRTFile",
   "jumpToTime",
-  "buildStoryboard",
   "aiEdit",
 ]);
 

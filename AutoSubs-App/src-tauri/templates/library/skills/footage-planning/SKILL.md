@@ -10,6 +10,7 @@ Bạn quyết định, tool làm việc: tool tìm, tải, phân tích hình và
 
 ## 1. Kịch bản thành các nhịp (`save_plan` tên `script.json`)
 
+- Người dùng đưa file phụ đề (`.srt`, `.vtt`): dùng nó thay transcript của app, `get_transcript(path: "<đường dẫn đầy đủ>")`.
 - Voice đã nằm trên timeline: đọc bằng `get_transcript` để có thời gian từng câu.
 - Chỉ có văn bản kịch bản: dùng văn bản đó; thời gian ước theo tốc độ đọc khoảng 2.5 từ mỗi giây (tiếng Việt khoảng 3.5 tiếng mỗi giây), và ghi rõ là ước lượng.
 - Chia thành nhịp 3-8 giây, mỗi nhịp một ý hình. Lưu:
@@ -66,3 +67,10 @@ Trước khi tải bản đầy đủ và ráp: trình bày bảng ngắn (nhị
 - Lưu lại `shotlist.json` (`save_plan`) với id và srcIn/srcOut mới.
 - Ráp tất cả trong MỘT lần gọi `build_storyboard` (hoặc `apply_actions`): mỗi nhịp là một item `path` = id, `start`/`end` = thời gian nhịp, `srcIn`/`srcOut` = đoạn đã chọn, chế độ `overlay` lên track trên voice/A-roll. Không đặt nhịp `none`; nhịp `motion` để cho bước motion graphic.
 - Đọc kết quả tool, sửa những dòng báo lỗi, rồi báo người dùng những nhịp còn thiếu.
+
+## Khi làm theo chương (`long-video`)
+
+- **`STORY.md`, mục "Quy ước xuyên phim"**: tông hình (tư liệu thật, stock, hay trộn), nguồn ưu tiên, yêu cầu bản quyền. Trạng thái đầu / cuối chương: không bắt buộc; ghi nếu một nhân vật hay nơi chốn kéo qua nhiều chương.
+- **Plan một chương** = mục 1 đến 4 cho mốc của chương, file `ch<NN>-script.json`, `ch<NN>-candidates.json`, `ch<NN>-shotlist.json`. `chapter-planner` không gọi được `footage-scout` / `clip-analyst` thì tự làm theo đúng tiêu chí của chúng.
+- **Mục 5**: agent chính gửi người dùng duyệt theo đợt chương.
+- **Mục 6**: tải bản đầy đủ chạy song song được; ráp lên timeline thì `chapter-builder` từng chương một.

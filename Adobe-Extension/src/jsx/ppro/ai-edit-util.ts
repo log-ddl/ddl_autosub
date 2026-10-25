@@ -123,7 +123,7 @@ export function applyTransform(clip: any, args: any, updated: string[], lines: s
   var pos = property(motion, "Position");
   if (pos && (num(args.panX) || num(args.panY))) {
     // Position is normalised (0.5, 0.5 = centre). panX/panY are offsets in
-    // the same -1..1 range CapCut uses, where +1 moves half a frame right/up.
+    // a -1..1 range, where +1 moves half a frame right/up.
     var px = num(args.panX) ? args.panX : 0;
     var py = num(args.panY) ? args.panY : 0;
     var from = [0.5 + px / 2, 0.5 - py / 2];

@@ -1,14 +1,12 @@
 # AutoSubs App
 
-A cross-platform desktop app for generating subtitles with speaker diarization, translation, DaVinci Resolve integration, and Adobe Premiere Pro / After Effects integration via the bundled CEP extension — powered by AI transcription models running locally on your machine.
+A cross-platform desktop app for generating subtitles with speaker diarization and translation, editing Adobe Premiere Pro timelines with an AI agent (AI Edit) and rendering motion graphics with Remotion — powered by AI transcription models running locally on your machine. Premiere Pro is reached through the bundled CEP extension.
 
 ## Documentation
 
-- **[CLI Guide](../CLI.md)** - Command-line interface reference
 - **[Contributing Guide](../CONTRIBUTING.md)** - Development setup and contribution workflow
 - **[AGENTS.md](../AGENTS.md)** - AI agent context with architecture gotchas and bridge details
-- **[Resolve Integration](../Resolve-Integration/README.md)** - DaVinci Resolve integration architecture and development
-- **[Adobe Extension](../Adobe-Extension/README.md)** - Adobe Premiere Pro/After Effects integration details
+- **[Adobe Extension](../Adobe-Extension/README.md)** - Adobe Premiere Pro integration details
 
 ## Tech Stack
 
@@ -56,16 +54,10 @@ graph TB
         HF[HuggingFace Hub<br><i>model downloads</i>]
     end
 
-    subgraph Resolve ["DaVinci Resolve-Integration (Optional)"]
-        LUA[AutoSubs.lua Script]
-    end
-
     subgraph Adobe ["Adobe Integration (Optional)"]
         WS[Adobe Bridge + Extension<br><i>WebSocket :8185</i>]
         PR[Premiere Pro]
-        AE[After Effects]
         WS --> PR
-        WS --> AE
     end
 
     Frontend <--> Tauri
@@ -73,7 +65,6 @@ graph TB
     Backend --> Engine
     AP --> FF
     Engine --> HF
-    LUA <-.-> Tauri
     Backend <--> WS
 ```
 
@@ -97,7 +88,7 @@ graph TB
 | `src-tauri/src/` | Rust backend — Tauri commands, audio preprocessing, logging |
 | `src-tauri/crates/transcription-engine/` | Core engine — transcription, diarization, formatting, translation |
 | `src-tauri/crates/transcription-engine/src/engines/` | Model-specific implementations (Whisper, Parakeet, Moonshine) |
-| `src-tauri/resources/` | DaVinci Resolve Lua script, Adobe CEP extension resources, and subtitle templates |
+| `src-tauri/resources/` | The built Adobe CEP extension the installers copy into Premiere Pro |
 
 ## Model Cache Location
 

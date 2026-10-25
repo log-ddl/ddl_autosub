@@ -6,10 +6,8 @@ I welcome contributions from everyone. I will try to review any pull requests as
 
 ## Documentation
 
-- **[CLI Guide](CLI.md)** - Command-line interface reference
 - **[AutoSubs-App README](AutoSubs-App/README.md)** - Technical architecture and code organization
-- **[Resolve Integration](Resolve-Integration/README.md)** - DaVinci Resolve integration architecture and development
-- **[Adobe Extension](Adobe-Extension/README.md)** - Adobe Premiere Pro/After Effects integration details
+- **[Adobe Extension](Adobe-Extension/README.md)** - Adobe Premiere Pro integration details
 - **[AGENTS.md](AGENTS.md)** - AI agent context with architecture gotchas and bridge details
 
 ## Dev Setup
@@ -21,19 +19,7 @@ I welcome contributions from everyone. I will try to review any pull requests as
    npm install
    ```
 
-3. (Optional) For **DaVinci Resolve** integration during development, run:
-   ```bash
-   npm run setup-resolve
-   ```
-   This generates a self-contained `AutoSubs (Dev).lua` launcher in your Resolve scripts folder, automatically detecting the correct path for your platform.
-
-   The dev launcher points Resolve at your repo and starts the local server in dev mode (without opening the app window). Open it from Resolve via **Workspace → Scripts → AutoSubs (Dev)**.
-
-   If you close the app window, the server stops — relaunch the script to restart it.
-
-   Edits to the Lua under `src-tauri/resources/` (e.g. `modules/autosubs_core.lua`, the Resolve integration) take effect the next time you run the "AutoSubs (Dev)" script in Resolve — no rebuild or restart needed. Re-run `npm run setup-resolve` only if you move the repository.
-
-4. (Optional) For **Premiere Pro / After Effects** integration during development, build the CEP extension and symlink it into Adobe's extensions folder:
+3. (Optional) For **Premiere Pro** integration during development, build the CEP extension and symlink it into Adobe's extensions folder:
    ```bash
    cd ../Adobe-Extension
    npm install
@@ -42,7 +28,7 @@ I welcome contributions from everyone. I will try to review any pull requests as
    ```
    The Bolt-CEP tooling also enables `PlayerDebugMode` so the unsigned dev extension loads. Run `npm run delsymlink` to remove it.
 
-5. Start the app in dev mode:
+4. Start the app in dev mode:
    ```bash
    cd ../AutoSubs-App
    npm run dev
@@ -96,8 +82,6 @@ In addition to the standard Tauri prerequisites, Windows builds require:
    Open a new terminal after running this for it to take effect.
 
 Backend code lives under `AutoSubs-App/src-tauri/`. For a full breakdown of the codebase before diving in, see the **[AutoSubs DeepWiki](https://deepwiki.com/tmoroney/auto-subs)**.
-
-For detailed information about the DaVinci Resolve integration (architecture, Lua server, Fusion macro system, and development workflow), see [Resolve-Integration/README.md](Resolve-Integration/README.md).
 
 ---
 

@@ -28,15 +28,13 @@ mod transcription_api;
 mod transcript_types;
 mod logging;
 mod bridges;
-mod autoedit;
 mod media;
 mod process_ext;
-mod cli;
 mod ai_cli;
 mod ai_edit;
 
-use crate::bridges::{adobe::bridge as adobe_bridge, capcut, davinci::bridge as resolve_bridge};
-use crate::media::{article, download as media_download, scan as media_scan, site_session};
+use crate::bridges::adobe::bridge as adobe_bridge;
+use crate::media::{article, download as media_download, site_session};
 use crate::process_ext::HiddenConsole; // keep above the cfg'd items below
 
 // Include integration-like tests that need crate visibility
@@ -132,7 +130,7 @@ fn setup_proxy_env() {
     }
 
     // Build NO_PROXY from the WinINet ProxyOverride list so that local
-    // connections (Resolve bridge on 127.0.0.1:56002, etc.) are never
+    // connections (the Premiere bridge on 127.0.0.1:8185, etc.) are never
     // routed through the proxy. Always include loopback addresses even if
     // ProxyOverride is absent; WinINet's "<local>" sentinel is replaced
     // with the canonical addresses that ureq/reqwest understand.
@@ -166,81 +164,11 @@ fn setup_proxy_env() {
 fn setup_proxy_env() {}
 
 
-/// If a Resolve server is already running (e.g. from a previous app session
-/// or before a restart), ask it to hot-reload when its version differs from
-/// the app's version. This lets updated Lua code take effect without forcing
-/// the user to relaunch the AutoSubs script in Resolve.
-async fn ensure_resolve_server_is_current(app_version: &str) {
-    tokio::time::sleep(Duration::from_millis(500)).await;
-
-    let server_version = match resolve_bridge::resolve_server_version().await {
-        Ok(Some(v)) => v,
-        Ok(None) => {
-            tracing::info!("Resolve server does not report a version; skipping auto-reload");
-            return;
-        }
-        Err(e) => {
-            tracing::debug!("Resolve server not reachable on startup: {}", e);
-            return;
-        }
-    };
-
-    if server_version == app_version {
-        tracing::info!("Resolve server is already at version {}", app_version);
-        return;
-    }
-
-    tracing::info!(
-        "Resolve server is at version {}, app is {}; requesting reload...",
-        server_version,
-        app_version
-    );
-    if let Err(e) = resolve_bridge::reload_resolve_server().await {
-        tracing::warn!("Failed to request Resolve server reload: {}", e);
-        return;
-    }
-
-    for attempt in 0..15 {
-        tokio::time::sleep(Duration::from_millis(300)).await;
-        match resolve_bridge::resolve_server_version().await {
-            Ok(Some(v)) if v == app_version => {
-                tracing::info!(
-                    "Resolve server reloaded to version {} after {} attempts",
-                    app_version,
-                    attempt + 1
-                );
-                return;
-            }
-            Ok(Some(v)) => {
-                tracing::debug!("Resolve server still at version {} after reload", v);
-            }
-            Ok(None) => {
-                tracing::debug!("Resolve server response missing version during reload");
-            }
-            Err(e) => {
-                tracing::debug!("Resolve server not yet reachable after reload: {}", e);
-            }
-        }
-    }
-
-    tracing::warn!(
-        "Resolve server did not report version {} after reload",
-        app_version
-    );
-}
-
-
-
 /// Build the main GUI window programmatically.
 ///
-/// The window is intentionally NOT declared in `tauri.conf.json`: a config-defined
-/// window is created automatically at startup, which spins up a webview even for a
-/// headless CLI run (adding startup cost, a dock/taskbar flash, and a needless
-/// WebView/WebKitGTK dependency). Creating it here means it only exists in GUI mode.
-///
-/// Mirrors the previous `tauri.conf.json` window config. It starts hidden and is
-/// shown later (after the macOS traffic-light positioner is installed), matching the
-/// existing startup flow.
+/// The window is not declared in `tauri.conf.json` so its macOS title bar can be
+/// set up here. It starts hidden and is shown later (after the macOS
+/// traffic-light positioner is installed).
 fn create_main_window(app: &tauri::AppHandle) -> tauri::Result<tauri::WebviewWindow> {
     #[allow(unused_mut)]
     let mut builder =
@@ -283,15 +211,7 @@ fn main() {
     // filtered rather than being dumped raw to stderr.
     transcription_engine::install_logging_hooks();
 
-    // Decide GUI vs headless from raw argv *before* building, so we can hide the
-    // window and skip GUI-only plugins (single-instance would forward our args to
-    // a running GUI and exit, breaking a CLI run while the app is open).
-    let headless = cli::is_headless_invocation();
-    if headless {
-        cli::attach_console();
-    }
-
-    let mut builder = tauri::Builder::default()
+    tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_os::init())
         .plugin(StoreBuilder::default().build())
@@ -306,36 +226,16 @@ fn main() {
         .plugin(shell_plugin())
         .plugin(clipboard_plugin())
         .plugin(opener_plugin())
-        .plugin(tauri_plugin_cli::init());
-
-    if !headless {
-        builder = builder.plugin(single_instance_plugin(|app, _args, _cwd| {
+        .plugin(single_instance_plugin(|app, _args, _cwd| {
             // Focus the existing window when a second instance is launched
             let _ = app.get_webview_window("main").map(|w| w.set_focus());
-        }));
-    }
-
-    builder
+        }))
         .setup(move |app| {
             // Initialize backend logging (file + in-memory ring buffer). Logs go to
-            // the log file only, never stdout/stderr, so CLI output stays clean.
+            // the log file only, never stdout/stderr.
             crate::logging::init_logging(&app.handle());
 
-            if headless {
-                // Headless/CLI: never create a window. Hide the macOS dock icon so a
-                // CLI run is fully invisible, then run the subcommand and exit.
-                #[cfg(target_os = "macos")]
-                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
-
-                let handle = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    cli::run(handle).await;
-                });
-                return Ok(());
-            }
-
-            // GUI mode: create the main window programmatically (see create_main_window
-            // for why it isn't declared in tauri.conf.json).
+            // Create the main window programmatically (see create_main_window).
             create_main_window(app.handle())?;
 
             crate::bridges::adobe::bridge::init_adobe_server(app.handle().clone());
@@ -417,31 +317,10 @@ fn main() {
                 });
             }
 
-            // Drop a leftover mailbox request (e.g. from a previous app quit)
-            // so a freshly launched Lua script can't replay it before our first request.
-            resolve_bridge::clear_stale_request();
-            resolve_bridge::init_http_compat_proxy();
             ai_edit::mcp::start(app.handle().clone());
             ai_edit::mcp::external::start(app.handle());
             tauri::async_runtime::spawn(media::remotion::prepare(app.handle().clone()));
 
-            // Release builds install/refresh the Resolve launcher themselves so
-            // app updates land it without a reinstall. Dev builds must not:
-            // setup-resolve owns the dev launcher.
-            #[cfg(not(debug_assertions))]
-            {
-                let handle = app.handle().clone();
-                std::thread::spawn(move || {
-                    bridges::davinci::scripts::install_resolve_scripts(&handle);
-                });
-            }
-
-            // If a Resolve server from a previous session is running, make sure it
-            // hot-reloads to the current app's Lua code and version.
-            let app_version = app.package_info().version.to_string();
-            tauri::async_runtime::spawn(async move {
-                ensure_resolve_server_is_current(&app_version).await;
-            });
 
             Ok(())
         })
@@ -457,17 +336,7 @@ fn main() {
             logging::get_log_dir,
             logging::export_backend_logs,
             logging::open_log_dir,
-            resolve_bridge::resolve_bridge,
-            resolve_bridge::get_resolve_server_version,
             adobe_bridge::send_to_adobe,
-            capcut::bridge::capcut_get_status,
-            capcut::storyboard::capcut_build_storyboard,
-            capcut::bridge::capcut_add_subtitles,
-            capcut::bridge::capcut_get_timeline_audio,
-            capcut::timeline::capcut_get_timeline_snapshot,
-            capcut::timeline::capcut_delete_segment,
-            capcut::timeline::capcut_update_segment,
-            capcut::timeline::capcut_add_markers,
             ai_edit::actions::ai_edit_execute_action,
             ai_edit::actions::ai_edit_get_timeline,
             ai_cli::runtime::cli_get_status,
@@ -491,14 +360,6 @@ fn main() {
             ai_cli::preview::preview_logs,
             ai_cli::preview::preview_candidates,
             audio_preprocess::extract_audio_peaks,
-            cli::cli_command_status,
-            cli::install_cli_command,
-            cli::uninstall_cli_command,
-            autoedit::runner::run_python_script,
-            autoedit::python::python_runtime_status,
-            autoedit::python::install_python_runtime,
-            autoedit::silence::analyze_wav_silences,
-            media_scan::scan_media,
             media_download::media_download_status,
             media_download::media_download_install,
             media_download::media_download_update,
@@ -515,11 +376,6 @@ fn main() {
         .run(move |app, event| {
             match event {
                 RunEvent::Ready => {
-                    // Headless runs keep the window hidden; cli::run drives the work
-                    // and exits the process itself.
-                    if headless {
-                        return;
-                    }
                     let app_handle = app.clone();
                     tauri::async_runtime::spawn(async move {
                         for delay_ms in [100_u64, 500, 1200] {
@@ -553,10 +409,6 @@ fn main() {
                     // A preview dev server is a separate process tree; don't orphan it.
                     crate::ai_cli::preview::shutdown();
 
-                    // The Lua bridge stays resident in Resolve after it is
-                    // started from Workspace > Scripts, so reopening the app
-                    // reconnects without re-running the script — it must NOT
-                    // be told to exit when the app quits. Just exit.
                     #[cfg(target_os = "windows")]
                     {
                         app.exit(0);

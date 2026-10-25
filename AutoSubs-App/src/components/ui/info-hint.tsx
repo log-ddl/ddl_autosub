@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils"
  *
  * Keep the label short and put the explanation behind this icon rather than in
  * a caption underneath. A sentence under every switch and slider reads fine in
- * isolation but stacks up fast: it is what pushed the AutoCut panel past the
+ * isolation but stacks up fast: it is what pushed a settings panel past the
  * window height, hiding the button the whole workflow ends with.
  *
  * Two rules make a screenful of these readable:

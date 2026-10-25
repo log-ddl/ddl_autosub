@@ -17,6 +17,9 @@ use std::path::Path;
 const DEFAULTS: &[(&str, &str)] = &[
     ("agents/clip-analyst.md", include_str!("../../templates/library/agents/clip-analyst.md")),
     ("agents/footage-scout.md", include_str!("../../templates/library/agents/footage-scout.md")),
+    ("agents/chapter-planner.md", include_str!("../../templates/library/agents/chapter-planner.md")),
+    ("agents/motion-builder.md", include_str!("../../templates/library/agents/motion-builder.md")),
+    ("agents/chapter-builder.md", include_str!("../../templates/library/agents/chapter-builder.md")),
     (
         "skills/footage-planning/SKILL.md",
         include_str!("../../templates/library/skills/footage-planning/SKILL.md"),
@@ -41,6 +44,7 @@ const DEFAULTS: &[(&str, &str)] = &[
         "skills/remotion-premiere-hybrid/SKILL.md",
         include_str!("../../templates/library/skills/remotion-premiere-hybrid/SKILL.md"),
     ),
+    ("skills/long-video/SKILL.md", include_str!("../../templates/library/skills/long-video/SKILL.md")),
 ];
 
 pub const AGENTS_DIR: &str = "agents";

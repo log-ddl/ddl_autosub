@@ -156,12 +156,6 @@ export function AppUpdateGate({ children }: { children: React.ReactNode }) {
           )}
         </div>
 
-        <p className="mt-4 text-[11px] text-muted-foreground">
-          {t(
-            "appUpdate.resolveNote",
-            "After the restart, run Workspace → Scripts → AutoSubs again in DaVinci Resolve to reconnect.",
-          )}
-        </p>
       </div>
     </div>
   )

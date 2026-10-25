@@ -7,18 +7,6 @@ export interface ErrorMsg {
     desc: string;
 }
 
-// Resolve Interfaces
-export interface AudioInfo {
-    path: string;
-    markIn: number;
-    markOut: number;
-    offset: number;
-}
-
-export interface Template {
-    value: string;
-    label: string;
-}
 export interface Track {
     value: string;
     label: string;
@@ -27,15 +15,11 @@ export interface Track {
 export interface TimelineInfo {
     name: string;
     timelineId: string;
-    templates: Template[];
     inputTracks: Track[];
     outputTracks: Track[];
     projectName: string;
-    /** Tells apart projects that share a name: Resolve project id, Premiere .prproj path. */
+    /** Tells apart projects that share a name: the Premiere .prproj path. */
     projectId?: string;
-    // Only reported by servers new enough to include it; the AutoEdit actions
-    // that read subtitles use this to offer a track picker.
-    subtitleTracks?: Track[];
 }
 
 // Subtitle Interfaces
@@ -46,7 +30,6 @@ export interface Word {
     line_number: number;
     probability?: number;
 }
-export type AdobeIntegration = 'premiere' | 'aftereffects';
 export interface Subtitle {
     id: number;
     start: number;
@@ -123,8 +106,6 @@ export interface Model {
 export interface Settings {
     // Mode
     audioInputMode: "file" | "timeline",
-    preferredEditorIntegration: Integration;
-
 
     // UI settings
     uiLanguage: SupportedUiLanguage;
@@ -168,39 +149,13 @@ export interface Settings {
     pexelsApiKey: string;
     pixabayApiKey: string;
 
-    // Adobe integrations
+    // Audio tracks to transcribe, per editor
     selectedInputTracksByApp: Record<Integration, string[]>;
-    selectedOutputTrack: string;
-    selectedTemplate: Template;
-
-    // AutoSubs Caption settings
-    presetId: string;
-    captionMode: "regular" | "animated";
 
     // Animation settings
     animationType: string;
     highlightType: string;
     highlightColor: string;
-}
-
-// Caption preset for the custom AutoSubs animated caption macro.
-// `macroSettings` is an opaque table round-tripped through the Fusion macro's
-// built-in GetInputValues / SetInputValues helpers.
-export interface CaptionPreset {
-    id: string;            // "builtin:<slug>" for shipped presets, uuid for user presets
-    name: string;
-    description?: string;
-    builtIn: boolean;
-    version: number;       // schema version (starts at 1)
-    createdAt: string;
-    updatedAt: string;
-    macroSettings: Record<string, unknown>;
-    /**
-     * Filename of this preset's preview thumbnail, relative to the app data
-     * `caption-previews/` directory. Absent until a preview has been captured,
-     * in which case the picker shows a placeholder.
-     */
-    previewImage?: string;
 }
 
 // A named list of censored words that can be toggled on/off as a group.

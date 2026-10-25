@@ -8,7 +8,6 @@ import {
   modelSupportsLanguage,
   getFirstRecommendedModelForLanguage,
 } from "@/lib/models";
-import { DEFAULT_PRESET_ID } from "@/presets/built-in-presets";
 import { createTauriStorage, hasStoredValue } from "@/lib/tauri-storage";
 
 // ─── Store file config ────────────────────────────────────────────────────
@@ -21,7 +20,6 @@ const STORE_KEY = "settings";
 export const DEFAULT_SETTINGS: Settings = {
   // Mode
   audioInputMode: "timeline",
-  preferredEditorIntegration: "davinci",
 
   // UI settings
   uiLanguage: "en",
@@ -65,19 +63,10 @@ export const DEFAULT_SETTINGS: Settings = {
   pexelsApiKey: "",
   pixabayApiKey: "",
 
-  // Resolve settings
+  // Audio tracks to transcribe, per editor
   selectedInputTracksByApp: {
-    davinci: ["1"],
     premiere: [],
-    aftereffects: [],
-    capcut: ["1"],
   },
-  selectedOutputTrack: "1",
-  selectedTemplate: { value: "Default Template", label: "Default Template" },
-
-  // AutoSubs Caption settings
-  presetId: DEFAULT_PRESET_ID,
-  captionMode: "animated",
 
   // Animation settings
   animationType: "none",

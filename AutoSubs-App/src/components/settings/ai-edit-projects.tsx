@@ -30,6 +30,8 @@ import {
 } from "@/api/cli-chat-api";
 import { useAiEditChatStore } from "@/stores/ai-edit-chat-store";
 
+// DaVinci and CapCut are no longer supported, but folders made for them
+// before still show up here so they can be deleted.
 const EDITOR_NAMES: Record<string, string> = {
   davinci: "DaVinci Resolve",
   premiere: "Premiere Pro",

@@ -5,7 +5,6 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev.js",
-    "check:cut": "esbuild src/lib/autoedit-silence-cut.check.ts --bundle --platform=node --format=esm --alias:@=./src --outfile=node_modules/.cache/autocut-check.mjs --log-level=error && node node_modules/.cache/autocut-check.mjs",
     "build": "npm run build:web",
     "build:web": "tsc && vite build",
     "build:adobe-extension": "npm --prefix ../Adobe-Extension run build",
@@ -23,7 +22,6 @@
     "build:mac:x86_64": "dotenv -- npm run tauri build -- -- --no-default-features --features mac-x86_64",
     "upload:win": "powershell -ExecutionPolicy Bypass -File scripts/upload-windows-artifacts.ps1",
     "bump-version": "node scripts/bump-version.mjs",
-    "setup-resolve": "node scripts/setup-resolve-dev.js",
     "release:manifest": "node scripts/make-latest-json.mjs"
   },
   "dependencies": {

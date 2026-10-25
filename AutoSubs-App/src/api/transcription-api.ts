@@ -6,9 +6,9 @@ import type {
 } from "@/types";
 
 /**
- * Options for `transcribe_audio`. The Subtitles tab sends the full set; lighter
- * callers (Auto-cut filler pass, slideshow voice import) send only what they
- * need and the backend fills the rest with its defaults.
+ * Options for `transcribe_audio`. The Subtitles tab sends the full set; a
+ * lighter caller can send only what it needs and the backend fills the rest
+ * with its defaults.
  */
 export type TranscribeAudioOptions = Pick<TranscriptionOptions, "audioPath" | "model"> &
     Partial<TranscriptionOptions>;

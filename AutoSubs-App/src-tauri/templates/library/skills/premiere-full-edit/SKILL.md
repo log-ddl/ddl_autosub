@@ -8,6 +8,7 @@ Skill này **chỉ dựng**. Mọi quyết định kể bằng hình (cụm ý, 
 
 **Bắt đầu:** `get_project_context`, rồi `read_plan(name: "SHOT_PLAN.md")`.
 - Chưa có plan, hoặc plan chưa có mục **Bố cục**: `read_skill("story-planning")` và làm skill đó trước. Không tự chia kịch bản ở đây.
+- Video dài (khoảng 4 phút trở lên): đi theo `read_skill("long-video")`; skill này chỉ dựng từng chương (mục cuối "Khi làm theo chương").
 - Dựng đúng plan; thấy plan sai hay thiếu thì sửa plan (`save_plan`) rồi mới dựng, không lặng lẽ dựng khác plan.
 - **Không thêm** những gì plan không có: Host, chữ, bảng tên, hiệu ứng, chuyển cảnh, SFX.
 
@@ -83,3 +84,8 @@ Cách làm các diễn biến thường gặp, khi shot cần:
 ## 5. Kiểm tra cuối
 
 `preview_timeline(frames: 12)` cả timeline, và `atSec` hai bên mỗi chỗ đổi cảnh. Báo cáo ngắn: đã dựng gì, đường dẫn sheet, lỗi còn lại (đã ghi vào plan), phần chưa kiểm được (chưa nghe voice cùng hình).
+
+## Khi làm theo chương (`long-video`)
+
+- Plan là `ch<NN>.md` của chương, mục **Bố cục** nằm trong `STORY.md` (thay cho `SHOT_PLAN.md`). Mốc là giây toàn phim.
+- Mỗi `chapter-builder` làm mục 1 đến 4 cho chương của nó, và mục 5 cho chương đó cộng hai bên ranh giới với chương trước. Agent chính làm mục 5 cho cả phim ở cuối.

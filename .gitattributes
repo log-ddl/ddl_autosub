@@ -1,7 +1,7 @@
 # Keep line endings consistent across the Mac and Windows checkouts. Without
 # this the repo depends on each machine's `core.autocrlf` being set correctly,
 # and one commit made with the wrong setting is enough to ship CRLF to macOS —
-# where `check-bridge.sh` then dies with `bad interpreter: /bin/bash^M`.
+# where a shell script then dies with `bad interpreter: /bin/bash^M`.
 
 # Let git normalise to LF in the repo and check out natively everywhere else.
 * text=auto
@@ -9,7 +9,6 @@
 # Files an interpreter reads directly: these must be LF in the working tree too,
 # on every platform.
 *.sh text eol=lf
-*.lua text eol=lf
 *.py text eol=lf
 
 # Source and config: LF in the repo, native on checkout is fine.

@@ -110,7 +110,7 @@ pub fn start(app: AppHandle) {
     });
 }
 
-/// Dev builds only: with `AUTOSUBS_MCP_DEBUG` set, open a read-only CapCut
+/// Dev builds only: with `AUTOSUBS_MCP_DEBUG` set, open a read-only Premiere
 /// session whose workspace is `<temp>/autosubs-mcp-debug` and print how to
 /// reach it, so the tools can be called with curl without an agent run.
 fn open_debug_session() {
@@ -119,7 +119,7 @@ fn open_debug_session() {
     }
     let workspace = std::env::temp_dir().join("autosubs-mcp-debug");
     let _ = std::fs::create_dir_all(&workspace);
-    let target = EditTarget { editor: crate::ai_edit::actions::Editor::Capcut, draft_id: None, transcript_file: None };
+    let target = EditTarget { editor: crate::ai_edit::actions::Editor::Premiere, transcript_file: None };
     if let Some(ep) = open_session(target, false, Some(workspace.clone())) {
         println!("[mcp-debug] url={} token={} workspace={}", ep.url, ep.token, workspace.display());
     }
@@ -524,6 +524,17 @@ async fn call_tool(session: &Session, name: &str, args: Value) -> Value {
     result
 }
 
+/// One timeline call at a time, from every run and external agent alike:
+/// parallel subagents editing at once would each work from a timeline the
+/// other just changed (and an editor's script engine runs one request anyway).
+static EDITOR_LOCK: once_cell::sync::Lazy<tokio::sync::Mutex<()>> =
+    once_cell::sync::Lazy::new(|| tokio::sync::Mutex::new(()));
+
+/// Tools that read or change the open timeline.
+fn touches_editor(name: &str) -> bool {
+    matches!(name, "get_timeline" | "preview_timeline" | "apply_actions") || edit_action_name(name).is_some()
+}
+
 async fn call_tool_inner(session: &Session, name: &str, mut args: Value) -> Value {
     if let Some(app) = app_handle().get() {
         let ctx = project::Context {
@@ -543,7 +554,7 @@ async fn call_tool_inner(session: &Session, name: &str, mut args: Value) -> Valu
     if !session.connected && !matches!(name, "search_media" | "inspect_media") {
         return tool_text(
             "AutoSubs has no editor project open yet. Ask the user to open AutoSubs and their project in \
-             DaVinci Resolve, Premiere Pro or CapCut, then try again.",
+             Premiere Pro, then try again.",
             true,
         );
     }
@@ -562,6 +573,7 @@ async fn call_tool_inner(session: &Session, name: &str, mut args: Value) -> Valu
             }
         }
     }
+    let _editor = if touches_editor(name) { Some(EDITOR_LOCK.lock().await) } else { None };
     if name == "get_timeline" {
         return match timeline_snapshot(&session.target).await {
             Ok(snapshot) => {
@@ -770,7 +782,7 @@ mod tests {
 
     fn session(editor: Editor, allow_edits: bool) -> Session {
         Session {
-            target: EditTarget { editor, draft_id: None, transcript_file: None },
+            target: EditTarget { editor, transcript_file: None },
             allow_edits,
             workspace: None,
             external: false,
@@ -781,7 +793,7 @@ mod tests {
 
     #[tokio::test]
     async fn answers_initialize_and_ignores_notifications() {
-        let s = session(Editor::Capcut, true);
+        let s = session(Editor::Premiere, true);
         let init = handle_message(
             &s,
             &json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -831,13 +843,13 @@ mod tests {
         sessions()
             .lock()
             .unwrap()
-            .insert("s1".into(), session(Editor::Capcut, true));
+            .insert("s1".into(), session(Editor::Premiere, true));
 
         let list = http(post("/mcp/s1", &token, &json!({ "jsonrpc": "2.0", "id": 7, "method": "tools/list" }))).await;
         assert!(list.starts_with("HTTP/1.1 200 OK"), "{}", list);
         let body: Value = serde_json::from_str(list.split("\r\n\r\n").nth(1).unwrap()).unwrap();
         assert_eq!(body["id"], json!(7));
-        assert_eq!(body["result"]["tools"].as_array().unwrap().len(), 11);
+        assert_eq!(body["result"]["tools"].as_array().unwrap().len(), 14);
 
         let note = http(post("/mcp/s1", &token, &json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }))).await;
         assert!(note.starts_with("HTTP/1.1 202 Accepted"), "{}", note);
@@ -851,19 +863,19 @@ mod tests {
 
     #[tokio::test]
     async fn read_only_session_refuses_edits() {
-        let result = call_tool(&session(Editor::Davinci, false), "add_marker", json!({ "markers": [] })).await;
+        let result = call_tool(&session(Editor::Premiere, false), "add_marker", json!({ "markers": [] })).await;
         assert_eq!(result["isError"], json!(true));
-        let batch = call_tool(&session(Editor::Davinci, false), "apply_actions", json!({ "actions": [] })).await;
+        let batch = call_tool(&session(Editor::Premiere, false), "apply_actions", json!({ "actions": [] })).await;
         assert_eq!(batch["isError"], json!(true));
     }
 
     #[tokio::test]
     async fn batch_is_checked_before_anything_runs() {
-        let s = session(Editor::Davinci, true);
+        let s = session(Editor::Premiere, true);
         let err = apply_actions(&s, json!({ "actions": [] })).await.unwrap_err();
         assert!(err.contains("non-empty"), "{}", err);
 
-        // The second entry is bad, so the first (which would reach Resolve)
+        // The second entry is bad, so the first (which would reach Premiere)
         // never runs.
         let err = apply_actions(
             &s,

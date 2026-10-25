@@ -23,16 +23,6 @@ const EDITOR_TAGS: Record<string, { label: string; name: string; className: stri
     name: "Premiere Pro",
     className: "bg-violet-500/15 text-violet-600 dark:text-violet-300",
   },
-  davinci: {
-    label: "DR",
-    name: "DaVinci Resolve",
-    className: "bg-orange-500/15 text-orange-600 dark:text-orange-300",
-  },
-  capcut: {
-    label: "CC",
-    name: "CapCut",
-    className: "bg-teal-500/15 text-teal-600 dark:text-teal-300",
-  },
 };
 
 export interface AiEditSidebarProps {

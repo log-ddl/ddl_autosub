@@ -2,9 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 
 /** Which editor and project an AI Edit conversation works on. */
 export interface EditTarget {
-  integration: "davinci" | "capcut" | "premiere";
-  /** CapCut draft id; DaVinci and Premiere always edit the open timeline. */
-  draftId?: string | null;
+  /** Premiere always edits the open sequence. */
+  integration: "premiere";
   /** Transcript open in the app, which the agent's get_transcript reads first. */
   transcriptFile?: string | null;
 }

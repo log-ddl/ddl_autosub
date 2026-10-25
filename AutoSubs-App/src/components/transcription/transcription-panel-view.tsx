@@ -214,7 +214,6 @@ export function TranscriptionPanelView({
               onViewSubtitles={onViewSubtitles}
               isSubtitleViewerOpen={isSubtitleViewerOpen}
               timelineInfo={timelineInfo}
-              selectedIntegration={selectedIntegration}
             />
             <Button
               type="button"

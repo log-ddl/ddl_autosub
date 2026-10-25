@@ -6,6 +6,11 @@
 //! timeline (or file) that was transcribed, the same domain every timeline
 //! tool uses, so the agent can pass them straight to `remove_ranges`,
 //! `add_marker` or `add_text`.
+//!
+//! `path` reads a subtitle file the user made instead (`.srt` or `.vtt`), for
+//! when they trust their own text and timing more than the app's
+//! transcription. Its lines become segments; a line's words get times spread
+//! over the line by their length, since a subtitle file has none of its own.
 
 use std::path::{Path, PathBuf};
 
@@ -23,6 +28,9 @@ const MAX_SEGMENTS: usize = 1500;
 pub struct TranscriptArgs {
     /// A transcript filename from the "other transcripts" list.
     pub file: Option<String>,
+    /// A subtitle file (.srt / .vtt) by full path, read instead of the app's
+    /// transcripts.
+    pub path: Option<String>,
     pub from_sec: Option<f64>,
     pub to_sec: Option<f64>,
     /// Include per-word timings.
@@ -320,6 +328,9 @@ fn pauses(segments: &[&Value], min: f64) -> Vec<(f64, f64)> {
 /// The `get_transcript` tool: pick the transcript (the one named, else the one
 /// open in the app, else the newest) and render it plus the list of others.
 pub fn get_transcript(dir: &Path, target: &EditTarget, args: &TranscriptArgs) -> Result<String, String> {
+    if let Some(path) = args.path.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+        return subtitle_file(Path::new(path), args);
+    }
     let all = list_files(dir);
     let chosen = match args.file.as_deref().or(target.transcript_file.as_deref()) {
         Some(name) => {
@@ -341,6 +352,105 @@ pub fn get_transcript(dir: &Path, target: &EditTarget, args: &TranscriptArgs) ->
     let mut out = render(&doc, &filename, args);
     out.push_str(&others(&all, Some(&chosen)));
     Ok(out)
+}
+
+/// `get_transcript` on a subtitle file the user gave.
+fn subtitle_file(path: &Path, args: &TranscriptArgs) -> Result<String, String> {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    if !matches!(ext.as_str(), "srt" | "vtt") {
+        return Err(format!("{} is not a subtitle file; path takes a .srt or .vtt file.", path.display()));
+    }
+    if !path.is_absolute() {
+        return Err(format!("path must be the full path of the subtitle file (or its media id), not {}.", path.display()));
+    }
+    let bytes = std::fs::read(path).map_err(|e| format!("Could not read {}: {}", path.display(), e))?;
+    let segments = parse_subtitles(&String::from_utf8_lossy(&bytes));
+    if segments.is_empty() {
+        return Err(format!("{} has no subtitle lines with times.", path.display()));
+    }
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+    let doc = serde_json::json!({ "metadata": { "displayName": name }, "segments": segments });
+    let mut out = render(&doc, &name, args);
+    if args.map || args.words {
+        out.push_str(
+            "\nWord times here are estimates (each subtitle line spread over its words); line times are \
+             the file's own.\n",
+        );
+    }
+    Ok(out)
+}
+
+/// SRT or WebVTT cues as transcript segments, in time order.
+fn parse_subtitles(text: &str) -> Vec<Value> {
+    let text = text.trim_start_matches('\u{feff}').replace("\r\n", "\n").replace('\r', "\n");
+    let mut out = Vec::new();
+    for block in text.split("\n\n") {
+        let mut lines = block.lines().map(str::trim).filter(|l| !l.is_empty());
+        let Some((start, end)) = lines.by_ref().find_map(cue_times) else { continue };
+        let words: Vec<String> = lines.flat_map(|l| strip_tags(l).split_whitespace().map(str::to_string).collect::<Vec<_>>()).collect();
+        if words.is_empty() || end <= start {
+            continue;
+        }
+        out.push(segment(start, end, &words));
+    }
+    out.sort_by(|a, b| num(a, "start").unwrap_or(0.0).total_cmp(&num(b, "start").unwrap_or(0.0)));
+    out
+}
+
+/// `00:01:02,500 --> 00:01:04,000` (SRT) or `01:02.500 --> 01:04.000 align:start` (VTT).
+fn cue_times(line: &str) -> Option<(f64, f64)> {
+    let (a, b) = line.split_once("-->")?;
+    let end = b.split_whitespace().next()?;
+    Some((clock(a.trim())?, clock(end)?))
+}
+
+fn clock(s: &str) -> Option<f64> {
+    let s = s.replace(',', ".");
+    let parts: Vec<&str> = s.split(':').collect();
+    let (h, m, sec) = match parts.as_slice() {
+        [h, m, sec] => (h.parse::<f64>().ok()?, m.parse::<f64>().ok()?, sec.parse::<f64>().ok()?),
+        [m, sec] => (0.0, m.parse::<f64>().ok()?, sec.parse::<f64>().ok()?),
+        _ => return None,
+    };
+    Some(h * 3600.0 + m * 60.0 + sec)
+}
+
+/// Drops `<i>`-style and `{\an8}`-style markup.
+fn strip_tags(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut skip: Option<char> = None;
+    for c in line.chars() {
+        match (skip, c) {
+            (None, '<') => skip = Some('>'),
+            (None, '{') => skip = Some('}'),
+            (Some(close), c) if c == close => skip = None,
+            (Some(_), _) => {}
+            (None, c) => out.push(c),
+        }
+    }
+    out
+}
+
+/// One segment, its words timed by their share of the line's letters.
+fn segment(start: f64, end: f64, words: &[String]) -> Value {
+    let weights: Vec<f64> = words.iter().map(|w| w.chars().count().max(1) as f64 + 1.0).collect();
+    let total: f64 = weights.iter().sum();
+    let mut t = start;
+    let timed: Vec<Value> = words
+        .iter()
+        .zip(&weights)
+        .map(|(w, weight)| {
+            let d = (end - start) * weight / total;
+            let word = serde_json::json!({ "word": w, "start": round(t), "end": round(t + d) });
+            t += d;
+            word
+        })
+        .collect();
+    serde_json::json!({ "start": start, "end": end, "text": words.join(" "), "words": timed })
+}
+
+fn round(t: f64) -> f64 {
+    (t * 1000.0).round() / 1000.0
 }
 
 /// The other transcripts the agent could ask for by `file`.
@@ -406,6 +516,33 @@ mod tests {
     }
 
     #[test]
+    fn reads_srt_and_vtt_files() {
+        let srt = "\u{feff}1\r\n00:00:00,066 --> 00:00:00,766\r\nxem Tây Du\r\n\r\n2\r\n00:00:02,000 --> 00:00:04,000\r\n<i>ký thì</i>\r\nchúng ta\r\n\r\n3\r\n00:00:05,000 --> 00:00:05,000\r\n\r\n";
+        let segs = parse_subtitles(srt);
+        assert_eq!(segs.len(), 2);
+        assert_eq!(text_of(&segs[1], "text"), "ký thì chúng ta");
+        let words = segs[1]["words"].as_array().unwrap();
+        assert_eq!(num(&words[0], "start"), Some(2.0));
+        assert_eq!(num(&words[3], "end"), Some(4.0));
+
+        let vtt = "WEBVTT\n\n01:02.500 --> 01:04.000 align:start\n{\\an8}Hello world\n";
+        let segs = parse_subtitles(vtt);
+        assert_eq!((num(&segs[0], "start"), text_of(&segs[0], "text").as_str()), (Some(62.5), "Hello world"));
+
+        let dir = std::env::temp_dir().join(format!("autosubs-srt-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("voice.srt");
+        std::fs::write(&file, srt).unwrap();
+        let target = EditTarget { editor: Editor::Premiere, transcript_file: None };
+        let args = TranscriptArgs { path: Some(file.to_string_lossy().into()), map: true, ..Default::default() };
+        let out = get_transcript(&dir, &target, &args).unwrap();
+        assert!(out.contains("[0.07-0.77] xem Tây Du ‖ 1.2s  · Tây@0.32 Du@0.57"), "{}", out);
+        assert!(out.contains("estimates"));
+        assert!(get_transcript(&dir, &target, &TranscriptArgs { path: Some("voice.srt".into()), ..Default::default() }).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn filters_by_range() {
         let out = render(&doc(), "a.json", &TranscriptArgs { from_sec: Some(3.0), ..Default::default() });
         assert!(!out.contains("Hello"));
@@ -421,7 +558,7 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(20));
         std::fs::write(dir.join("new.json"), json!({ "segments": [] }).to_string()).unwrap();
         std::fs::write(dir.join(INDEX_FILENAME), "[]").unwrap();
-        let mut target = EditTarget { editor: Editor::Davinci, draft_id: None, transcript_file: None };
+        let mut target = EditTarget { editor: Editor::Premiere, transcript_file: None };
 
         let newest = get_transcript(&dir, &target, &TranscriptArgs::default()).unwrap();
         assert!(newest.contains("file: new.json"));

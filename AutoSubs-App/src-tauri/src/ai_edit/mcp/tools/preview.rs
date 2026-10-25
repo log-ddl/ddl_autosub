@@ -1,7 +1,6 @@
 //! `preview_timeline`: what the edited timeline looks like. The editor writes
-//! its own picture at a few times (Premiere through QE exportFramePNG, Resolve
-//! through ExportCurrentFrameAsStill), and this lays them out as one contact
-//! sheet, each tile labelled with its time. The frames stay as files too, so
+//! its own picture at a few times (Premiere through QE exportFramePNG), and
+//! this lays them out as one contact sheet, each tile labelled with its time. The frames stay as files too, so
 //! the agent can look at one up close. `grid` draws lines every tenth of the
 //! frame, labelled 0.1 to 0.9: the same 0..1 fractions as Position, the
 //! layout plan and list_media's figure boxes, so a misplaced character reads
@@ -14,7 +13,7 @@ use image::{imageops, RgbImage};
 use serde_json::{json, Value};
 
 use crate::ai_edit::actions::{EditTarget, Editor};
-use crate::ai_edit::editors::{davinci, premiere};
+use crate::ai_edit::editors::premiere;
 use crate::ai_edit::mcp::tools::tool;
 use crate::media::analyze;
 
@@ -31,7 +30,7 @@ pub struct FrameShot {
 }
 
 pub fn supported(editor: Editor) -> bool {
-    matches!(editor, Editor::Premiere | Editor::Davinci)
+    matches!(editor, Editor::Premiere)
 }
 
 pub fn preview_tool(editor: Editor) -> Value {
@@ -95,8 +94,6 @@ pub async fn call(target: &EditTarget, workspace: Option<&Path>, args: &Value, d
 
     let shots = match target.editor {
         Editor::Premiere => premiere::export_frames(&dir, &times).await?,
-        Editor::Davinci => davinci::export_frames(&dir, &times).await?,
-        Editor::Capcut => return Err("CapCut cannot export a frame of its timeline.".into()),
     };
     let grid = args.get("grid").and_then(|v| v.as_bool()).unwrap_or(false);
     tauri::async_runtime::spawn_blocking(move || lay_out(&dir, shots, grid))

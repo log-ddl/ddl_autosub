@@ -70,16 +70,9 @@ export const AI_EDIT_SLASH_COMMANDS = [
 
 /** Display name of an editor integration ("short" for compact badges). */
 export function editorLabel(integration: string | null | undefined, short = false): string {
-  switch (integration) {
-    case "capcut":
-      return "CapCut";
-    case "premiere":
-      return short ? "Premiere" : "Premiere Pro";
-    case "aftereffects":
-      return "After Effects";
-    default:
-      return short ? "DaVinci" : "DaVinci Resolve";
-  }
+  if (!integration || integration === "premiere") return short ? "Premiere" : "Premiere Pro";
+  // Chats from editors AutoSubs no longer drives keep their old id.
+  return integration;
 }
 
 export function cliLabel(adapter: ContentCliAdapter | string): string {

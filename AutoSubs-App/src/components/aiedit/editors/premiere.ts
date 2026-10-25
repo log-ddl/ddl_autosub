@@ -4,11 +4,11 @@ import { useAdobe } from "@/contexts/AdobeContext";
 import { buildPremierePrompt, type PremiereTimelineSnapshot } from "../prompts";
 import type { EditorAdapter } from "./types";
 
-const TARGET: EditTarget = { integration: "premiere", draftId: null };
+const TARGET: EditTarget = { integration: "premiere" };
 
 /** AI Edit adapter for Premiere Pro: always edits the active sequence. */
 export function usePremiereAdapter(): EditorAdapter {
-  const { premiereTimeline, refresh } = useAdobe();
+  const { timelineInfo: premiereTimeline, refresh } = useAdobe();
   const name = premiereTimeline?.name || null;
   // One asset folder per project; older bridges report no project, so the
   // timeline name stands in for it.

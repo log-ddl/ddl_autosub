@@ -9,7 +9,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::ai_edit::editors::{capcut, davinci, premiere};
+use crate::ai_edit::editors::premiere;
 
 /// The editors AI Edit can drive. Adding one means a new module under
 /// `editors/`, a variant here and an arm in each `match` below (and in
@@ -17,8 +17,6 @@ use crate::ai_edit::editors::{capcut, davinci, premiere};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Editor {
-    Davinci,
-    Capcut,
     Premiere,
 }
 
@@ -26,8 +24,6 @@ impl Editor {
     /// Name shown to the agent and the user.
     pub fn display_name(self) -> &'static str {
         match self {
-            Editor::Davinci => "DaVinci Resolve",
-            Editor::Capcut => "CapCut",
             Editor::Premiere => "Premiere Pro",
         }
     }
@@ -37,12 +33,10 @@ impl Editor {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EditTarget {
-    /// "davinci", "capcut" or "premiere"; any other value is rejected rather than routed
-    /// to some editor by default.
+    /// "premiere"; any other value is rejected rather than routed to some
+    /// editor by default.
     #[serde(rename = "integration")]
     pub editor: Editor,
-    /// CapCut draft id; ignored for DaVinci and Premiere, which edit the open timeline.
-    pub draft_id: Option<String>,
     /// Transcript open in the app (a file in the Transcripts folder), which
     /// `get_transcript` reads when the agent names none.
     #[serde(default)]
@@ -392,25 +386,6 @@ pub struct SegmentUpdate {
     pub anchor: Option<[f64; 2]>,
 }
 
-impl SegmentUpdate {
-    /// What it asks for that `editor` cannot do yet.
-    fn unsupported(&self, editor: Editor) -> Option<&'static str> {
-        if editor == Editor::Premiere {
-            None
-        } else if !self.target.is_empty() {
-            Some("picking clips by clips/tracks/fromSec/selected/all")
-        } else if !self.keyframes.is_empty() && editor != Editor::Capcut {
-            Some("keyframes")
-        } else if self.speed.is_some() || self.reverse {
-            Some("speed and reverse")
-        } else if self.anchor.is_some() {
-            Some("anchor")
-        } else {
-            None
-        }
-    }
-}
-
 /// A span of the timeline, in seconds from its start.
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
 pub struct TimeRange {
@@ -470,10 +445,9 @@ pub enum TimelineAction {
     #[serde(rename_all = "camelCase")]
     AddText {
         texts: Vec<TextSpec>,
-        /// DaVinci: a Text+ title in the media pool ("AutoSubs Caption" for the
-        /// animated captions). CapCut: "Yellow" for yellow text, else white.
+        /// A .mogrt by name, or "captions" for the caption track.
         template: Option<String>,
-        /// DaVinci video track for the text ("0" or omitted = a new track).
+        /// Video track for the text ("0" or omitted = a new track).
         track: Option<String>,
     },
     UpdateSegment(SegmentUpdate),
@@ -482,7 +456,7 @@ pub enum TimelineAction {
         segment_id: Option<String>,
         #[serde(default)]
         segment_ids: Vec<String>,
-        /// DaVinci only: close the gap the clips leave behind.
+        /// Close the gap the clips leave behind.
         #[serde(default)]
         ripple: bool,
     },
@@ -613,8 +587,7 @@ impl MarkerCriteria {
             && self.name.as_deref().map_or(true, |n| n.trim().is_empty())
     }
 
-    /// Positions (seconds) of the snapshot's markers that match. Resolve and
-    /// Premiere report atSec/name, CapCut startSec/title.
+    /// Positions (seconds) of the snapshot's markers that match.
     fn matching(&self, snapshot: &Value) -> Vec<f64> {
         let text = |m: &Value, keys: &[&str]| {
             keys.iter().find_map(|k| m.get(*k).and_then(|v| v.as_str())).unwrap_or("").to_lowercase()
@@ -646,20 +619,15 @@ impl MarkerCriteria {
 /// duration in seconds) and markers.
 pub async fn timeline_snapshot(target: &EditTarget) -> Result<Value, String> {
     match target.editor {
-        Editor::Davinci => davinci::timeline_snapshot().await,
-        Editor::Capcut => capcut::timeline_snapshot(target.draft_id.clone()).await,
         Editor::Premiere => premiere::timeline_snapshot().await,
     }
 }
 
 pub async fn execute(target: &EditTarget, action: TimelineAction) -> Result<ActionOutcome, String> {
-    let draft = target.draft_id.clone();
     match action {
         TimelineAction::BuildStoryboard { mode, target_video_track, audio_path, items } => {
             let track = target_video_track.unwrap_or(1).max(1);
             match target.editor {
-                Editor::Davinci => davinci::build_storyboard(mode, track, audio_path, items).await,
-                Editor::Capcut => capcut::build_storyboard(draft, mode, track, audio_path, items).await,
                 Editor::Premiere => premiere::build_storyboard(mode, track, audio_path, items).await,
             }
         }
@@ -668,8 +636,6 @@ pub async fn execute(target: &EditTarget, action: TimelineAction) -> Result<Acti
                 return Err("add_marker needs at least one marker.".into());
             }
             match target.editor {
-                Editor::Davinci => davinci::add_markers(markers).await,
-                Editor::Capcut => capcut::add_markers(draft, markers).await,
                 Editor::Premiere => premiere::add_markers(markers).await,
             }
         }
@@ -684,8 +650,6 @@ pub async fn execute(target: &EditTarget, action: TimelineAction) -> Result<Acti
                 return Ok(ActionOutcome::ok("No marker matched, nothing was removed."));
             }
             match target.editor {
-                Editor::Davinci => davinci::delete_markers(positions).await,
-                Editor::Capcut => capcut::delete_markers(draft, positions).await,
                 Editor::Premiere => premiere::delete_markers(positions).await,
             }
         }
@@ -698,20 +662,10 @@ pub async fn execute(target: &EditTarget, action: TimelineAction) -> Result<Acti
                 return Err("add_text needs at least one text with a non-empty string and end > start >= 0.".into());
             }
             match target.editor {
-                Editor::Davinci => davinci::add_text(texts, template, track).await,
-                Editor::Capcut => capcut::add_text(draft, texts, template).await,
                 Editor::Premiere => premiere::add_text(texts, template, track).await,
             }
         }
         TimelineAction::UpdateSegment(update) => {
-            if target.editor != Editor::Premiere {
-                if let Some(what) = update.unsupported(target.editor) {
-                    return Err(format!("{} is not available in {} yet.", what, target.editor.display_name()));
-                }
-                if update.segment_id.is_empty() {
-                    return Err("update_clip needs segmentId.".into());
-                }
-            }
             if update.anchor.map_or(false, |a| !a.iter().all(|v| v.is_finite())) {
                 return Err("anchor takes two numbers, like [0.5, 1] for the bottom middle.".into());
             }
@@ -719,8 +673,6 @@ pub async fn execute(target: &EditTarget, action: TimelineAction) -> Result<Acti
                 return Err("speed must be above 0 (1.0 = normal, 2.0 = twice as fast).".into());
             }
             match target.editor {
-                Editor::Davinci => davinci::update_segment(update).await,
-                Editor::Capcut => capcut::update_segment(draft, update).await,
                 Editor::Premiere => {
                     let ids = if !update.segment_id.is_empty() {
                         if !update.target.is_empty() {
@@ -751,9 +703,6 @@ pub async fn execute(target: &EditTarget, action: TimelineAction) -> Result<Acti
             if clips.is_empty() {
                 return Err("add_effects needs clips, tracks, fromSec/toSec, selected or all: true.".into());
             }
-            if target.editor != Editor::Premiere {
-                return Err(format!("add_effects is not available in {} yet.", target.editor.display_name()));
-            }
             let ids = clips.matching(&timeline_snapshot(target).await?);
             if ids.is_empty() {
                 return Ok(ActionOutcome::ok("No clip matched, no effect was added."));
@@ -767,9 +716,6 @@ pub async fn execute(target: &EditTarget, action: TimelineAction) -> Result<Acti
             let duration = duration_sec.unwrap_or(0.5);
             if !(duration.is_finite() && duration > 0.0) {
                 return Err("durationSec must be above 0.".into());
-            }
-            if target.editor != Editor::Premiere {
-                return Err(format!("add_transitions is not available in {} yet.", target.editor.display_name()));
             }
             let points = cuts.matching(&timeline_snapshot(target).await?);
             if points.is_empty() {
@@ -788,8 +734,6 @@ pub async fn execute(target: &EditTarget, action: TimelineAction) -> Result<Acti
                 return Err("delete_segment needs segmentId or segmentIds.".into());
             }
             match target.editor {
-                Editor::Davinci => davinci::delete_segments(segment_ids, ripple).await,
-                Editor::Capcut => capcut::delete_segments(draft, segment_ids).await,
                 Editor::Premiere => premiere::delete_segments(segment_ids, ripple).await,
             }
         }
@@ -798,8 +742,6 @@ pub async fn execute(target: &EditTarget, action: TimelineAction) -> Result<Acti
                 return Err("split_clips needs atSec > 0 (seconds from the timeline start).".into());
             }
             match target.editor {
-                Editor::Davinci => davinci::split_clips(at_sec, segment_ids).await,
-                Editor::Capcut => capcut::split_clips(draft, at_sec, segment_ids).await,
                 Editor::Premiere => premiere::split_clips(at_sec, segment_ids).await,
             }
         }
@@ -811,8 +753,6 @@ pub async fn execute(target: &EditTarget, action: TimelineAction) -> Result<Acti
                 return Err("remove_ranges needs at least one range with end > start >= 0.".into());
             }
             match target.editor {
-                Editor::Davinci => davinci::remove_ranges(ranges, ripple, tracks).await,
-                Editor::Capcut => capcut::remove_ranges(draft, ranges, ripple, tracks).await,
                 Editor::Premiere => premiere::remove_ranges(ranges, ripple, tracks).await,
             }
         }
@@ -1031,8 +971,6 @@ mod tests {
                 assert!(u.target.all);
                 assert_eq!(u.speed, Some(2.0));
                 assert_eq!(u.keyframes[0].points.len(), 2);
-                assert_eq!(u.unsupported(Editor::Capcut), Some("picking clips by clips/tracks/fromSec/selected/all"));
-                assert_eq!(u.unsupported(Editor::Premiere), None);
             }
             other => panic!("{:?}", other),
         }
@@ -1045,10 +983,12 @@ mod tests {
 
     #[test]
     fn rejects_unsupported_editor() {
-        // An editor without a backend must fail loudly, not fall through to Resolve.
-        let ok: EditTarget = serde_json::from_value(json!({ "integration": "capcut", "draftId": "d" })).unwrap();
-        assert_eq!(ok.editor, Editor::Capcut);
+        // An editor without a backend must fail loudly, not fall through to Premiere.
+        let ok: EditTarget = serde_json::from_value(json!({ "integration": "premiere" })).unwrap();
+        assert_eq!(ok.editor, Editor::Premiere);
         assert!(ok.transcript_file.is_none());
-        assert!(serde_json::from_value::<EditTarget>(json!({ "integration": "aftereffects" })).is_err());
+        for removed in ["aftereffects", "davinci", "capcut"] {
+            assert!(serde_json::from_value::<EditTarget>(json!({ "integration": removed })).is_err());
+        }
     }
 }

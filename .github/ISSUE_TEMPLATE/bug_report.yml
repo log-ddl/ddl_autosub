@@ -37,7 +37,7 @@ body:
     attributes:
       label: Steps to reproduce
       placeholder: |
-        1. Open AutoSubs in DaVinci Resolve
+        1. Open AutoSubs with a Premiere Pro sequence open
         2. Select audio track 1
         3. Click "Generate Subtitles"
         4. See error ...
@@ -64,9 +64,9 @@ body:
       required: true
 
   - type: input
-    id: resolve-version
+    id: premiere-version
     attributes:
-      label: DaVinci Resolve version
-      description: Leave blank if running in standalone mode. e.g. 19.1.2
+      label: Premiere Pro version
+      description: Leave blank if running in standalone mode. e.g. 25.2
     validations:
       required: false

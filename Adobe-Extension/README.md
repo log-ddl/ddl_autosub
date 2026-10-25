@@ -1,13 +1,12 @@
 # AutoSubs Adobe Extension
 
-This package contains the Adobe CEP extension that lets AutoSubs communicate with Adobe Premiere Pro and After Effects. It provides a small React-based panel inside Adobe apps and a compiled ExtendScript layer that performs host-specific operations such as reading sequence metadata, exporting timeline audio, and importing generated subtitle files.
+This package contains the Adobe CEP extension that lets AutoSubs communicate with Adobe Premiere Pro. It provides a small React-based panel inside Premiere and a compiled ExtendScript layer that reads sequence metadata, exports timeline audio, imports generated subtitle files and runs the AI Edit timeline edits (`ppro/ai-edit*.ts`).
 
 ## Documentation
 
 - **[Main README](../README.md)** - Installation and general usage
 - **[Contributing Guide](../CONTRIBUTING.md)** - Development setup and contribution workflow
 - **[AutoSubs-App README](../AutoSubs-App/README.md)** - Technical architecture and code organization
-- **[Resolve Integration](../Resolve-Integration/README.md)** - DaVinci Resolve integration architecture and development
 
 ## High-level architecture
 
@@ -17,21 +16,17 @@ flowchart TD
     server["Adobe Bridge<br/>WebSocket server<br/>127.0.0.1:8185"]
     panel["CEP React Panel<br/>useWebSocket.ts"]
     bridge["ExtendScript Bridge<br/>bolt.ts / evalTS()"]
-    host{"Adobe Host"}
-    premiere["Premiere Pro APIs<br/>ppro.ts"]
-    aftereffects["After Effects APIs<br/>aeft.ts"]
+    premiere["Premiere Pro APIs<br/>ppro.ts, ai-edit*.ts"]
 
     desktop --> server
     server <-->|Requests and responses| panel
     panel --> bridge
-    bridge --> host
-    host --> premiere
-    host --> aftereffects
+    bridge --> premiere
 
     premiere --> sequence["Read sequence info"]
     premiere --> export["Export timeline audio"]
     premiere --> import["Import SRT as caption track"]
-    aftereffects --> aeimport["Import SRT as text layers"]
+    premiere --> aiedit["AI Edit timeline edits"]
 ```
 
 This separation keeps the desktop app independent from Adobe's scripting runtime while still allowing AutoSubs to control timeline export and subtitle import through the installed CEP extension.
@@ -47,9 +42,9 @@ The extension acts as a bridge between three environments:
   Runs inside Adobe as a browser-based React UI. It connects to the AutoSubs desktop app over WebSocket.
 
 - **ExtendScript host layer**  
-  Runs inside Premiere Pro or After Effects through Adobe's scripting bridge. This layer calls Adobe APIs that are not directly available to the React panel.
+  Runs inside Premiere Pro through Adobe's scripting bridge. This layer calls Adobe APIs that are not directly available to the React panel.
 
-In practice, the desktop app sends requests to the CEP panel, the panel forwards those requests to ExtendScript, and ExtendScript performs the operation inside Premiere Pro or After Effects.
+In practice, the desktop app sends requests to the CEP panel, the panel forwards those requests to ExtendScript, and ExtendScript performs the operation inside Premiere Pro.
 
 ## Startup flow
 
@@ -59,9 +54,8 @@ On launch:
 
 1. The React app mounts.
 2. `initBolt()` loads the compiled ExtendScript bundle.
-3. The ExtendScript entry point detects the current Adobe host.
-4. Premiere functions are attached to the shared AutoSubs namespace when the host is Premiere Pro.
-5. The React panel opens a WebSocket connection to the AutoSubs desktop app.
+3. The ExtendScript entry point attaches the Premiere functions to the shared AutoSubs namespace.
+4. The React panel opens a WebSocket connection to the AutoSubs desktop app.
 
 Key files:
 
@@ -72,7 +66,7 @@ Key files:
   Loads the compiled ExtendScript file and provides the `evalTS()` bridge used to call ExtendScript functions.
 
 - `src/jsx/index.ts`  
-  Detects the host app and maps Premiere or After Effects functions into the shared namespace.
+  Maps the Premiere functions into the shared namespace.
 
 - `src/js/main/useWebSocket.ts`  
   Owns the connection to the AutoSubs desktop app and routes incoming requests.
@@ -87,12 +81,7 @@ The server listens on:
 127.0.0.1:8185
 ```
 
-The CEP panel connects to that port from `useWebSocket.ts`. Once connected, it sends a handshake identifying itself as either:
-
-- `premiere`
-- `aftereffects`
-
-The desktop app stores that connection so it can route future integration requests to the correct Adobe host.
+The CEP panel connects to that port from `useWebSocket.ts`. Once connected, it sends a handshake identifying itself as `premiere`, and the desktop app stores that connection to route future requests to it.
 
 After the handshake, the extension immediately refreshes the active sequence information so the desktop app can display the current Premiere timeline state.
 
@@ -179,8 +168,6 @@ Flow:
 5. `sequence.createCaptionTrack(...)` creates a caption track from the SRT file.
 6. The result is sent back to the desktop app over WebSocket.
 
-For After Effects, the SRT import path is different. The extension reads and parses the SRT file manually, then creates individual text layers inside the active composition.
-
 ## Build and deployment
 
 The extension build has two main outputs:
@@ -230,13 +217,13 @@ On Windows, the installer copies the bundled CEP extension into Adobe's CEP exte
   Provides the bridge between the CEP JavaScript environment and ExtendScript.
 
 - `src/jsx/index.ts`  
-  Detects the Adobe host and maps host-specific functions.
+  Maps the Premiere functions into the shared namespace.
 
 - `src/jsx/ppro/ppro.ts`  
   Premiere Pro implementation for sequence info, audio export, and SRT import.
 
-- `src/jsx/aeft/aeft.ts`  
-  After Effects implementation, including SRT-to-text-layer import.
+- `src/jsx/ppro/ai-edit.ts`  
+  Entry point for every AI Edit timeline edit (`request_ai_edit`).
 
 - `scripts/copy-to-resources.js`  
   Copies the built extension into the Tauri resources directory.

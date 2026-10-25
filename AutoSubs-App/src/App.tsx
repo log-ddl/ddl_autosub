@@ -22,9 +22,6 @@ import {
 } from "@/lib/subtitle-documents"
 import { WorkspaceShell } from "@/components/layout/workspace-shell"
 import { AppUpdateGate } from "@/components/dialogs/app-update-gate"
-import { ScriptsPanel } from "@/components/autoedit/autoedit-panel"
-import { AutoEditWorkspace } from "@/components/autoedit/auto-edit-workspace"
-import { AutoEditPythonSetup } from "@/components/autoedit/autoedit-python-setup"
 import { DownloadWorkspace } from "@/components/download/download-workspace"
 import { AiEditWorkspace } from "@/components/aiedit/ai-edit-workspace"
 import { ExternalAgentSync } from "@/components/external-agent/external-agent-badge"
@@ -353,22 +350,16 @@ function AppContentBody() {
 }
 
 function AppRouter() {
-  // One set of editor providers (Resolve bridge, subtitle document, progress,
+  // One set of editor providers (Premiere bridge, subtitle document, progress,
   // presets, ...) wraps all three workspace tabs so switching tabs never tears
-  // down the Resolve connection or an in-progress transcription.
+  // down the Premiere connection or an in-progress transcription.
   return (
     <EditorWorkspaceProviders>
       {/* Points external agent apps at the editor project open here, on every tab. */}
       <ExternalAgentSync />
       <WorkspaceShell
-        autocut={<AutoEditWorkspace />}
         subtitles={<AppContentBody />}
         aiedit={<AiEditWorkspace />}
-        scripts={
-          <AutoEditPythonSetup>
-            <ScriptsPanel />
-          </AutoEditPythonSetup>
-        }
         download={<DownloadWorkspace />}
       />
     </EditorWorkspaceProviders>

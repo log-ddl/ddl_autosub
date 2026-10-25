@@ -1,7 +1,7 @@
 import type { WorkspaceInfo } from "@/api/cli-chat-api";
 
 // Prompt sections every editor shares. A conversation is bound to one editor
-// for its whole life; each editor's own file (davinci.ts, capcut.ts) builds
+// for its whole life; each editor's own file (premiere.ts) builds
 // its prompt from these plus the context and commands only it supports.
 
 export function intro(editorName: string): string {
@@ -38,14 +38,14 @@ export function workspaceSection(workspaceInfo: WorkspaceInfo | null): string[] 
 - Thành phẩm render: \`${rel(w.exportsDir)}\`. Kịch bản phân cảnh: \`visual-plan.json\`.
 - Motion graphic: mỗi cảnh một thư mục con trong \`${rel(w.motionGraphicsDir)}\`, xem trước được trong app. Không cần build thì có \`index.html\` (dùng được \`.ts\`/\`.tsx\`, CSS, JSON, ảnh, import gói như \`"gsap"\` tự tải từ esm.sh); cần bundler thì có \`package.json\` với script \`"dev"\` nhận \`--port\`. Hoạt ảnh tự chạy, nên lặp lại, khung 16:9.
 - Remotion (xuất ra video): chép \`${w.templatesDir}/remotion-starter\` sang \`${rel(w.motionGraphicsDir)}/<tên>\`, sửa \`src/Scene.tsx\` và \`src/Root.tsx\` (composition "Main", ảnh/font trong \`public/\`), đọc skill \`remotion-motion\` trước (kit có sẵn mọi thư viện Remotion kể cả 3D, kèm skill và docs chính thức của Remotion), xem bằng \`preview_motion\` rồi mới \`render_motion\`. KHÔNG tự chạy npm / pnpm / remotion, KHÔNG dựng Remotion từ đầu.
-- Chỉ ghi file trong thư mục project này (kể cả file tạm). Mỗi project của DaVinci / Premiere / CapCut có thư mục riêng.
+- Chỉ ghi file trong thư mục project này (kể cả file tạm). Mỗi project Premiere có thư mục riêng.
 - Thư viện dùng chung, CHỈ ĐỌC: nhạc \`${w.libraryMusicDir}\`, SFX \`${w.librarySfxDir}\` (tìm bằng \`list_media\`), template \`${w.templatesDir}\` (muốn dùng thì chép sang \`${rel(w.motionGraphicsDir)}\` rồi sửa bản chép).`,
   ];
 }
 
 export const RULES_HEADER = `### Quy tắc thực thi lệnh dựng phim TỨC THÌ lên Timeline (KHÔNG ĐỌC SOURCE CODE CỦA APP):
 ⚠️ **QUY TẮC TỐC ĐỘ TỐI QUAN TRỌNG**:
-- **TUYỆT ĐỐI KHÔNG** chạy \`grep\`, \`find\`, hay \`view_file\` vào mã nguồn của ứng dụng AutoSubs (\`use-ai-edit-controller.ts\`, \`resolve-api.ts\`, \`autosubs_core.lua\`, \`capcut_bridge.rs\`, \`target/\`, \`node_modules/\`...).
+- **TUYỆT ĐỐI KHÔNG** chạy \`grep\`, \`find\`, hay \`view_file\` vào mã nguồn của ứng dụng AutoSubs (\`use-ai-edit-controller.ts\`, \`ai-edit.ts\`, \`premiere.rs\`, \`target/\`, \`node_modules/\`...).
 - Mọi tham số của \`timeline-action\` đã được định nghĩa ĐẦY ĐỦ 100% ngay bên dưới. Khi người dùng yêu cầu import, cắt ghép đoạn video, chèn A-roll/B-roll, thêm nhạc/SFX, hoặc chỉnh keyframe, hãy tính toán thông số và **phát ra khối \`\`\`timeline-action NGAY LẬP TỨC trong 1 bước duy nhất**!`;
 
 export const STORYBOARD_DOC = `**Import, Cắt ghép (Cut/Split), Thay thế, Chèn xen giữa, hoặc Đè B-Roll / Motion Graphic / Audio lên Timeline** (\`build_storyboard\`, dùng được với mọi trình dựng; giới hạn riêng của trình dựng, nếu có, ghi ở cuối mục):

@@ -7,7 +7,6 @@
   ],
   "permissions": [
     "core:default",
-    "cli:default",
     "shell:allow-open",
     "clipboard-manager:allow-write-text",
     {

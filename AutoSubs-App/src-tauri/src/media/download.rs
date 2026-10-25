@@ -1,7 +1,6 @@
 // Downloads video from the web with yt-dlp.
 //
-// Mirrors the on-demand runtime pattern used by AutoEdit's Python install: the
-// tools are not bundled with the installer. The first time the user opens the
+// The tools are not bundled with the installer. The first time the user opens the
 // Download workspace we fetch, for their platform:
 //   * the latest yt-dlp release, and
 //   * a Deno runtime — yt-dlp needs a JavaScript runtime to solve YouTube's
@@ -1073,7 +1072,7 @@ pub async fn media_download_start(
         .hidden()
         // yt-dlp is frozen Python: without this its stdout uses the OS code page,
         // so progress lines carrying a non-Latin-1 title arrive as invalid UTF-8
-        // and kill the reader loop below. Same fix as autoedit/runner.rs.
+        // and kill the reader loop below.
         .env("PYTHONIOENCODING", "utf-8")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

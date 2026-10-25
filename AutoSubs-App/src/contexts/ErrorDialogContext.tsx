@@ -7,7 +7,7 @@ export interface ErrorPayload {
   /** One-line summary shown as the dialog description. */
   message: string
   /**
-   * Optional longer detail (e.g. the raw error from Resolve or the
+   * Optional longer detail (e.g. the raw error from Premiere or the
    * transcription engine). Shown in a collapsible "Details" section so
    * the dialog stays compact.
    */

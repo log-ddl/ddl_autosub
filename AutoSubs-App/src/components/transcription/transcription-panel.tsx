@@ -7,12 +7,9 @@ import SubSlateCard from "@/components/ui/SubSlateCard";
 import { useSubtitleDocument } from "@/contexts/SubtitleDocumentContext";
 import { useShallow } from "zustand/react/shallow";
 import { useSettingsStore } from "@/stores/settings-store";
-import { useResolve } from "@/contexts/ResolveContext";
 import { useAdobe } from "@/contexts/AdobeContext";
-import { useCapCut } from "@/contexts/CapCutContext";
 import { useIntegration } from "@/contexts/IntegrationContext";
 import { useErrorDialog } from "@/contexts/ErrorDialogContext";
-import { ResolveApiError } from "@/api/resolve-api";
 import type { TranscriptionOptions, EnsureModelsRequest } from "@/types";
 import { getActiveCensorWords } from "@/censor/merge";
 import { TranscriptionPanelView } from "./transcription-panel-view";
@@ -88,65 +85,18 @@ export function TranscriptionPanel({
   const updateSetting = useSettingsStore((s) => s.updateSetting);
   const { modelsState, checkDownloadedModels } = useModels();
   const {
-    timelineInfo: resolveTimeline,
-    refresh: refreshResolve,
-    cancelExport: resolveCancelExport,
-    isExporting: resolveIsExporting,
-    exportProgress: resolveExportProgress,
-    setIsExporting: resolveSetIsExporting,
-    setExportProgress: resolveSetExportProgress,
-    cancelRequestedRef: resolveCancelRequestedRef,
-    getSourceAudio: resolveGetSourceAudio,
-  } = useResolve();
-
-  const {
-    timelineInfo: premiereTimeline,
-    refresh: refreshPremiere,
-    isExporting: premiereIsExporting,
-    exportProgress: premiereExportProgress,
-    getSourceAudio: premiereGetSourceAudio,
+    timelineInfo,
+    refresh: refreshAudioTracks,
+    getSourceAudio,
+    isExporting,
+    exportProgress,
   } = useAdobe();
 
-  const {
-    timelineInfo: capcutTimeline,
-    refresh: refreshCapCut,
-    getSourceAudio: capcutGetSourceAudio,
-  } = useCapCut();
-
   const { selectedIntegration } = useIntegration();
-
-  const isPremiereActive =
-    selectedIntegration === "premiere" || selectedIntegration === "aftereffects";
-  const isCapCutActive = selectedIntegration === "capcut";
-  const timelineInfo = isCapCutActive
-    ? capcutTimeline
-    : isPremiereActive
-      ? premiereTimeline
-      : resolveTimeline;
-  const refreshAudioTracks = isCapCutActive
-    ? refreshCapCut
-    : isPremiereActive
-      ? refreshPremiere
-      : refreshResolve;
-  const getSourceAudio = isCapCutActive
-    ? capcutGetSourceAudio
-    : isPremiereActive
-      ? premiereGetSourceAudio
-      : resolveGetSourceAudio;
-  const cancelRequestedRef = resolveCancelRequestedRef;
-  const isExporting = isPremiereActive
-    ? premiereIsExporting
-    : resolveIsExporting;
-  const exportProgress = isPremiereActive
-    ? premiereExportProgress
-    : resolveExportProgress;
 
   // Senior Pattern: derive active tracks from the app-aware map instead of a global list
   const activeSelectedTracks =
     selectedInputTracksByApp[selectedIntegration] || [];
-  const cancelExport = resolveCancelExport; // Fallback for cancel
-  const setIsExporting = resolveSetIsExporting; // Fallback
-  const setExportProgress = resolveSetExportProgress; // Fallback
   const {
     processingSteps,
     clearProgressSteps,
@@ -261,10 +211,7 @@ export function TranscriptionPanel({
     clearProgressSteps();
     setIsProcessing(false);
     setTranscriptionProgress(0);
-    setIsExporting(false);
-    setExportProgress(0);
     setLabeledProgress(null);
-    cancelRequestedRef.current = false;
     setFileInput(null);
     // Detach the previous run's transcript, otherwise its cues stay in the
     // viewer and read as the new run's output. The document itself is kept on
@@ -276,12 +223,9 @@ export function TranscriptionPanel({
       await refreshAudioTracks();
     }
   }, [
-    cancelRequestedRef,
     clearProgressSteps,
     refreshAudioTracks,
     audioInputMode,
-    setExportProgress,
-    setIsExporting,
     setFileInput,
     setSubtitles,
     setSpeakers,
@@ -294,7 +238,6 @@ export function TranscriptionPanel({
       return;
     }
 
-    cancelRequestedRef.current = false;
     if (audioInputMode === "file" && !fileInput) {
       console.error("No file selected");
       return;
@@ -410,24 +353,13 @@ export function TranscriptionPanel({
       // panel to a draft transcript that will never finish.
       cancelAllProgressSteps();
 
-      // Distinguish export-stage failures (thrown by `getSourceAudio` via
-      // `exportAudio`) from transcription-stage failures so the dialog title
-      // accurately reflects where things went wrong.
-      const isExportFailure =
-        error instanceof ResolveApiError &&
-        (error.func === "ExportAudio" || error.func === "GetExportProgress");
-
-      const fallbackTitle = isExportFailure
-        ? tErr("errorDialog.exportFailed", "Audio export failed")
-        : tErr("errorDialog.transcriptionFailed", "Transcription failed");
+      const fallbackTitle = tErr("errorDialog.transcriptionFailed", "Transcription failed");
 
       const { title, message, detail } = describeError(error, fallbackTitle);
       showError({ title, message, detail });
     } finally {
       setIsProcessing(false);
       setTranscriptionProgress(0);
-      setIsExporting(false);
-      setExportProgress(0);
       setLabeledProgress(null);
       await checkDownloadedModels();
     }
@@ -435,7 +367,6 @@ export function TranscriptionPanel({
 
   const handleCancelTranscription = async () => {
     console.log("Cancelling process...");
-    cancelRequestedRef.current = true;
 
     try {
       if (isProcessing) {
@@ -443,26 +374,15 @@ export function TranscriptionPanel({
         console.log("Transcription cancellation request sent to backend");
       }
 
-      if (isExporting && !isProcessing) {
-        const cancelResult = await cancelExport();
-        console.log("Export cancellation result:", cancelResult);
-      }
-
       cancelAllProgressSteps();
       setIsProcessing(false);
       setTranscriptionProgress(0);
-      setIsExporting(false);
-      setExportProgress(0);
       setLabeledProgress(null);
     } catch (error) {
       console.error("Failed to cancel process:", error);
       setIsProcessing(false);
       setTranscriptionProgress(0);
-      setIsExporting(false);
-      setExportProgress(0);
       setLabeledProgress(null);
-    } finally {
-      cancelRequestedRef.current = true;
     }
   };
 

@@ -8,23 +8,3 @@ export async function getBackendLogs(): Promise<string> {
 export async function openLogDir(): Promise<void> {
     await invoke("open_log_dir");
 }
-
-/** The `autosubs` command on PATH, managed per-platform by the backend. */
-export interface CliCommandStatus {
-    installed: boolean;
-    manageable: boolean;
-    location: string | null;
-    note: string | null;
-}
-
-export async function getCliCommandStatus(): Promise<CliCommandStatus> {
-    return invoke<CliCommandStatus>("cli_command_status");
-}
-
-export async function installCliCommand(): Promise<CliCommandStatus> {
-    return invoke<CliCommandStatus>("install_cli_command");
-}
-
-export async function uninstallCliCommand(): Promise<CliCommandStatus> {
-    return invoke<CliCommandStatus>("uninstall_cli_command");
-}

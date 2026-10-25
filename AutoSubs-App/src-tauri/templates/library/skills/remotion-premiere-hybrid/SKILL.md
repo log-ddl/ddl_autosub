@@ -8,6 +8,7 @@ Skill này **chỉ dựng**. Mọi quyết định kể bằng hình, kể cả 
 
 **Bắt đầu:** `get_project_context`, rồi `read_plan(name: "SHOT_PLAN.md")`.
 - Chưa có plan, hoặc plan chưa có mục **Bố cục**: `read_skill("story-planning")` và làm skill đó trước. Không tự chia kịch bản ở đây.
+- Video dài (khoảng 4 phút trở lên): đi theo `read_skill("long-video")`; skill này chỉ dựng từng chương (mục cuối "Khi làm theo chương").
 - Dựng đúng plan; thấy plan sai thì sửa plan (`save_plan`) rồi mới dựng.
 - **Không thêm** những gì plan không có: Host, chữ, bảng tên, hiệu ứng, chuyển cảnh, SFX.
 
@@ -50,3 +51,10 @@ Dựng từng cụm theo mục 3 của `premiere-full-edit`:
 ## 3. Kiểm tra cuối
 
 `preview_timeline(frames: 12)` cả timeline, và `atSec` hai bên mỗi chỗ đổi cảnh, nhất là chỗ nối giữa shot Premiere và shot Remotion (nhân vật có nhảy chỗ, đổi cỡ không). Báo cáo ngắn: đã dựng gì, đường dẫn sheet, lỗi còn lại (đã ghi vào plan), phần chưa kiểm được.
+
+## Khi làm theo chương (`long-video`)
+
+- Plan là `ch<NN>.md` của chương, mục **Bố cục** nằm trong `STORY.md` (thay cho `SHOT_PLAN.md`). Mốc là giây toàn phim.
+- **Mục 1** (shot `remotion`): mỗi shot một `motion-builder`, chạy song song; project và `output` có số chương (`ch03-<slug>`); render bằng `render_motion(wait: false)`.
+- **Mục 2**: mỗi `chapter-builder` ghép chương của nó; shot Remotion chưa xong thì `render_status(ids, waitSec)` chờ rồi mới đặt.
+- **Mục 3** cho chương do `chapter-builder` làm (cộng hai bên ranh giới với chương trước); cho cả phim do agent chính làm ở cuối.

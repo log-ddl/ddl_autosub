@@ -16,7 +16,9 @@
 //! * `templates/motion-graphics/remotion-starter` is a project that already
 //!   renders; the agent copies it and only writes the scene.
 //! * `render` runs `remotion render` and waits for the file, so placing it on
-//!   the timeline can never race the render.
+//!   the timeline can never race the render. Renders take turns
+//!   (`RENDER_SLOTS`): each one already uses every core, so many agents
+//!   rendering at once would only slow the machine down, never finish sooner.
 //! * `stills` renders a few frames with the kit's `stills.mjs` (one bundle, one
 //!   browser for all of them) and `contact_sheet` lays them out with their
 //!   times, so the agent can look at a graphic before rendering it.
@@ -57,13 +59,24 @@ const STARTER_FILES: &[(&str, &str)] = &[
 pub const STARTER_NAME: &str = "remotion-starter";
 
 const INSTALL_TIMEOUT: Duration = Duration::from_secs(600);
-const RENDER_TIMEOUT: Duration = Duration::from_secs(1200);
+/// Only guards against a hung browser: a long shot with heavy effects can
+/// render for hours, and must not be cut off.
+const RENDER_TIMEOUT: Duration = Duration::from_secs(8 * 3600);
+const STILLS_TIMEOUT: Duration = Duration::from_secs(1200);
 /// Lines of Remotion's output kept in an error, so a failed render tells the
 /// agent why without flooding its context.
 const ERROR_TAIL_LINES: usize = 25;
 
 /// Only one kit install at a time; renders wait for it.
 static KIT_LOCK: Lazy<tokio::sync::Mutex<()>> = Lazy::new(|| tokio::sync::Mutex::new(()));
+
+/// Full renders at a time; the rest wait their turn, first come first served.
+pub const RENDER_SLOTS: usize = 1;
+static RENDER_QUEUE: Lazy<tokio::sync::Semaphore> = Lazy::new(|| tokio::sync::Semaphore::new(RENDER_SLOTS));
+/// Previews are a few frames each (seconds), so they do not wait behind a
+/// long render, but parallel agents still never open more than this many
+/// browsers for them.
+static PREVIEW_QUEUE: Lazy<tokio::sync::Semaphore> = Lazy::new(|| tokio::sync::Semaphore::new(2));
 
 /// Where Remotion's skills and docs are cloned from, at tag `v<version>`.
 const REMOTION_REPO: &str = "https://github.com/remotion-dev/remotion";
@@ -352,8 +365,16 @@ async fn browser_for(kit: &Path) -> Result<PathBuf, String> {
 }
 
 /// Render one composition and wait for the file. Returns how long it took.
-pub async fn render(app: &AppHandle, req: RenderRequest<'_>) -> Result<(Duration, bool), String> {
+/// Waits for a render slot first; `on_start` runs once it has one. The time
+/// returned is the render's own, without the wait.
+pub async fn render(
+    app: &AppHandle,
+    req: RenderRequest<'_>,
+    on_start: impl FnOnce(),
+) -> Result<(Duration, bool), String> {
     let entry = entry_file(req.project)?;
+    let _slot = RENDER_QUEUE.acquire().await.map_err(|e| e.to_string())?;
+    on_start();
     let (kit, installed) = ensure_kit(app).await?;
     link_kit(&kit, req.project)?;
     if let Some(parent) = req.output.parent() {
@@ -422,6 +443,7 @@ pub struct Stills {
 /// graphic is). Returns them with the composition's size, fps and length.
 pub async fn stills(app: &AppHandle, req: StillsRequest<'_>) -> Result<(Stills, bool), String> {
     let entry = entry_file(req.project)?;
+    let _slot = PREVIEW_QUEUE.acquire().await.map_err(|e| e.to_string())?;
     let (kit, installed) = ensure_kit(app).await?;
     link_kit(&kit, req.project)?;
     let script = kit.join("stills.mjs");
@@ -450,7 +472,7 @@ pub async fn stills(app: &AppHandle, req: StillsRequest<'_>) -> Result<(Stills, 
 
     let script_s = script.to_string_lossy().to_string();
     let request_s = request_path.to_string_lossy().to_string();
-    run(req.project, "node", &[&script_s, &request_s], RENDER_TIMEOUT).await?;
+    run(req.project, "node", &[&script_s, &request_s], STILLS_TIMEOUT).await?;
     let result = std::fs::read_to_string(req.out_dir.join("result.json"))
         .map_err(|_| "Remotion finished without writing the frames.".to_string())?;
     let stills: Stills = serde_json::from_str(&result).map_err(|e| format!("Bad stills result: {}", e))?;
@@ -545,7 +567,7 @@ mod tests {
         let project = dir.join(STARTER_NAME);
         assert!(is_remotion_project(&project));
         assert!(project.join("src/Root.tsx").exists());
-        assert_eq!(kit_version(), "4.0.528");
+        assert_eq!(kit_version(), "4.0.538");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

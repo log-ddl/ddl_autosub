@@ -8,6 +8,8 @@ description: Lên kế hoạch hình cho một video kể chuyện / giải thí
 
 Bắt đầu: `get_project_context`, rồi `read_plan` (không tên). Đã có `SHOT_PLAN.md` thì đọc và làm tiếp phần còn thiếu, không làm lại.
 
+**Video dài (khoảng 4 phút trở lên): dừng ở đây, `read_skill("long-video")` và làm theo nó.** Skill này khi đó chỉ dùng cho từng chương (mục cuối "Khi làm theo chương"); không viết `SHOT_PLAN.md` cho cả phim.
+
 **Thứ tự làm việc không phải thứ tự kể chuyện.** Các bước dưới đây là cách ra quyết định, không phải các cảnh bắt buộc. Không áp một khuôn (Host mở đầu, bảng tên, cảnh kể, Host kết) cho mọi video.
 
 ---
@@ -27,7 +29,7 @@ Người minh họa hỏi "câu này nhắc tới gì thì đặt hình đó". N
 
 ## 1. Đọc nguồn và tìm điều cần truyền đạt
 
-1. Có voice trên timeline: `get_transcript(map: true)`: một dòng mỗi câu với mốc giây, `‖` là chỗ nghỉ dài, sau `·` là các từ mang số hoặc tên riêng kèm mốc (chỗ hình có thể đặt vào). Đọc **toàn bộ** trước khi chia. Mốc của một từ khác thì tra sau bằng `get_transcript(words: true, fromSec, toSec)`, không đọc cả file theo từng từ.
+1. Người dùng đưa file phụ đề (`.srt`, `.vtt`): dùng nó thay transcript của app, `get_transcript(path: "<đường dẫn đầy đủ>", map: true)`, và luôn truyền `path` đó ở các lần gọi sau. Có voice trên timeline: `get_transcript(map: true)`: một dòng mỗi câu với mốc giây, `‖` là chỗ nghỉ dài, sau `·` là các từ mang số hoặc tên riêng kèm mốc (chỗ hình có thể đặt vào). Đọc **toàn bộ** trước khi chia. Mốc của một từ khác thì tra sau bằng `get_transcript(words: true, fromSec, toSec)`, không đọc cả file theo từng từ.
 2. Chỉ có văn bản: dùng văn bản, ước khoảng 3.5 tiếng/giây (tiếng Việt) và ghi là ước lượng.
 3. Ghi ngắn: người xem là ai, họ đã biết gì, video trả lời câu hỏi gì, trọng tâm là gì. Phân biệt điều nguồn khẳng định với phần minh họa; không thêm sự kiện để hấp dẫn hơn.
 4. **Hook trước tiên.** Tìm điều đáng ngạc nhiên nhất trong nguồn và câu hỏi nó mở ra mà phần sau trả lời. Hình đầu tiên phải có điều đáng nhìn ngay, tự gợi câu hỏi kể cả khi tắt tiếng; không mở bằng nền trống, logo, tiêu đề chạy chậm hay giới thiệu chung. Nếu voice mở đầu không tạo được câu hỏi đó, **báo người dùng** và đề xuất thứ tự khác, không tự sửa lời.
@@ -100,7 +102,7 @@ Hook mở câu hỏi gì; video trả lời bằng cách kể nào; điều ngư
 ## Lỗi thấy khi kiểm
 ```
 
-Video dài (khoảng 4 phút trở lên): chia **chương** theo câu hỏi (thường 1 đến 2 phút), viết shot chi tiết cho chương nào khi tới chương đó, và cuối mỗi chương ghi **trạng thái cuối** (mỗi nhân vật đang ở đâu, hướng nào, trạng thái gì; bối cảnh cuối) vào file để chương sau đọc lại.
+Video dài: xem đầu skill (đi theo `long-video`).
 
 **Tự rà trước khi gửi:** đọc riêng cột "Người xem phải THẤY": có thấy ý phát triển hay chỉ là danh sách vật? Với mỗi ranh giới shot: giữ bố cục cũ có được không, cắt thêm giá trị gì? Mỗi chữ, mỗi lần Host xuất hiện: bỏ đi có mất gì không? Rồi đối chiếu với "Dấu hiệu làm sai".
 
@@ -122,3 +124,12 @@ Gửi người dùng lập luận biên tập, bảng cụm / shot và danh sác
 5. **Bối cảnh đứng yên** trừ khi một shot ghi rõ cần zoom vào chi tiết; khi đó mọi lớp của shot zoom cùng.
 
 Xong mục này thì báo người dùng và chuyển sang skill dựng theo engine đã chọn.
+
+## Khi làm theo chương (`long-video`)
+
+Mọi mục trên giữ nguyên cho từng chương; chỉ khác chỗ ghi:
+- **`STORY.md`, mục "Quy ước xuyên phim"**: "Quy ước hình" và bảng "Nhân vật và vật xuyên phim" của mục 5, kèm **tên file ảnh** của mỗi nhân vật / pose / bg dùng chung, để mọi chương gọi cùng một tên.
+- **Trạng thái đầu / cuối chương**: mỗi nhân vật đang ở chỗ nào (trái / phải, gần / xa), hướng mặt, pose / trạng thái; bối cảnh đang dùng; câu hỏi còn mở.
+- **Plan một chương** = mục 1 đến 5 cho đúng mốc của chương, ghi vào `ch<NN>.md` theo cùng mẫu `SHOT_PLAN.md` (mốc vẫn là giây toàn phim). Hook (mục 1.4) chỉ áp cho chương đầu.
+- **Danh sách ảnh**: mỗi chương ghi ảnh nó cần, ảnh đã có trong bảng xuyên phim thì dùng đúng tên đó. Agent chính gộp, bỏ trùng thành mục "Danh sách ảnh" trong `STORY.md` và gửi người dùng một lần.
+- **Bố cục** (mục 6) làm một lần cho cả phim, ghi mục "Bố cục" trong `STORY.md`; các chương và skill dựng đọc từ đó.

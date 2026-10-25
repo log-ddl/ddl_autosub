@@ -8,9 +8,9 @@
 //!       └── `skills/`               skills, copied into a project to use
 //!
 //! Tier B (Per-Project Folder): `<base>/projects/<editor>/<project-slug>[-<id hash>]/`
-//!   One folder per editor project (DaVinci project, Premiere `.prproj`, CapCut
-//!   draft), never shared: templates are the only thing projects share, and
-//!   only when the user saves one there.
+//!   One folder per editor project (a Premiere `.prproj`), never shared:
+//!   templates are the only thing projects share, and only when the user
+//!   saves one there.
 //!   ├── `memory.md`
 //!   ├── `visual-plan.json`
 //!   ├── `media/video/`, `media/images/`        downloaded or AI-made media
@@ -101,7 +101,7 @@ pub fn ensure_library(global_dir: &Path) -> Result<PathBuf, String> {
 }
 
 /// The editor project a workspace belongs to. `id` tells apart projects that
-/// share a name (Resolve project id, `.prproj` path, CapCut draft id).
+/// share a name (the `.prproj` path).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceProject {
@@ -333,6 +333,8 @@ pub async fn cli_delete_workspace_project(app: AppHandle, path: String) -> Resul
 }
 
 /// Folder names under `projects/` that belong to the current layout.
+/// `davinci` and `capcut` stay so project folders made before those editors
+/// were dropped can still be listed and deleted.
 const EDITOR_DIRS: &[&str] = &["davinci", "premiere", "capcut", "standalone"];
 
 /// True when `dir` holds no file with content (fresh folders only have empty

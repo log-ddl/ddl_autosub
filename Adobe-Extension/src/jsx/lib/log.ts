@@ -8,7 +8,7 @@ function _pad(n: number): string {
 
 /**
  * Writes a timestamped message to the ExtendScript console.
- * @param prefix  - Short identifier for the host app, e.g. "PPRO" or "AEFT"
+ * @param prefix  - Short identifier for the host app, e.g. "PPRO"
  * @param message - The message to log
  */
 export function logMessage(prefix: string, message: string): void {

@@ -1,7 +1,7 @@
 import * as React from "react"
 import { platform } from "@tauri-apps/plugin-os"
 import { useTranslation } from "react-i18next"
-import { Captions, Download, Scissors, Sparkles, SquareTerminal } from "lucide-react"
+import { Captions, Download, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { IntegrationStatus } from "@/components/layout/integration-status"
 import { SettingsDropdown } from "@/components/transcription/settings-dropdown"
@@ -14,36 +14,24 @@ interface TabDef {
   labelKey: string
   fallback: string
   icon: React.ReactNode
-  /**
-   * Kept out of the tab bar while still wired up behind it. The workspace and
-   * everything it talks to stay in the build, so putting the tab back is this
-   * one flag — nothing has been deleted.
-   */
-  hidden?: boolean
 }
 
 const TABS: TabDef[] = [
-  { id: "autocut", labelKey: "shell.tabs.autoEdit", fallback: "Auto Edit", icon: <Scissors className="size-4" /> },
   { id: "autosub", labelKey: "shell.tabs.subtitles", fallback: "Subtitles", icon: <Captions className="size-4" /> },
   { id: "aiedit", labelKey: "shell.tabs.aiEdit", fallback: "AI EDIT", icon: <Sparkles className="size-4" /> },
-  { id: "scripts", labelKey: "shell.tabs.scripts", fallback: "Scripts", icon: <SquareTerminal className="size-4" />, hidden: true },
   { id: "download", labelKey: "shell.tabs.download", fallback: "Download", icon: <Download className="size-4" /> },
 ]
 
 // Shared top chrome for the whole app: a horizontal tab bar that switches
-// between the AutoCut, Subtitles and Scripts workspaces, plus the language and
+// between the Subtitles, AI Edit and Download workspaces, plus the language and
 // theme controls on the right. Replaces the old mode-picker landing screen.
 export function WorkspaceShell({
-  autocut,
   subtitles,
   aiedit,
-  scripts,
   download,
 }: {
-  autocut: React.ReactNode
   subtitles: React.ReactNode
   aiedit: React.ReactNode
-  scripts: React.ReactNode
   download: React.ReactNode
 }) {
   const { t } = useTranslation()
@@ -54,13 +42,6 @@ export function WorkspaceShell({
   const [aiEditMounted, setAiEditMounted] = React.useState(false)
   React.useEffect(() => {
     if (mode === "aiedit") setAiEditMounted(true)
-  }, [mode])
-
-  // Scripts is gated behind a one-time Python download, so only mount it once
-  // the user has actually opened the tab (then keep it mounted).
-  const [scriptsMounted, setScriptsMounted] = React.useState(false)
-  React.useEffect(() => {
-    if (mode === "scripts") setScriptsMounted(true)
   }, [mode])
 
   // Download is gated behind a one-time yt-dlp + Deno download, so only mount
@@ -92,7 +73,7 @@ export function WorkspaceShell({
           className="flex items-center gap-1 min-w-0"
           data-tauri-drag-region={isMacOs ? "false" : undefined}
         >
-          {TABS.filter((tab) => !tab.hidden).map((tab) => {
+          {TABS.map((tab) => {
             const active = mode === tab.id
             return (
               <button
@@ -124,18 +105,13 @@ export function WorkspaceShell({
 
       <main className="flex-1 min-h-0 overflow-hidden">
         {/* All tabs stay mounted (hidden when inactive) so switching never
-            drops in-progress work or event listeners. Scripts mounts lazily. */}
-        <div className={cn("h-full", mode === "autocut" ? "block" : "hidden")}>
-          <div className="h-full overflow-auto px-6 py-8">{autocut}</div>
-        </div>
+            drops in-progress work or event listeners. AI Edit and Download
+            mount lazily. */}
         <div className={cn("h-full", mode === "autosub" ? "block" : "hidden")}>
           {subtitles}
         </div>
         <div className={cn("h-full", mode === "aiedit" ? "block" : "hidden")}>
           {aiEditMounted ? aiedit : null}
-        </div>
-        <div className={cn("h-full", mode === "scripts" ? "block" : "hidden")}>
-          {scriptsMounted ? scripts : null}
         </div>
         <div className={cn("h-full", mode === "download" ? "block" : "hidden")}>
           <div className="h-full overflow-auto px-6 py-8">

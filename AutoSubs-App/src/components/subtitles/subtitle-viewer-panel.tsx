@@ -8,10 +8,7 @@ import { OutputPanel } from "@/components/subtitles/output-panel";
 import { TranscriptStatusRow } from "@/components/subtitles/transcript-status-row";
 import { TranscriptHistoryPopover } from "@/components/subtitles/transcript-history-popover";
 import { useSubtitleDocument } from "@/contexts/SubtitleDocumentContext";
-import { useResolve } from "@/contexts/ResolveContext";
 import { useAdobe } from "@/contexts/AdobeContext";
-import { useCapCut } from "@/contexts/CapCutContext";
-import { useIntegration } from "@/contexts/IntegrationContext";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useOutputPanelStore } from "@/stores/output-panel-store";
 import { useAudioPreview } from "@/contexts/AudioPreviewContext";
@@ -66,38 +63,11 @@ export function SubtitleViewerPanel({
   } = useSubtitleDocument();
 
   const {
-    timelineInfo: resolveTimeline,
-    templates: resolveTemplates,
-    templatesLoading: resolveTemplatesLoading,
-    templatesLoaded: resolveTemplatesLoaded,
-    refreshTemplates: refreshResolveTemplates,
-    pushToTimeline: resolvePush,
-    jumpToTime: resolveJumpToTime,
-  } = useResolve();
-
-  const {
-    timelineInfo: adobeTimeline,
-    pushToTimeline: adobePush,
-    jumpToTime: adobeJumpToTime,
+    timelineInfo,
+    isConnected: isIntegrationConnected,
+    pushToTimeline,
+    jumpToTime,
   } = useAdobe();
-
-  const {
-    timelineInfo: capcutTimeline,
-    pushToTimeline: capcutPush,
-    jumpToTime: capcutJumpToTime,
-  } = useCapCut();
-
-  const { selectedIntegration } = useIntegration();
-  const isAdobeActive =
-    selectedIntegration === "premiere" ||
-    selectedIntegration === "aftereffects";
-  const isCapCutActive = selectedIntegration === "capcut";
-
-  const timelineInfo = isCapCutActive
-    ? capcutTimeline
-    : isAdobeActive
-      ? adobeTimeline
-      : resolveTimeline;
 
   // The store keeps `expanded` true through the sheet's exit animation, but
   // the viewer's chrome — title, document actions, header rule — should revert
@@ -105,30 +75,6 @@ export function SubtitleViewerPanel({
   const outputActive = useOutputPanelStore((s) => s.expanded && !s.closing);
   const requestCloseOutputPanel = useOutputPanelStore((s) => s.requestClose);
   const resetOutputPanel = useOutputPanelStore((s) => s.reset);
-
-  const pushToTimeline = isCapCutActive
-    ? (
-        filename?: string,
-        selectedTemplate?: string,
-        _selectedOutputTrack?: string,
-        _presetSettings?: Record<string, unknown>,
-        languageMode?: TimelineLanguageMode,
-      ) => capcutPush(filename, selectedTemplate, languageMode)
-    : isAdobeActive
-      ? (
-          filename?: string,
-          _selectedTemplate?: string,
-          _selectedOutputTrack?: string,
-          _presetSettings?: Record<string, unknown>,
-          languageMode?: TimelineLanguageMode,
-        ) => adobePush(filename, languageMode)
-      : resolvePush;
-
-  const jumpToTime = isCapCutActive
-    ? capcutJumpToTime
-    : isAdobeActive
-      ? adobeJumpToTime
-      : resolveJumpToTime;
 
   const { seekToTime: seekAudioPreview } = useAudioPreview();
   const { showError } = useErrorDialog();
@@ -197,9 +143,6 @@ export function SubtitleViewerPanel({
   }, [searchCaseSensitive, searchQuery, searchWholeWord]);
 
   const canReplace = Boolean(searchQuery.trim());
-  const isIntegrationConnected = isAdobeActive
-    ? Boolean(adobeTimeline?.timelineId)
-    : Boolean(resolveTimeline?.timelineId);
   const shellClassName = "flex h-full min-h-0 flex-col overflow-hidden";
   const headerClassName = "shrink-0 p-3 pt-0 pb-1";
 
@@ -220,30 +163,19 @@ export function SubtitleViewerPanel({
     setShowReformat(false);
   };
 
-  const handleAddToTimeline = async (
-    selectedOutputTrack: string,
-    selectedTemplate: string,
-    presetSettings?: Record<string, unknown>,
-    languageMode?: TimelineLanguageMode,
-  ) => {
+  const handleAddToTimeline = async (languageMode?: TimelineLanguageMode) => {
     try {
       if (!currentSubtitleDocumentFilename) {
         console.error("No active subtitle document to add to timeline");
         return;
       }
 
-      // Flush any debounced subtitle edits to disk before the Lua server reads
-      // the file.
+      // Flush any debounced subtitle edits to disk before the SRT is written
+      // from it.
       await flushPendingSubtitleSave();
 
       setIsAddingToTimeline(true);
-      await pushToTimeline(
-        currentSubtitleDocumentFilename,
-        selectedTemplate,
-        selectedOutputTrack,
-        presetSettings,
-        languageMode,
-      );
+      await pushToTimeline(currentSubtitleDocumentFilename, languageMode);
       setJustSent(true);
     } catch (error) {
       console.error("Failed to add to timeline:", error);
@@ -344,11 +276,6 @@ export function SubtitleViewerPanel({
       <OutputPanel
         timelineInfo={timelineInfo}
         isConnected={isIntegrationConnected}
-        selectedIntegration={selectedIntegration as any}
-        templates={isAdobeActive ? [] : resolveTemplates}
-        templatesLoading={!isAdobeActive && resolveTemplatesLoading}
-        templatesLoaded={isAdobeActive || resolveTemplatesLoaded}
-        onLoadTemplates={isAdobeActive ? undefined : refreshResolveTemplates}
         onAddToTimeline={handleAddToTimeline}
         hasSourceLanguage={hasSourceLanguage}
         onExport={handleExport}

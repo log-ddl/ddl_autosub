@@ -13,7 +13,6 @@ const config: CEP_Config = {
   requiredRuntimeVersion: 9.0,
   hosts: [
     { name: "PPRO", version: "[0.0,99.9]" }, 
-    { name: "AEFT", version: "[0.0,99.9]" },
   ],
 
   type: "Custom",

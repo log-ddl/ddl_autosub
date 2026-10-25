@@ -1,4 +1,4 @@
-import { ChevronDown, Check, RotateCcw, FolderOpen } from "lucide-react";
+import { ChevronDown, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,122 +9,31 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useResolve } from "@/contexts/ResolveContext";
 import { useAdobe } from "@/contexts/AdobeContext";
-import { useCapCut } from "@/contexts/CapCutContext";
-import {
-  useIntegration,
-  type Integration,
-} from "@/contexts/IntegrationContext";
-import { CapCutProjectPickerDialog } from "@/components/dialogs/capcut-project-picker-dialog";
 
 export function IntegrationStatus() {
   const { t } = useTranslation();
-  const { timelineInfo: resolveTimeline, refresh: refreshResolve } =
-    useResolve();
-  const {
-    premiereTimeline,
-    afterEffectsTimeline,
-    isPremiereConnected,
-    isAfterEffectsConnected,
-    refresh: refreshAdobe,
-  } = useAdobe();
-  const {
-    timelineInfo: capcutTimeline,
-    isConnected: isCapCutConnected,
-    drafts: capcutDrafts,
-    setProjectPickerOpen,
-    refresh: refreshCapCut,
-  } = useCapCut();
-  const { selectedIntegration, setSelectedIntegration } = useIntegration();
+  const { timelineInfo, isConnected, refresh } = useAdobe();
 
-  const isResolveConnected = Boolean(resolveTimeline?.timelineId);
-  const integrations = {
-    davinci: {
-      productName: t("titlebar.resolve.productName"),
-      logo: "/davinci-resolve-logo.png",
-      connected: isResolveConnected,
-      timelineName: resolveTimeline?.name,
-      projectName: resolveTimeline?.projectName,
-      description: t("titlebar.resolve.description"),
-      connectedText: t("titlebar.resolve.tooltip.connected"),
-      disconnectedText: t("titlebar.resolve.tooltip.cantConnect"),
-      helperText: isResolveConnected
-        ? t("titlebar.resolve.tooltip.canGetAudio")
-        : t("titlebar.resolve.tooltip.openResolve"),
-      refresh: refreshResolve,
-    },
-    capcut: {
-      productName: t("titlebar.capcut.productName", "CapCut"),
-      logo: "/capcut-logo.svg",
-      connected: isCapCutConnected,
-      timelineName: capcutTimeline?.name,
-      projectName: capcutTimeline?.projectName,
-      description: t("titlebar.capcut.description", "Draft JSON integration"),
-      connectedText: t("titlebar.capcut.tooltip.connected", "Connected"),
-      disconnectedText: t("titlebar.capcut.tooltip.disconnected", "No project"),
-      helperText: isCapCutConnected
-        ? t(
-            "titlebar.capcut.tooltip.canEditDraft",
-            "Đang kết nối trực tiếp vào file JSON của Project CapCut.",
-          )
-        : t(
-            "titlebar.capcut.tooltip.openCapCut",
-            "Hãy chọn một Project CapCut để bắt đầu làm việc.",
-          ),
-      refresh: refreshCapCut,
-    },
-    premiere: {
-      productName: t("titlebar.premiere.productName"),
-      logo: "/premiere-logo.png",
-      connected: isPremiereConnected,
-      timelineName: premiereTimeline?.name,
-      projectName: premiereTimeline?.projectName,
-      description: t("titlebar.premiere.description"),
-      connectedText: t("titlebar.premiere.tooltip.connected"),
-      disconnectedText: t("titlebar.premiere.tooltip.disconnected"),
-      helperText: isPremiereConnected
-        ? t("titlebar.premiere.tooltip.canGetAudio")
-        : t("titlebar.premiere.tooltip.openPremiere"),
-      refresh: refreshAdobe,
-    },
-    aftereffects: {
-      productName: t("titlebar.aftereffects.productName"),
-      logo: "/aftereffects-logo.png",
-      connected: isAfterEffectsConnected,
-      timelineName: afterEffectsTimeline?.name,
-      projectName: afterEffectsTimeline?.projectName,
-      description: t("titlebar.aftereffects.description"),
-      connectedText: t("titlebar.aftereffects.tooltip.connected"),
-      disconnectedText: t("titlebar.aftereffects.tooltip.disconnected"),
-      helperText: isAfterEffectsConnected
-        ? t("titlebar.aftereffects.tooltip.canGetAudio")
-        : t("titlebar.aftereffects.tooltip.openAfterEffects"),
-      refresh: refreshAdobe,
-    },
-  } satisfies Record<
-    Integration,
-    {
-      productName: string;
-      logo: string;
-      connected: boolean;
-      timelineName?: string;
-      projectName?: string;
-      description: string;
-      connectedText: string;
-      disconnectedText: string;
-      helperText: string;
-      refresh: () => Promise<void>;
-    }
-  >;
-
-  const activeIntegration = integrations[selectedIntegration] || integrations.davinci;
+  const activeIntegration = {
+    productName: t("titlebar.premiere.productName"),
+    logo: "/premiere-logo.png",
+    connected: isConnected,
+    timelineName: timelineInfo?.name,
+    projectName: timelineInfo?.projectName,
+    connectedText: t("titlebar.premiere.tooltip.connected"),
+    disconnectedText: t("titlebar.premiere.tooltip.disconnected"),
+    helperText: isConnected
+      ? t("titlebar.premiere.tooltip.canGetAudio")
+      : t("titlebar.premiere.tooltip.openPremiere"),
+    refresh,
+  };
 
   const activeLabel = activeIntegration.connected
     ? activeIntegration.timelineName || activeIntegration.connectedText
     : t("titlebar.status.disconnected");
-  // Project first, then the timeline/sequence inside it: two projects can both
-  // have a "Sequence 01". CapCut drafts have no separate project name.
+  // Project first, then the sequence inside it: two projects can both have a
+  // "Sequence 01".
   const activeProject =
     activeIntegration.connected &&
     activeIntegration.projectName &&
@@ -201,55 +110,6 @@ export function IntegrationStatus() {
               </p>
             </div>
           </div>
-          {selectedIntegration === "capcut" && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => {
-                  void refreshCapCut();
-                  setProjectPickerOpen(true);
-                }}
-                className="cursor-pointer font-medium text-xs py-2"
-              >
-                <FolderOpen className="size-4 text-primary" />
-                <span>
-                  Chọn Project CapCut ({capcutDrafts.length} project)...
-                </span>
-              </DropdownMenuItem>
-            </>
-          )}
-          <DropdownMenuSeparator />
-          {(Object.keys(integrations) as Integration[]).map((integration) => {
-            const item = integrations[integration];
-            return (
-              <DropdownMenuItem
-                key={integration}
-                onClick={() => {
-                  setSelectedIntegration(integration);
-                  if (integration === "capcut") {
-                    void refreshCapCut();
-                    setProjectPickerOpen(true);
-                  }
-                }}
-                className="cursor-pointer pl-1.5 pr-3"
-              >
-                <img
-                  src={item.logo}
-                  alt={item.productName}
-                  className="size-10 rounded-md"
-                />
-                <div className="flex min-w-0 flex-1 flex-col">
-                  <span>{item.productName}</span>
-                  <span className="truncate text-xs text-muted-foreground">
-                    {item.description}
-                  </span>
-                </div>
-                {selectedIntegration === integration ? (
-                  <Check className="size-4" />
-                ) : null}
-              </DropdownMenuItem>
-            );
-          })}
           <DropdownMenuSeparator />
           <DropdownMenuItem
             onClick={() => {
@@ -262,25 +122,6 @@ export function IntegrationStatus() {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-
-      {selectedIntegration === "capcut" && (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            void refreshCapCut();
-            setProjectPickerOpen(true);
-          }}
-          className="h-6 px-2 text-[11px] gap-1 shrink-0"
-          title="Mở bảng danh sách các Project CapCut"
-        >
-          <FolderOpen className="size-3" />
-          <span>Chọn Project</span>
-        </Button>
-      )}
-
-      <CapCutProjectPickerDialog />
     </div>
   );
 }

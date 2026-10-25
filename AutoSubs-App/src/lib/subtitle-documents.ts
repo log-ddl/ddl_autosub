@@ -3,7 +3,6 @@ import {
   join,
   documentDir,
   appLocalDataDir,
-  videoDir,
 } from "@tauri-apps/api/path";
 import {
   readDir,
@@ -16,7 +15,6 @@ import {
   copyFile,
   remove,
 } from "@tauri-apps/plugin-fs";
-import { platform } from "@tauri-apps/plugin-os";
 import { Subtitle, Speaker } from "@/types";
 
 const TRANSCRIPT_INDEX_FILENAME = "transcript-index.json";
@@ -485,13 +483,7 @@ export async function getSubtitleDocumentsDir(): Promise<string> {
 }
 
 export async function getAudioExportDir(): Promise<string> {
-  // Resolve on Linux only allows rendering into paths registered as Media
-  // Storage locations. ~/Videos is registered by default, so use it there.
-  // Other platforms keep using appLocalDataDir.
-  const dir =
-    platform() === "linux"
-      ? await join(await videoDir(), "AutoSubs")
-      : await join(await appLocalDataDir(), "Audio");
+  const dir = await join(await appLocalDataDir(), "Audio");
 
   // Ensure the directory exists
   try {
@@ -505,45 +497,6 @@ export async function getAudioExportDir(): Promise<string> {
   }
 
   return dir;
-}
-
-export async function validateExportedAudioFile(filePath: string): Promise<void> {
-  if (!filePath) {
-    throw new Error("Resolve did not report an exported audio file path.");
-  }
-
-  const retryDelayMs = 1000;
-  const maxAttempts = 6;
-  let lastSize: number | null = null;
-  let lastFailure = `Resolve reported an audio export path, but the file does not exist: ${filePath}`;
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    if (await exists(filePath)) {
-      const fileStats = await stat(filePath);
-      if (!fileStats.isFile) {
-        throw new Error(`Resolve reported an audio export path that is not a file: ${filePath}`);
-      }
-
-      // A PCM WAV with no samples is usually header-only. Give Resolve/the
-      // filesystem a few seconds to finish flushing before treating it as bad.
-      if (fileStats.size > 44) {
-        if (lastSize === fileStats.size) {
-          return;
-        }
-        lastFailure = `Resolve audio export is still being written: ${filePath}`;
-        lastSize = fileStats.size;
-      } else {
-        lastFailure =
-          "Resolve exported an empty audio file. Check the selected audio tracks and export range.";
-      }
-    }
-
-    if (attempt < maxAttempts) {
-      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
-    }
-  }
-
-  throw new Error(lastFailure);
 }
 
 export async function getSubtitleDocumentPath(filename: string): Promise<string> {
@@ -917,35 +870,6 @@ export async function deleteSubtitleDocument(filename: string): Promise<void> {
 
 /** Which language(s) to place on the timeline for a translated transcript. */
 export type TimelineLanguageMode = "translated" | "source" | "both";
-
-/**
- * Write a sibling document containing only `which` language, and return its
- * filename. The stored transcript is left alone so it keeps holding both.
- *
- * Each language is sent to the timeline as its own separate call, exactly like
- * the Adobe path does - one document, one track, per send.
- */
-export async function writeSingleLanguageDocument(
-  filename: string,
-  which: "translated" | "source",
-): Promise<string> {
-  if (which === "translated") return filename;
-
-  const doc = await readSubtitleDocument(filename);
-  if (!doc) throw new Error(`Subtitle document not found: ${filename}`);
-
-  const source: Subtitle[] = doc.sourceSegments ?? [];
-  if (source.length === 0) return filename;
-
-  const sourceFilename = `${filename}.source`;
-  const filePath = await getSubtitleDocumentPath(sourceFilename);
-  await writeTextFile(
-    filePath,
-    JSON.stringify({ ...doc, segments: source, sourceSegments: undefined }, null, 2),
-  );
-
-  return sourceFilename;
-}
 
 /** Source-language cues of a stored document, or [] when the run was not translated. */
 export async function loadSubtitleDocumentSourceSubtitles(

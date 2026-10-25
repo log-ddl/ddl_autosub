@@ -1,11 +1,7 @@
 import { create } from "zustand";
 
-/**
- * Section of the output sheet to reveal when it is opened from elsewhere in
- * the app (the caption-style button in the transcription header, the
- * completion card, or an invalid-config recovery click).
- */
-export type OutputSection = "track" | "style" | "speakers";
+/** Section of the output sheet to reveal when it is opened from elsewhere. */
+export type OutputSection = "speakers";
 
 /** Keep in sync with the sheet's enter/exit animation duration. */
 export const OUTPUT_SHEET_ANIMATION_MS = 200;

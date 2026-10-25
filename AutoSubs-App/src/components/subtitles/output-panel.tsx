@@ -1,6 +1,5 @@
 import * as React from "react";
 import {
-  AlertTriangle,
   Check,
   ChevronDown,
   ChevronUp,
@@ -10,36 +9,19 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/react/shallow";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { ANIMATED_CAPTION_TEMPLATE, type CreatePresetSession, type CreatePresetSubmit } from "@/components/dialogs/caption-style/template-selection";
-import { cancelPresetEdit, checkTrackConflicts, type ConflictInfo } from "@/api/resolve-api";
-import { usePresets, DEFAULT_PRESET_ID } from "@/contexts/PresetsContext";
 import { useSubtitleDocument } from "@/contexts/SubtitleDocumentContext";
-import { useSettingsStore } from "@/stores/settings-store";
 import { OUTPUT_SHEET_ANIMATION_MS, useOutputPanelStore } from "@/stores/output-panel-store";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ExportPopover, type ExportFormat } from "@/components/common/export-popover";
-import type { Speaker, Template, TimelineInfo } from "@/types";
-import type { Integration } from "@/contexts/IntegrationContext";
+import type { Speaker, TimelineInfo } from "@/types";
 import type { TimelineLanguageMode } from "@/lib/subtitle-documents";
-import { cn } from "@/lib/utils";
 import { OutputSheet } from "@/components/subtitles/output-sheet";
 
 interface OutputPanelProps {
   timelineInfo?: TimelineInfo;
   isConnected: boolean;
-  selectedIntegration?: Integration;
-  templates: Template[];
-  templatesLoading: boolean;
-  templatesLoaded: boolean;
-  onLoadTemplates?: () => Promise<Template[]>;
-  onAddToTimeline: (
-    selectedOutputTrack: string,
-    selectedTemplate: string,
-    presetSettings?: Record<string, unknown>,
-    languageMode?: TimelineLanguageMode,
-  ) => Promise<void>;
+  onAddToTimeline: (languageMode?: TimelineLanguageMode) => Promise<void>;
   hasSourceLanguage: boolean;
   onExport: (format: ExportFormat) => Promise<void>;
   isAdding: boolean;
@@ -68,11 +50,6 @@ interface OutputPanelProps {
 export function OutputPanel({
   timelineInfo,
   isConnected,
-  selectedIntegration,
-  templates,
-  templatesLoading,
-  templatesLoaded,
-  onLoadTemplates,
   onAddToTimeline,
   hasSourceLanguage,
   onExport,
@@ -81,45 +58,13 @@ export function OutputPanel({
   children,
 }: OutputPanelProps) {
   const { t } = useTranslation();
-  const isAdobe =
-    selectedIntegration === "premiere" ||
-    selectedIntegration === "aftereffects" ||
-    selectedIntegration === "capcut";
 
-  const { subtitles, speakers, updateSpeakers, currentSubtitleDocumentFilename } =
-    useSubtitleDocument();
-
-  const {
-    selectedTemplate,
-    presetId,
-    selectedOutputTrack,
-    captionMode,
-    updateSetting,
-  } = useSettingsStore(
-    useShallow((s) => ({
-      selectedTemplate: s.selectedTemplate,
-      presetId: s.presetId,
-      selectedOutputTrack: s.selectedOutputTrack,
-      captionMode: s.captionMode,
-      updateSetting: s.updateSetting,
-    })),
-  );
-
-  const {
-    presets,
-    getPreset,
-    createPreset,
-    updatePreset,
-    deletePreset,
-    importPreset,
-    exportPreset,
-  } = usePresets();
+  const { subtitles, speakers, updateSpeakers } = useSubtitleDocument();
 
   const {
     expanded,
     closing,
     focusSection,
-    open,
     requestClose,
     finishClose,
     toggle,
@@ -129,7 +74,6 @@ export function OutputPanel({
       expanded: s.expanded,
       closing: s.closing,
       focusSection: s.focusSection,
-      open: s.open,
       requestClose: s.requestClose,
       finishClose: s.finishClose,
       toggle: s.toggle,
@@ -146,184 +90,20 @@ export function OutputPanel({
     return () => clearTimeout(timer);
   }, [closing, finishClose]);
 
-  const [createSession, setCreateSession] = React.useState<CreatePresetSession>({
-    kind: "closed",
-  });
-  const [conflictInfo, setConflictInfo] = React.useState<ConflictInfo | null>(null);
   const [languageMenuOpen, setLanguageMenuOpen] = React.useState(false);
-  const [templateLoadError, setTemplateLoadError] = React.useState<string | null>(null);
-  const [loadingTimedOut, setLoadingTimedOut] = React.useState(false);
 
   const outputTracks = timelineInfo?.outputTracks ?? [];
   const hasSubtitles = subtitles.length > 0;
 
-  // ── Preset-edit teardown ────────────────────────────────────────────────
-  // A preset edit session drops a temporary track into Resolve, so it must be
-  // cancelled whenever the sheet goes away — collapsing, the viewer closing
-  // (unmount), or the editor disconnecting. The dialog this replaced could
-  // rely on a single close event; a sheet has several exits, so we track the
-  // session in a ref and tear down from one place.
-  const createSessionRef = React.useRef(createSession);
-  createSessionRef.current = createSession;
-
-  const endPresetSession = React.useCallback(() => {
-    if (createSessionRef.current.kind === "closed") return;
-    cancelPresetEdit().catch(() => {});
-    setCreateSession({ kind: "closed" });
-  }, []);
-
-  React.useEffect(() => endPresetSession, [endPresetSession]);
-
-  React.useEffect(() => {
-    if (!expanded || !isConnected) endPresetSession();
-  }, [expanded, isConnected, endPresetSession]);
-
-  // ── Template loading ────────────────────────────────────────────────────
-  const shouldLoadTemplates =
-    expanded &&
-    !isAdobe &&
-    !templatesLoaded &&
-    !templatesLoading &&
-    !!onLoadTemplates;
-
-  React.useEffect(() => {
-    if (!shouldLoadTemplates) return;
-    let cancelled = false;
-
-    if (!timelineInfo?.timelineId) {
-      setTemplateLoadError(t("output.errors.notConnected"));
-      setLoadingTimedOut(true);
-      return;
-    }
-
-    setTemplateLoadError(null);
-    setLoadingTimedOut(false);
-
-    const timeoutId = setTimeout(() => {
-      if (cancelled) return;
-      cancelled = true;
-      setLoadingTimedOut(true);
-      setTemplateLoadError(t("output.errors.timedOut"));
-    }, 15000);
-
-    onLoadTemplates?.().catch((err) => {
-      if (cancelled) return;
-      clearTimeout(timeoutId);
-      setTemplateLoadError(err instanceof Error ? err.message : String(err));
-      setLoadingTimedOut(true);
-    });
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timeoutId);
-    };
-  }, [shouldLoadTemplates, onLoadTemplates, timelineInfo?.timelineId, t]);
-
-  // ── Conflict check ──────────────────────────────────────────────────────
-  // Runs whether or not the sheet is open: the warning belongs in the summary
-  // row so it is read *before* the send button is pressed.
-  const shouldCheckConflicts =
-    isConnected &&
-    !isAdobe &&
-    !!currentSubtitleDocumentFilename &&
-    !!selectedOutputTrack;
-
-  React.useEffect(() => {
-    if (!shouldCheckConflicts) {
-      setConflictInfo(null);
-      return;
-    }
-    let cancelled = false;
-    checkTrackConflicts(currentSubtitleDocumentFilename!, selectedOutputTrack)
-      .then((info) => {
-        if (!cancelled) setConflictInfo(info);
-      })
-      .catch((err) => {
-        console.warn("Track conflict check failed:", err);
-        if (!cancelled) setConflictInfo(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [shouldCheckConflicts, currentSubtitleDocumentFilename, selectedOutputTrack]);
-
   // ── Derived state ───────────────────────────────────────────────────────
-  const hasAnimatedTemplate = templates.some(
-    (tpl) => tpl.value === ANIMATED_CAPTION_TEMPLATE,
-  );
-  const effectiveTemplatesLoading = templatesLoading && !loadingTimedOut;
-
-  const trackLabel =
-    outputTracks.find((track) => track.value === selectedOutputTrack)?.label ?? "";
-
-  const styleLabel =
-    captionMode === "animated"
-      ? (getPreset(presetId)?.name ?? t("addToTimeline.mode.animated"))
-      : selectedTemplate.label;
-
-  // A saved track can disappear when the user switches timeline. Sending
-  // blind in that case would drop subtitles somewhere unexpected.
-  const trackIsValid =
-    isAdobe ||
-    outputTracks.length === 0 ||
-    outputTracks.some((track) => track.value === selectedOutputTrack);
-
-  const needsTrackChoice = !trackIsValid;
-
-  const summaryParts: string[] = [];
-  if (isAdobe) {
-    summaryParts.push(
-      selectedIntegration === "capcut"
-        ? `CapCut (${timelineInfo?.name || "Draft"})`
-        : selectedIntegration === "aftereffects"
-          ? "After Effects"
-          : "Premiere Pro",
-    );
-  } else {
-    summaryParts.push(trackLabel || t("output.track.none"));
-    summaryParts.push(styleLabel);
-  }
+  const summaryParts: string[] = ["Premiere Pro"];
   if (speakers.length > 1) {
     summaryParts.push(t("output.speakerCount", { count: speakers.length }));
   }
 
-  const showConflictWarning = Boolean(conflictInfo?.hasConflicts);
-
   // ── Actions ─────────────────────────────────────────────────────────────
   function handleToggle() {
-    if (expanded) endPresetSession();
     toggle();
-  }
-
-  const handleSubmitPreset: CreatePresetSubmit = async ({
-    name,
-    description,
-    macroSettings,
-  }) => {
-    try {
-      if (createSession.kind === "edit") {
-        await updatePreset(createSession.presetId, { name, description, macroSettings });
-        updateSetting("presetId", createSession.presetId);
-      } else {
-        const created = await createPreset(name, macroSettings, description);
-        updateSetting("presetId", created.id);
-      }
-      updateSetting("captionMode", "animated");
-      setCreateSession({ kind: "closed" });
-    } catch (err: any) {
-      toast.error(err?.message ?? "Failed to save preset");
-    }
-  };
-
-  async function handleDuplicatePreset(id: string) {
-    const preset = getPreset(id);
-    if (!preset) return;
-    const copy = await createPreset(
-      `${preset.name} copy`,
-      preset.macroSettings,
-      preset.description,
-    );
-    updateSetting("presetId", copy.id);
   }
 
   function handleSpeakerChange(index: number, updated: Speaker) {
@@ -333,31 +113,17 @@ export function OutputPanel({
   }
 
   async function handlePrimaryAction(mode: TimelineLanguageMode = "translated") {
-    // The only case where the button navigates instead of committing: it
-    // cannot do its job until a valid track is picked, and the label says so.
-    if (needsTrackChoice) {
-      open("track");
-      return;
-    }
-
     setLanguageMenuOpen(false);
-
-    const templateName =
-      captionMode === "animated" ? ANIMATED_CAPTION_TEMPLATE : selectedTemplate.value;
-    const presetSettings =
-      captionMode === "animated" ? getPreset(presetId)?.macroSettings : undefined;
-
     requestClose();
-    onAddToTimeline(selectedOutputTrack, templateName, presetSettings, mode).catch((err) => {
+    onAddToTimeline(mode).catch((err) => {
       console.error("Failed to add to timeline:", err);
     });
   }
 
   const actionDisabled = isAdding || !hasSubtitles;
-  // Adobe is included: the extension imports one SRT per caption track, so
-  // "both" simply runs the import twice (see AdobeContext.pushToTimeline).
-  const canChooseLanguage =
-    hasSourceLanguage && !needsTrackChoice && !actionDisabled;
+  // The extension imports one SRT per caption track, so "both" simply runs
+  // the import twice (see AdobeContext.pushToTimeline).
+  const canChooseLanguage = hasSourceLanguage && !actionDisabled;
 
   let actionLabel: React.ReactNode;
   if (isAdding) {
@@ -369,8 +135,6 @@ export function OutputPanel({
     );
   } else if (!hasSubtitles) {
     actionLabel = t("output.noSubtitles");
-  } else if (needsTrackChoice) {
-    actionLabel = t("output.chooseTrack");
   } else if (justSent) {
     // Sending is cheap to repeat and cheap to undo, so confirm what happened
     // and stay ready rather than locking the button.
@@ -396,180 +160,122 @@ export function OutputPanel({
         {expanded && (
           <OutputSheet
             closing={closing}
-          isConnected={isConnected}
-          isAdobe={isAdobe}
-          focusSection={focusSection}
-          onFocusHandled={clearFocusSection}
-          onBack={handleToggle}
-          outputTracks={outputTracks}
-          selectedOutputTrack={selectedOutputTrack}
-          onOutputTrackChange={(value) => updateSetting("selectedOutputTrack", value)}
-          conflictInfo={conflictInfo}
-          captionMode={captionMode}
-          onCaptionModeChange={(mode) => updateSetting("captionMode", mode)}
-          selectedTemplate={selectedTemplate}
-          onTemplateChange={(value) => {
-            const matched = templates.find((tpl) => tpl.value === value);
-            if (matched) updateSetting("selectedTemplate", matched);
-            updateSetting("captionMode", "regular");
-          }}
-          templates={templates}
-          templatesLoading={effectiveTemplatesLoading}
-          templatesLoaded={templatesLoaded}
-          templateLoadError={templateLoadError}
-          presetId={presetId || DEFAULT_PRESET_ID}
-          onPresetChange={(id) => {
-            updateSetting("presetId", id);
-            updateSetting("captionMode", "animated");
-          }}
-          presets={presets}
-          createSession={createSession}
-          onRequestCreate={() => setCreateSession({ kind: "create" })}
-          onRequestEdit={(id) => setCreateSession({ kind: "edit", presetId: id })}
-          onCreateFlowExit={() => setCreateSession({ kind: "closed" })}
-          onSubmitPreset={handleSubmitPreset}
-          editingPreset={
-            createSession.kind === "edit" ? getPreset(createSession.presetId) : undefined
-          }
-          onDeletePreset={deletePreset}
-          onDuplicatePreset={handleDuplicatePreset}
-          onImportPreset={async (json) => {
-            const imported = await importPreset(json);
-            updateSetting("presetId", imported.id);
-            updateSetting("captionMode", "animated");
-            return imported;
-          }}
-          onExportPreset={exportPreset}
-          hasAnimatedTemplate={hasAnimatedTemplate}
-          speakers={speakers}
-          onSpeakerChange={handleSpeakerChange}
-        />
+            isConnected={isConnected}
+            focusSection={focusSection}
+            onFocusHandled={clearFocusSection}
+            onBack={handleToggle}
+            outputTracks={outputTracks}
+            speakers={speakers}
+            onSpeakerChange={handleSpeakerChange}
+          />
         )}
       </div>
 
-      {/* Summary + primary action. Hidden while a preset edit owns the screen
-          so its own Cancel/Save buttons are the only way out. */}
-      {createSession.kind === "closed" && (
-        <div className="shrink-0 border-t bg-card">
-          {/* Without an editor there is nothing to summarise; the row is only
-              kept so an expanded sheet still has a way to collapse. */}
-          {isConnected && (!expanded || closing) && (
-            <div className="px-3 pt-3">
-              <button
-                type="button"
-                onClick={handleToggle}
-                aria-expanded={expanded}
-                className={cn(
-                  "flex w-full items-center gap-2 rounded-md border px-3 py-2 text-xs transition-colors",
-                  showConflictWarning
-                    ? "border-amber-500/50 bg-amber-500/10 hover:bg-amber-500/15"
-                    : "border-border bg-muted/40 hover:bg-muted/70",
+      {/* Summary + primary action. */}
+      <div className="shrink-0 border-t bg-card">
+        {/* Without an editor there is nothing to summarise; the row is only
+            kept so an expanded sheet still has a way to collapse. */}
+        {isConnected && (!expanded || closing) && (
+          <div className="px-3 pt-3">
+            <button
+              type="button"
+              onClick={handleToggle}
+              aria-expanded={expanded}
+              className="flex w-full items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs transition-colors hover:bg-muted/70"
+            >
+              <span className="min-w-0 flex-1 truncate text-left text-muted-foreground">
+                {isConnected ? summaryParts.join(" · ") : t("output.notConnected")}
+              </span>
+              <span className="shrink-0 text-muted-foreground">
+                {expanded ? (
+                  <ChevronDown className="size-3.5" />
+                ) : (
+                  <ChevronUp className="size-3.5" />
                 )}
-              >
-                {showConflictWarning && (
-                  <AlertTriangle className="size-3.5 shrink-0 text-amber-600 dark:text-amber-500" />
-                )}
-                <span
-                  className={cn(
-                    "min-w-0 flex-1 truncate text-left",
-                    showConflictWarning
-                      ? "text-amber-700 dark:text-amber-400"
-                      : "text-muted-foreground",
-                  )}
-                >
-                  {isConnected ? summaryParts.join(" · ") : t("output.notConnected")}
-                </span>
-                <span className="shrink-0 text-muted-foreground">
-                  {expanded ? (
-                    <ChevronDown className="size-3.5" />
-                  ) : (
-                    <ChevronUp className="size-3.5" />
-                  )}
-                </span>
-              </button>
-            </div>
+              </span>
+            </button>
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2 p-3">
+          {isConnected && !canChooseLanguage && (
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full"
+              disabled={actionDisabled}
+              onClick={() => handlePrimaryAction()}
+            >
+              {actionLabel}
+            </Button>
           )}
 
-          <div className="flex justify-end gap-2 p-3">
-            {isConnected && !canChooseLanguage && (
-              <Button
-                type="button"
-                variant="secondary"
-                className="w-full"
-                disabled={actionDisabled}
-                onClick={() => handlePrimaryAction()}
-              >
-                {actionLabel}
-              </Button>
-            )}
-
-            {/* When the transcript carries both languages, asking here beats
-                hiding the choice in the settings sheet: it is the moment the
-                answer matters, and each option commits straight away. */}
-            {isConnected && canChooseLanguage && (
-              <Popover open={languageMenuOpen} onOpenChange={setLanguageMenuOpen}>
-                <PopoverTrigger asChild>
-                  <Button
+          {/* When the transcript carries both languages, asking here beats
+              hiding the choice in the settings sheet: it is the moment the
+              answer matters, and each option commits straight away. */}
+          {isConnected && canChooseLanguage && (
+            <Popover open={languageMenuOpen} onOpenChange={setLanguageMenuOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="w-full"
+                  disabled={actionDisabled}
+                >
+                  {actionLabel}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" side="top" className="w-64 p-1">
+                <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                  {t("output.language.prompt")}
+                </p>
+                {(
+                  [
+                    ["translated", t("output.language.translated")],
+                    ["source", t("output.language.source")],
+                    ["both", t("output.language.both")],
+                  ] as const
+                ).map(([mode, label]) => (
+                  <button
+                    key={mode}
                     type="button"
-                    variant="secondary"
-                    className="w-full"
-                    disabled={actionDisabled}
+                    onClick={() => void handlePrimaryAction(mode)}
+                    className="flex w-full flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
                   >
-                    {actionLabel}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent align="end" side="top" className="w-64 p-1">
-                  <p className="px-2 py-1.5 text-xs text-muted-foreground">
-                    {t("output.language.prompt")}
-                  </p>
-                  {(
-                    [
-                      ["translated", t("output.language.translated")],
-                      ["source", t("output.language.source")],
-                      ["both", t("output.language.both")],
-                    ] as const
-                  ).map(([mode, label]) => (
-                    <button
-                      key={mode}
-                      type="button"
-                      onClick={() => void handlePrimaryAction(mode)}
-                      className="flex w-full flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
-                    >
-                      <span>{label}</span>
-                      {mode === "both" && (
-                        <span className="text-xs text-muted-foreground">
-                          {t("output.language.bothHint")}
-                        </span>
-                      )}
-                    </button>
-                  ))}
-                </PopoverContent>
-              </Popover>
-            )}
-            <ExportPopover
-              onExport={onExport}
-              hasSubtitles={hasSubtitles}
-              trigger={
-                isConnected ? (
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="shrink-0"
-                    title={t("importExport.exportTab")}
-                  >
-                    <Download />
-                  </Button>
-                ) : (
-                  <Button variant="secondary" size="default" className="w-full">
-                    <Download className="size-4" />
-                    {t("importExport.exportTab")}
-                  </Button>
-                )
-              }
-            />
-          </div>
+                    <span>{label}</span>
+                    {mode === "both" && (
+                      <span className="text-xs text-muted-foreground">
+                        {t("output.language.bothHint")}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </PopoverContent>
+            </Popover>
+          )}
+          <ExportPopover
+            onExport={onExport}
+            hasSubtitles={hasSubtitles}
+            trigger={
+              isConnected ? (
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="shrink-0"
+                  title={t("importExport.exportTab")}
+                >
+                  <Download />
+                </Button>
+              ) : (
+                <Button variant="secondary" size="default" className="w-full">
+                  <Download className="size-4" />
+                  {t("importExport.exportTab")}
+                </Button>
+              )
+            }
+          />
         </div>
-      )}
+      </div>
     </>
   );
 }

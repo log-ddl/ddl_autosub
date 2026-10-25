@@ -1,6 +1,6 @@
 //! Getting media into a project: downloads (yt-dlp), web articles, site
-//! logins they share, background removal, Remotion renders for motion
-//! graphics, and scanning local media folders.
+//! logins they share, background removal and Remotion renders for motion
+//! graphics.
 
 pub mod analyze;
 pub mod article;
@@ -9,6 +9,5 @@ pub mod download;
 pub mod figure;
 pub mod probe;
 pub mod remotion;
-pub mod scan;
 pub mod site_session;
 pub mod stock;

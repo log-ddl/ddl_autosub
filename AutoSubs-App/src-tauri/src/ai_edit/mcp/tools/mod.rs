@@ -14,7 +14,7 @@ pub mod transcript;
 use serde_json::{json, Value};
 
 use crate::ai_edit::actions::{track_clips, track_labels, Editor};
-use crate::ai_edit::editors::{capcut, davinci, premiere};
+use crate::ai_edit::editors::premiere;
 
 pub fn tool(name: &str, description: impl Into<String>, schema: Value) -> Value {
     json!({ "name": name, "description": description.into(), "inputSchema": schema })
@@ -24,8 +24,6 @@ pub fn tool(name: &str, description: impl Into<String>, schema: Value) -> Value 
 /// `get_transcript`, `preview_timeline` where the editor can export a frame) always, the edit tools only when the run may edit (Turbo).
 pub fn tool_definitions(editor: Editor, allow_edits: bool) -> Vec<Value> {
     let snapshot_fields = match editor {
-        Editor::Davinci => davinci::SNAPSHOT_FIELDS,
-        Editor::Capcut => capcut::SNAPSHOT_FIELDS,
         Editor::Premiere => premiere::SNAPSHOT_FIELDS,
     };
     let mut tools = vec![tool(
@@ -53,8 +51,6 @@ pub fn tool_definitions(editor: Editor, allow_edits: bool) -> Vec<Value> {
     }
     if allow_edits {
         let edits = match editor {
-            Editor::Davinci => davinci::edit_tools(),
-            Editor::Capcut => capcut::edit_tools(),
             Editor::Premiere => premiere::edit_tools(),
         };
         let names: Vec<&str> = edits.iter().filter_map(|t| t["name"].as_str()).collect();
@@ -237,7 +233,6 @@ pub fn timeline_text(snapshot: &Value, filter: &TimelineFilter) -> String {
         .into_iter()
         .flatten()
         .filter_map(|m| {
-            // Resolve and Premiere say atSec/name, CapCut startSec/title.
             let at = num(m, "atSec").or_else(|| num(m, "startSec")).unwrap_or(0.0);
             if !filter.keeps_span(at, at) {
                 return None;
@@ -267,11 +262,14 @@ fn transcript_tool() -> Value {
          then cut them with remove_ranges. map: true is the compact voice map for planning a video: one \
          line per sentence with its times, long pauses marked ‖, and the words that carry a number or a \
          name listed with their time (where a picture can land); look up other word times later with \
-         words and fromSec/toSec.",
+         words and fromSec/toSec. path reads a subtitle file the user gave (.srt or .vtt, full path \
+         or media id) instead: when the user hands you one, use it for every call, since they trust \
+         its text and timing over the app's transcription.",
         json!({
             "type": "object",
             "properties": {
                 "file": { "type": "string", "description": "A filename from the list of other transcripts" },
+                "path": { "type": "string", "description": "A subtitle file (.srt or .vtt) to read instead: full path or media id" },
                 "fromSec": { "type": "number", "description": "Only segments ending after this time" },
                 "toSec": { "type": "number", "description": "Only segments starting before this time" },
                 "words": { "type": "boolean", "description": "Include per-word timings" },
@@ -502,15 +500,11 @@ mod tests {
 
     #[test]
     fn manual_mode_is_read_only() {
-        assert_eq!(names(&tool_definitions(Editor::Davinci, false)), ["get_timeline", "get_transcript", "preview_timeline"]);
         assert_eq!(names(&tool_definitions(Editor::Premiere, false)), ["get_timeline", "get_transcript", "preview_timeline"]);
-        assert_eq!(names(&tool_definitions(Editor::Capcut, false)), ["get_timeline", "get_transcript"]);
     }
 
     #[test]
     fn tools_follow_the_editor() {
-        let davinci = tool_definitions(Editor::Davinci, true);
-        let capcut = tool_definitions(Editor::Capcut, true);
         let premiere = tool_definitions(Editor::Premiere, true);
         let all = [
             "get_timeline", "get_transcript", "build_storyboard", "add_marker", "add_text", "update_clip",
@@ -519,19 +513,14 @@ mod tests {
         fn without_preview(tools: &[Value]) -> Vec<&str> {
             names(tools).into_iter().filter(|n| *n != "preview_timeline").collect()
         }
-        assert_eq!(without_preview(&davinci), all);
-        assert_eq!(names(&capcut), all);
         assert_eq!(without_preview(&premiere)[..10], all[..10]);
         assert_eq!(without_preview(&premiere)[10..], ["add_effects", "add_transitions", "apply_actions"]);
         let props = |tools: &[Value], name: &str| {
             tools.iter().find(|t| t["name"] == name).map(|t| t["inputSchema"]["properties"].clone()).unwrap()
         };
         assert!(props(&premiere, "update_clip").get("tracks").is_some());
-        assert!(props(&davinci, "delete_clips").get("ripple").is_some());
-        assert!(props(&capcut, "delete_clips").get("ripple").is_none());
-        assert!(props(&capcut, "update_clip").get("zoomEnd").is_some());
-        assert!(props(&davinci, "update_clip").get("zoomEnd").is_none());
-        assert!(props(&davinci, "update_clip").get("startSec").is_some());
+        assert!(props(&premiere, "delete_clips").get("ripple").is_some());
+        assert!(props(&premiere, "update_clip").get("startSec").is_some());
         assert!(props(&premiere, "update_clip").get("volume").is_some());
 
         let snapshot = json!({
@@ -560,7 +549,8 @@ mod tests {
         assert!(!part.contains("Markers"), "{}", part);
         let early = timeline_text(&snapshot, &TimelineFilter::from_args(&json!({ "toSec": 4.0 })));
         assert!(early.contains("V1 a1 0.00-4.00") && early.contains("A1 s1") && !early.contains("a2 4.00"), "{}", early);
-        let batch_tools = &props(&davinci, "apply_actions")["actions"]["items"]["properties"]["tool"]["enum"];
-        assert_eq!(batch_tools, &json!(all[2..10]));
+        let batch_tools = &props(&premiere, "apply_actions")["actions"]["items"]["properties"]["tool"]["enum"];
+        assert_eq!(batch_tools, &json!(["build_storyboard", "add_marker", "add_text", "update_clip", "delete_clips",
+            "split_clips", "remove_ranges", "remove_marker", "add_effects", "add_transitions"]));
     }
 }

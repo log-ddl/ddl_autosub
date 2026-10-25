@@ -2,7 +2,7 @@ import * as React from "react";
 import { AudioLines, Gauge, Clock, Terminal, ChevronDown } from "lucide-react";
 import { DeleteIcon, type DeleteIconHandle } from "@/components/ui/icons/delete";
 import { useSettingsStore } from "@/stores/settings-store";
-import { ask, message } from "@tauri-apps/plugin-dialog";
+import { ask } from "@tauri-apps/plugin-dialog";
 import { useTranslation } from "react-i18next";
 import {
   Dialog,
@@ -31,28 +31,7 @@ import { ExternalAgentPanel } from "@/components/external-agent/external-agent-p
 import { uiLanguages } from "@/lib/languages";
 import { useRef } from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import {
-  getCliCommandStatus,
-  installCliCommand,
-  openLogDir,
-  uninstallCliCommand,
-  type CliCommandStatus,
-} from "@/api/system-api";
-
-function highlightCommand(text: string, command = "autosubs") {
-  const parts = text.split(command);
-  return parts.reduce<React.ReactNode[]>((result, part, index) => {
-    if (index > 0) {
-      result.push(
-        <code key={index} className="rounded bg-muted px-1 py-0.5 text-xs font-mono">
-          {command}
-        </code>
-      );
-    }
-    result.push(part);
-    return result;
-  }, []);
-}
+import { openLogDir } from "@/api/system-api";
 
 interface SettingsDialogProps {
   open: boolean;
@@ -126,42 +105,6 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     }
   }, []);
 
-  // Command-line tool ("autosubs" on PATH). Status is queried when the dialog
-  // opens; install/uninstall are handled by the backend per-platform.
-  const [cliStatus, setCliStatus] = React.useState<CliCommandStatus | null>(null);
-  const [cliBusy, setCliBusy] = React.useState(false);
-
-  const refreshCliStatus = React.useCallback(async () => {
-    try {
-      setCliStatus(await getCliCommandStatus());
-    } catch (err) {
-      console.error("[SettingsDialog] failed to read CLI status:", err);
-      setCliStatus(null);
-    }
-  }, []);
-
-  React.useEffect(() => {
-    if (open) refreshCliStatus();
-  }, [open, refreshCliStatus]);
-
-  const handleCliToggle = React.useCallback(async () => {
-    if (!cliStatus?.manageable) return;
-    setCliBusy(true);
-    try {
-      setCliStatus(await (cliStatus.installed ? uninstallCliCommand() : installCliCommand()));
-    } catch (err) {
-      const msg = String(err);
-      // User dismissing the macOS admin prompt is a normal, silent outcome.
-      if (msg !== "Cancelled.") {
-        console.error("[SettingsDialog] CLI install/uninstall failed:", err);
-        await message(msg, { title: t("settings.cli.errorTitle", "Command-line tool"), kind: "error" });
-      }
-      await refreshCliStatus();
-    } finally {
-      setCliBusy(false);
-    }
-  }, [cliStatus, refreshCliStatus, t]);
-
   React.useEffect(() => {
     if (!open) {
       setCanScrollDown(false);
@@ -180,7 +123,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
       ? new ResizeObserver(() => updateScrollHint())
       : null;
     resizeObserver?.observe(el);
-    // Content height can change independently of the viewport (e.g. CLI section).
+    // Content height can change independently of the viewport.
     if (el.firstElementChild) {
       resizeObserver?.observe(el.firstElementChild);
     }
@@ -192,7 +135,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
       resizeObserver?.disconnect();
       window.removeEventListener("resize", updateScrollHint);
     };
-  }, [open, updateScrollHint, cliStatus, i18n.language]);
+  }, [open, updateScrollHint, i18n.language]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -359,58 +302,6 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             {/* Claude Code, Antigravity... driving AutoSubs from their own app */}
             <ExternalAgentPanel />
 
-            {/* Command-line tool */}
-            {cliStatus && (
-              <div className="space-y-3">
-                <h4 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                  {t("settings.sections.cli", "Command line")}
-                </h4>
-
-                <FieldGroup className="gap-3">
-                  <Field>
-                    <Item variant="outline" size="sm">
-                      <ItemMedia variant="icon" className="bg-green-100 dark:bg-green-900/30">
-                        <Terminal className="size-4 text-green-600 dark:text-green-400" />
-                      </ItemMedia>
-                      <ItemContent>
-                        <ItemTitle>{t("settings.cli.title", "Command-line tool")}</ItemTitle>
-                        <ItemDescription className="text-xs leading-tight line-clamp-2">
-                          {cliStatus.manageable
-                            ? highlightCommand(
-                                t(
-                                  "settings.cli.description",
-                                  "Install the {{cmd}} command so you can transcribe files from any terminal.",
-                                  { cmd: "autosubs" }
-                                )
-                              )
-                            : cliStatus.note ?? ""}
-                        </ItemDescription>
-                      </ItemContent>
-                      <ItemActions>
-                        {cliStatus.manageable ? (
-                          <Button
-                            variant={cliStatus.installed ? "outline" : "secondary"}
-                            size="sm"
-                            disabled={cliBusy}
-                            onClick={handleCliToggle}
-                          >
-                            {cliStatus.installed
-                              ? t("settings.cli.remove", "Remove")
-                              : t("settings.cli.install", "Install")}
-                          </Button>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">
-                            {cliStatus.installed
-                              ? t("settings.cli.available", "Available")
-                              : t("settings.cli.notFound", "Not found")}
-                          </span>
-                        )}
-                      </ItemActions>
-                    </Item>
-                  </Field>
-                </FieldGroup>
-              </div>
-            )}
             </div>
 
             {canScrollDown && (

@@ -2,8 +2,6 @@ import * as React from "react";
 import i18n from "i18next";
 import { intro, userAndMemorySections, workspaceSection } from "../prompts/shared";
 import { editorLabel } from "../ai-edit-helpers";
-import { useCapCutAdapter } from "./capcut";
-import { useDavinciAdapter } from "./davinci";
 import { usePremiereAdapter } from "./premiere";
 import type { EditorAdapter } from "./types";
 
@@ -15,24 +13,18 @@ export type { EditorAdapter } from "./types";
  * render (rules of hooks); only the selected one is returned.
  */
 export function useEditorAdapter(integration: string): EditorAdapter {
-  const davinci = useDavinciAdapter();
   const premiere = usePremiereAdapter();
-  const capcut = useCapCutAdapter(integration === "capcut");
   const unsupported = React.useMemo(() => unsupportedAdapter(integration), [integration]);
 
   switch (integration) {
-    case "davinci":
-      return davinci;
     case "premiere":
       return premiere;
-    case "capcut":
-      return capcut;
     default:
       return unsupported;
   }
 }
 
-/** An editor AI Edit cannot drive yet (After Effects): chat only, no timeline tools. */
+/** An editor AI Edit cannot drive: chat only, no timeline tools. */
 function unsupportedAdapter(integration: string): EditorAdapter {
   const name = editorLabel(integration);
   return {

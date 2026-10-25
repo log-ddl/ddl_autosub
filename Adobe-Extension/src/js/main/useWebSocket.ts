@@ -216,33 +216,6 @@ export const useWebSocket = (port: number) => {
         sendMessage({ type: "import_srt_response", payload: importData, sessionId: message.sessionId, operationId: opId });
         break;
       }
-      case "request_build_storyboard": {
-        if (!isRecord(message.payload)) {
-          addLog("Rejected malformed storyboard request", "error");
-          sendMessage({ type: "build_storyboard_response", payload: JSON.stringify({ success: false, error: "Malformed storyboard request" }), sessionId: message.sessionId, operationId: opId });
-          break;
-        }
-
-        addLog("Building slideshow on the sequence", "info");
-        // evalTS inlines the argument into the script text it hands to
-        // evalScript, and JSON.stringify leaves non-ASCII characters literal.
-        // ExtendScript's parser chokes on those (an emoji in a filename is a
-        // surrogate pair), and the eval callback then never fires — the request
-        // just times out. Escaping every non-ASCII code unit to \uXXXX keeps the
-        // script pure ASCII; JSON.parse on the other side restores the original.
-        const specJson = JSON.stringify(message.payload).replace(
-          /[^\x00-\x7F]/g,
-          (ch) => "\\u" + ("0000" + ch.charCodeAt(0).toString(16)).slice(-4),
-        );
-        const storyboardResult = await executeWithRetry(() => evalTS("buildStoryboard", specJson));
-        // An eval that never returned would otherwise send an empty payload,
-        // which reads on the app side as a nameless failure.
-        const storyboardPayload = storyboardResult.success
-          ? storyboardResult.data
-          : JSON.stringify({ success: false, error: storyboardResult.error || "buildStoryboard failed" });
-        sendMessage({ type: "build_storyboard_response", payload: storyboardPayload, sessionId: message.sessionId, operationId: opId });
-        break;
-      }
       case "request_ai_edit": {
         // AI Edit tab: one request shape for every timeline edit. The app side
         // (editors/premiere.rs) waits for the reply by sessionId.
@@ -253,7 +226,12 @@ export const useWebSocket = (port: number) => {
         }
 
         addLog(`AI Edit: ${message.payload.func}`, "info");
-        // Same ASCII escaping as request_build_storyboard, for the same reason.
+        // evalTS inlines the argument into the script text it hands to
+        // evalScript, and JSON.stringify leaves non-ASCII characters literal.
+        // ExtendScript's parser chokes on those (an emoji in a filename is a
+        // surrogate pair), and the eval callback then never fires — the request
+        // just times out. Escaping every non-ASCII code unit to \uXXXX keeps the
+        // script pure ASCII; JSON.parse on the other side restores the original.
         const requestJson = JSON.stringify(message.payload).replace(
           /[^\x00-\x7F]/g,
           (ch) => "\\u" + ("0000" + ch.charCodeAt(0).toString(16)).slice(-4),
@@ -307,10 +285,7 @@ export const useWebSocket = (port: number) => {
       updateState({ status: 'connected', reconnectAttempts: 0, lastHeartbeat: Date.now() });
       addLog("Connected to AutoSubs app", "success");
       
-      const hostEnv = window.__adobe_cep__ ? JSON.parse(window.__adobe_cep__.getHostEnvironment()) : { appId: "PPRO" };
-      const integration = hostEnv.appId.toLowerCase() === 'aeft' ? 'aftereffects' : 'premiere';
-      
-      sendMessage({ type: "handshake", payload: integration, clientVersion: "1.0.0" });
+      sendMessage({ type: "handshake", payload: "premiere", clientVersion: "1.0.0" });
       processQueue();
       refreshSequenceInfo();
       if (heartbeatTimer.current) clearInterval(heartbeatTimer.current);

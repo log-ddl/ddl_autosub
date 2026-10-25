@@ -59,7 +59,7 @@ struct Config {
 #[derive(Clone, Debug)]
 pub struct Current {
     pub target: EditTarget,
-    /// "My Film" (DaVinci project, Premiere sequence, CapCut draft).
+    /// "My Film" (the Premiere sequence).
     pub label: Option<String>,
     pub workspace: Option<PathBuf>,
 }
@@ -233,7 +233,7 @@ pub fn current() -> Option<Current> {
 /// Stands in for a target before the app has seen a project; no editor
 /// tools are listed for it.
 pub fn fallback_target() -> EditTarget {
-    EditTarget { editor: Editor::Davinci, draft_id: None, transcript_file: None }
+    EditTarget { editor: Editor::Premiere, transcript_file: None }
 }
 
 /// A client's `initialize`: returns the session id to hand back.
@@ -347,7 +347,7 @@ fn instructions_md(cur: Option<&Current>) -> String {
     format!(
         "{HOME_MARK}\n# AutoSubs\n\n\
          This folder is where you drive AutoSubs, a video editing assistant connected to the user's \
-         editor (DaVinci Resolve, Premiere Pro or CapCut). Right now it follows: {project}.\n\n\
+         editor (Premiere Pro). Right now it follows: {project}.\n\n\
          - Every edit, search, download and analysis goes through the `{SERVER_NAME}` MCP server. \
          Its tools act on the editor project AutoSubs has open, and it saves files in that project's \
          folder, which `project/` here links to (media in `project/media`, contact sheets in \
@@ -415,6 +415,8 @@ pub fn write_home(app: &AppHandle) {
     if let Some(lib) = global_workspace_root(app).ok().and_then(|g| ensure_library(&g).ok()) {
         crate::ai_cli::library::sync_agents(&lib, &home);
         crate::ai_cli::library::sync_skills(&lib, &home.join(".claude/skills"));
+        // Antigravity reads the workspace's own `.agents/skills`.
+        crate::ai_cli::library::sync_skills(&lib, &home.join(".agents/skills"));
     }
 
     // `project` -> the open project's workspace.
@@ -462,7 +464,7 @@ pub struct Status {
     pub token: String,
     pub server_name: String,
     pub home: String,
-    /// "DaVinci Resolve", or None before the app has seen an editor project.
+    /// "Premiere Pro", or None before the app has seen an editor project.
     pub editor: Option<String>,
     pub project: Option<String>,
     pub clients: Vec<ClientStatus>,
@@ -621,7 +623,6 @@ pub async fn external_agent_set_target(
         let same = match (&st.current, &next) {
             (Some(a), Some(b)) => {
                 a.target.editor == b.target.editor
-                    && a.target.draft_id == b.target.draft_id
                     && a.label == b.label
                     && a.workspace == b.workspace
             }
@@ -917,7 +918,7 @@ mod tests {
         assert!(String::from_utf8_lossy(&buf[..n]).contains("text/event-stream"));
 
         lock().current = Some(Current {
-            target: EditTarget { editor: Editor::Premiere, draft_id: None, transcript_file: None },
+            target: EditTarget { editor: Editor::Premiere, transcript_file: None },
             label: None,
             workspace: None,
         });
@@ -974,7 +975,7 @@ mod tests {
     #[test]
     fn instructions_name_the_project() {
         let cur = Current {
-            target: EditTarget { editor: Editor::Premiere, draft_id: None, transcript_file: None },
+            target: EditTarget { editor: Editor::Premiere, transcript_file: None },
             label: Some("Vlog 3".into()),
             workspace: None,
         };
