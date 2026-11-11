@@ -33,3 +33,7 @@ test("every language has translated names and a native preview sample",()=>{
   }
   assert.deepEqual(Object.keys(en).sort(),Object.keys(vi).sort());
 });
+test("unbundled voice IDs do not create synthetic matches",()=>{
+  const elevenVoices=voices.filter(v=>v.provider==="elevenlabs");
+  assert.equal(filterVoices(elevenVoices,{...all,query:"CustomVoiceId9999999"},new Set()).length,0);
+});

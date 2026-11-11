@@ -2,6 +2,7 @@
 
 pub mod batch;
 pub mod bootstrap;
+pub mod dialogue;
 pub mod managed_python;
 pub mod paths;
 pub mod providers;
@@ -187,6 +188,9 @@ pub struct TtsGeneratePayload {
     pub profile_id: Option<String>,
     pub reference_audio_path: Option<String>,
     pub reference_text: Option<String>,
+    pub speakers: Option<HashMap<String, dialogue::TtsSpeakerVoice>>,
+    pub turns: Option<Vec<dialogue::TtsDialogueTurn>>,
+    pub gap_sec: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -195,6 +199,8 @@ pub struct TtsGenerateResult {
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub srt_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sample_rate: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -207,6 +213,8 @@ pub struct TtsGenerateResult {
     pub part_durations_sec: Option<Vec<f64>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub part_gap_sec: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub turns: Option<Vec<dialogue::TtsTurnTiming>>,
 }
 
 impl TtsGenerateResult {
@@ -214,12 +222,14 @@ impl TtsGenerateResult {
         Self {
             success: false,
             output_path: None,
+            srt_path: None,
             sample_rate: None,
             duration_sec: None,
             canceled: None,
             error: Some(msg.into()),
             part_durations_sec: None,
             part_gap_sec: None,
+            turns: None,
         }
     }
 
@@ -227,12 +237,14 @@ impl TtsGenerateResult {
         Self {
             success: false,
             output_path: None,
+            srt_path: None,
             sample_rate: None,
             duration_sec: None,
             canceled: Some(true),
             error: None,
             part_durations_sec: None,
             part_gap_sec: None,
+            turns: None,
         }
     }
 }
@@ -272,8 +284,8 @@ pub async fn synthesize_single(
     emit_events: bool,
 ) -> TtsGenerateResult {
     match payload.provider.as_deref().unwrap_or("omnivoice") {
-        "capcut" | "elevenlabs" => return providers::generate(app, &payload).await,
-        "vieneu" => return vieneu::generate(app, &payload).await,
+        "capcut" | "elevenlabs" => return providers::generate(app, &payload, emit_events).await,
+        "vieneu" => return vieneu::generate(app, &payload, emit_events).await,
         "omnivoice" => {}
         _ => return TtsGenerateResult::err("Unknown TTS provider"),
     }
@@ -403,6 +415,7 @@ pub async fn synthesize_single(
     TtsGenerateResult {
         success: true,
         output_path: Some(out_path.to_string_lossy().into_owned()),
+        srt_path: None,
         sample_rate: res
             .get("sampleRate")
             .and_then(|v| v.as_u64())
@@ -412,6 +425,7 @@ pub async fn synthesize_single(
         error: None,
         part_durations_sec: None,
         part_gap_sec: None,
+        turns: None,
     }
 }
 
@@ -589,12 +603,11 @@ pub async fn tts_remove_voice_prompt(
     })
 }
 
-#[tauri::command]
-pub async fn tts_generate(
-    app: AppHandle,
-    payload: TtsGeneratePayload,
+pub async fn run_tts_generate(
+    app: &AppHandle,
+    mut payload: TtsGeneratePayload,
 ) -> Result<TtsGenerateResult, String> {
-    allow_output_dir(&app);
+    allow_output_dir(app);
     if payload.job_id.is_empty()
         || payload.job_id.len() > 120
         || !payload
@@ -605,6 +618,16 @@ pub async fn tts_generate(
         return Err("Invalid job ID".into());
     }
 
+    let profiles = dialogue::load_profiles(app);
+    dialogue::hydrate_payload_profile(&mut payload, &profiles);
+
+    let has_explicit_turns = payload.turns.as_ref().is_some_and(|t| !t.is_empty());
+    let has_dialogue_tags = !dialogue::extract_dialogue_tags(&payload.text).is_empty();
+    let has_speakers_map = payload.speakers.as_ref().is_some_and(|s| !s.is_empty());
+    if has_explicit_turns || has_dialogue_tags || has_speakers_map {
+        return Ok(dialogue::generate_dialogue(app, payload).await);
+    }
+
     if let Some(mode) = payload.split_mode.as_deref() {
         if mode != "default" {
             let parts = if mode == "line" {
@@ -613,12 +636,56 @@ pub async fn tts_generate(
                 split_sentences(&payload.text)
             };
             if parts.len() > 1 {
-                return Ok(generate_split(&app, payload, parts).await);
+                return Ok(generate_split(app, payload, parts).await);
             }
         }
     }
 
-    Ok(synthesize_single(&app, payload, true).await)
+    let is_preview = payload.job_id.starts_with("preview-");
+    let spoken_text = payload.text.trim().to_string();
+    let job_id = payload.job_id.clone();
+    let mut res = synthesize_single(app, payload, true).await;
+    if res.success && !is_preview && !spoken_text.is_empty() {
+        if let Some(out_str) = res.output_path.clone() {
+            let out_p = Path::new(&out_str);
+            let dur = res
+                .duration_sec
+                .or_else(|| crate::media::probe::duration_secs(out_p))
+                .unwrap_or(0.0);
+            res.duration_sec = if dur > 0.0 { Some(dur) } else { res.duration_sec };
+            if dur > 0.0 {
+                let timings = dialogue::build_turn_timings(
+                    &[("narrator".to_string(), spoken_text, dur)],
+                    &[],
+                );
+                if let Ok(out_dir) = output_root(app) {
+                    let srt_file = out_dir.join(format!("{}.srt", job_id));
+                    if dialogue::write_srt_file(&srt_file, &timings).is_ok() {
+                        allow_audio_file(app, &srt_file);
+                        res.srt_path = Some(srt_file.to_string_lossy().into_owned());
+                    }
+                }
+                res.turns = Some(timings);
+            }
+        }
+    }
+    Ok(res)
+}
+
+#[tauri::command]
+pub async fn tts_generate(
+    app: AppHandle,
+    payload: TtsGeneratePayload,
+) -> Result<TtsGenerateResult, String> {
+    run_tts_generate(&app, payload).await
+}
+
+#[tauri::command]
+pub fn tts_sync_profiles(
+    app: AppHandle,
+    profiles: Vec<dialogue::SavedVoiceProfile>,
+) -> Result<(), String> {
+    dialogue::save_profiles(&app, &profiles)
 }
 
 #[tauri::command]
@@ -673,14 +740,16 @@ pub async fn tts_export_audio(
             file_path: None,
         });
     }
-    let ext = if src
+    let raw_ext = src
         .extension()
         .and_then(|e| e.to_str())
-        .is_some_and(|e| e.eq_ignore_ascii_case("mp3"))
-    {
-        "mp3"
+        .unwrap_or("wav");
+    let (ext, filter_label) = if raw_ext.eq_ignore_ascii_case("mp3") {
+        ("mp3", "MP3 audio")
+    } else if raw_ext.eq_ignore_ascii_case("srt") {
+        ("srt", "SRT subtitle")
     } else {
-        "wav"
+        ("wav", "WAV audio")
     };
     let default_name = src
         .file_name()
@@ -689,14 +758,11 @@ pub async fn tts_export_audio(
         .to_string();
 
     let (tx, rx) = oneshot::channel();
-    let mut builder = app.dialog().file().set_file_name(default_name).add_filter(
-        if ext == "mp3" {
-            "MP3 audio"
-        } else {
-            "WAV audio"
-        },
-        &[ext],
-    );
+    let mut builder = app
+        .dialog()
+        .file()
+        .set_file_name(default_name)
+        .add_filter(filter_label, &[ext]);
     if let Some(t) = title.filter(|s| !s.is_empty()) {
         builder = builder.set_title(t);
     }

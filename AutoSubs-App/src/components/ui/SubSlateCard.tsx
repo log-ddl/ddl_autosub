@@ -175,7 +175,7 @@ export default function SubSlateCard({
 
               <div className="ss-brand-row">
                 <div className="ss-brand">SubSlate</div>
-                <div className="ss-creator">{t("subSlate.creator", "From the creator of AutoSubs")}</div>
+                <div className="ss-creator">{t("subSlate.creator", "From the creator of logdd")}</div>
               </div>
 
               <div className="ss-art-wrap">

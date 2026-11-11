@@ -177,7 +177,7 @@ fn create_main_window(app: &tauri::AppHandle) -> tauri::Result<tauri::WebviewWin
     #[allow(unused_mut)]
     let mut builder =
         tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
-            .title("AutoSubs")
+            .title("logdd")
             .inner_size(850.0, 850.0)
             .decorations(true)
             .accept_first_mouse(true)
@@ -244,11 +244,11 @@ fn main() {
 
             crate::bridges::adobe::bridge::init_adobe_server(app.handle().clone());
 
-            // Set window title to "AutoSubs" on Windows and Linux for taskbar display
+            // Set window title to "logdd" on Windows and Linux for taskbar display
             #[cfg(any(target_os = "windows", target_os = "linux"))]
             {
                 if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.set_title("AutoSubs");
+                    let _ = window.set_title("logdd");
                 }
             }
 
@@ -376,6 +376,7 @@ fn main() {
             article::article_snapshot,
             tts::tts_get_status,
             tts::tts_voice_catalog,
+            tts::tts_sync_profiles,
             tts::vieneu::tts_vieneu_status,
             tts::vieneu::tts_install_vieneu,
             tts::tts_install_model,

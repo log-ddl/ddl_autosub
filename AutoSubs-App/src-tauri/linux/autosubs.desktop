@@ -1,8 +1,8 @@
 [Desktop Entry]
 Categories=AudioVideo;Video;
 Comment=Instantly generate AI-powered subtitles
-Exec=env WEBKIT_DISABLE_DMABUF_RENDERER=1 /usr/bin/autosubs %u
-Icon=autosubs
-Name=AutoSubs
+Exec=env WEBKIT_DISABLE_DMABUF_RENDERER=1 /usr/bin/logdd %u
+Icon=logdd
+Name=logdd
 Terminal=false
 Type=Application

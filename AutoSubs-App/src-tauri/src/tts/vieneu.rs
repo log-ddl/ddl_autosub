@@ -115,12 +115,27 @@ pub async fn tts_install_vieneu(
         file_path: None,
     })
 }
-pub async fn generate(app: &AppHandle, p: &TtsGeneratePayload) -> TtsGenerateResult {
-    let result:Result<Value,String>=async{
-        if !root(app)?.join(".ready").is_file(){return Err("Install VieNeu first".into());}
-        let out=output_root(app)?;std::fs::create_dir_all(&out).map_err(|e|e.to_string())?;
-        let path=out.join(format!("{}.wav",uuid::Uuid::new_v4()));
-        emit_generate_progress(app,&p.job_id,"generating",Some(10.0),"tts.provider.processing");
+pub async fn generate(
+    app: &AppHandle,
+    p: &TtsGeneratePayload,
+    emit_events: bool,
+) -> TtsGenerateResult {
+    let result: Result<Value, String> = async {
+        if !root(app)?.join(".ready").is_file() {
+            return Err("Install VieNeu first".into());
+        }
+        let out = output_root(app)?;
+        std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+        let path = out.join(format!("{}.wav", uuid::Uuid::new_v4()));
+        if emit_events {
+            emit_generate_progress(
+                app,
+                &p.job_id,
+                "generating",
+                Some(10.0),
+                "tts.provider.processing",
+            );
+        }
         let data=run(app,&p.job_id,json!({"text":p.text,"voiceId":p.voice_id,"referenceAudioPath":p.reference_audio_path,"outputPath":path})).await?;
         // Keep the speed control meaningful for this CPU model too.
         let speed=p.speed.unwrap_or(1.0).clamp(0.75,1.5);
@@ -135,6 +150,7 @@ pub async fn generate(app: &AppHandle, p: &TtsGeneratePayload) -> TtsGenerateRes
         Ok(v) => TtsGenerateResult {
             success: true,
             output_path: v["outputPath"].as_str().map(Into::into),
+            srt_path: None,
             sample_rate: v["sampleRate"].as_u64().map(|n| n as u32),
             duration_sec: v["durationSec"]
                 .as_f64()
@@ -143,6 +159,7 @@ pub async fn generate(app: &AppHandle, p: &TtsGeneratePayload) -> TtsGenerateRes
             error: None,
             part_durations_sec: None,
             part_gap_sec: None,
+            turns: None,
         },
         Err(e) if e == "Canceled" => TtsGenerateResult::canceled(),
         Err(e) => TtsGenerateResult::err(e),

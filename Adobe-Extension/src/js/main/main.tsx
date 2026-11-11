@@ -48,7 +48,7 @@ const AppContent = () => {
   return (
     <div className="app" style={{ backgroundColor: bgColor }}>
       <header className="header">
-        <h1 className="title">AutoSubs</h1>
+        <h1 className="title">logdd</h1>
         <p className="subtitle">Adobe Extension</p>
       </header>
 

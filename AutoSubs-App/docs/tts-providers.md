@@ -7,7 +7,7 @@ service availability is decided by CapCut, not by the bundled catalog.
 
 ## Voice selection
 
-- Search names or complete/partial provider voice IDs.
+- Search names or complete/partial provider voice IDs within the bundled catalog.
 - Provider voice IDs are hidden in the list and selected-voice card, but remain searchable.
 - Language filters use localized English/Vietnamese names; rows retain short language codes.
 - Rows show gender icons with accessible labels; unknown gender uses a neutral icon.
@@ -24,10 +24,15 @@ service availability is decided by CapCut, not by the bundled catalog.
 
 ## Runtime
 
-CapCut/ElevenLabs run in Rust without a Python/model install. Requests submit
-once, poll for up to 180 seconds and validate returned MP3 data; downloads only
-allow known HTTPS media domains, without redirects. Cancel stops waiting and
-network activity but cannot recall a task already accepted by the service.
+CapCut/ElevenLabs run in Rust without a Python/model install. The bundled voice
+index, RSA public key, device identity, and keep-alive HTTP client are cached in
+memory. Requests submit once, poll adaptively (`450ms` ramping to `2000ms`) for
+up to 180 seconds with transient query retries, surface provider error details,
+and validate returned MP3 data; downloads only allow known HTTPS media domains,
+without redirects. Line and sentence split modes synthesize up to 4 parts
+concurrently for online providers while keeping local models sequential. Cancel
+stops waiting and network activity but cannot recall a task already accepted by
+the service.
 Protocol attribution is bundled at `resources/tts/LICENSE-capcut-tts.txt`.
 
 VieNeu has its own managed Python environment under app data `runtimes/vieneu`,
@@ -40,6 +45,13 @@ not been verified merely by a successful TypeScript/Rust build.
 The online catalog is a snapshot, not a promise every listed voice is usable.
 No ElevenLabs API key is required for this CapCut-backed route. This is not the
 official ElevenLabs API adapter.
+
+## Multi-speaker Dialogue & MCP
+
+- Scripts containing paired speaker tags wrapped on both ends (`[A] ... [A]`, `[ID1] ... [ID1]`, or `[A] ... [/A]`) switch to multi-speaker dialogue synthesis (`tts::dialogue`). All text outside paired speaker tags uses the default Narrator voice, whether inline in the same paragraph or across multiple lines. Emotion/stage tags (`[laugh]`, `[sigh]`, `[pause]`, ...) and single brackets (`[1]`, `[note]`) are ignored.
+- Speakers can mix providers freely (`capcut`, `vieneu`, `omnivoice`, `elevenlabs`, or saved cloned voice profiles synced to `<app_data>/tts/profiles.json`). Online turns run with up to 4 concurrent requests while local models serialize safely.
+- Every split or dialogue run writes a matching `.srt` file alongside the merged audio and returns per-turn `turns` timings (`startSec`, `endSec`, `speaker`, `text`).
+- The app-wide MCP server exposes `list_tts_voices` and `generate_speech` (`src-tauri/src/ai_edit/mcp/tools/tts.rs`) for both in-app AI Edit and external agents (`autosubs-app` on port `47185`), working both with an open Premiere project (saving into `<workspace>/media/audio/voice/` with short media IDs) and standalone (saving into `<studio_home>/voice/`).
 
 ## Verification
 

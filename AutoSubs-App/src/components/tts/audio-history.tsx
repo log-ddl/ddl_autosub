@@ -20,6 +20,7 @@ interface AudioHistoryProps {
   onRemove: (id: string) => void;
   onReveal: (filePath: string) => void;
   onExport: (filePath: string) => void;
+  onExportSrt?: (srtPath: string) => void;
 }
 
 export function AudioHistory({
@@ -28,6 +29,7 @@ export function AudioHistory({
   onRemove,
   onReveal,
   onExport,
+  onExportSrt,
 }: AudioHistoryProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
@@ -144,6 +146,7 @@ export function AudioHistory({
                 onRemove={onRemove}
                 onReveal={onReveal}
                 onExport={onExport}
+                onExportSrt={onExportSrt}
               />
             ))
           )}

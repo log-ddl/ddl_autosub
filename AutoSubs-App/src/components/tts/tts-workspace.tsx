@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { AudioHistory } from "./audio-history";
 import { BatchFolderCard } from "./batch-folder-card";
+import { DialogueCastCard } from "./dialogue-cast-card";
 import { MissingModelDialog } from "./dialogs/missing-model-dialog";
 import { ModelManagerDialog } from "./dialogs/model-manager-dialog";
 import { VoiceProfileDialog } from "./dialogs/voice-profile-dialog";
@@ -57,6 +58,8 @@ export function TtsWorkspace() {
               splitMode={controller.splitMode}
             />
 
+            <DialogueCastCard controller={controller} />
+
             {controller.busy && controller.progress && (
               <GenerationProgress
                 progress={controller.progress}
@@ -97,6 +100,7 @@ export function TtsWorkspace() {
               onRemove={controller.removeHistory}
               onReveal={(filePath) => void controller.revealAudio(filePath)}
               onExport={(filePath) => void controller.exportAudio(filePath)}
+              onExportSrt={(srtPath) => void controller.exportSrt(srtPath)}
             />
           </div>
         </section>

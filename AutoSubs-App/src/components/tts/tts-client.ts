@@ -10,6 +10,7 @@ import type {
   TtsGenerateResult,
   TtsModelStatus,
   TtsProgressEvent,
+  VoiceProfile,
 } from "./types";
 
 export function createTtsJobId(
@@ -29,6 +30,9 @@ export function toLocalTtsAudioUrl(filePath: string): string {
 export const ttsClient = {
   getCatalog(): Promise<CatalogVoice[]> {
     return invoke("tts_voice_catalog");
+  },
+  syncProfiles(profiles: VoiceProfile[]): Promise<void> {
+    return invoke("tts_sync_profiles", { profiles });
   },
   getVieneuStatus(): Promise<TtsModelStatus> {
     return invoke("tts_vieneu_status");

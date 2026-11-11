@@ -6,6 +6,7 @@ import type {
   TtsMode,
   TtsProvider,
   TtsSavedLanguage,
+  TtsSpeakerVoiceConfig,
   TtsSplitMode,
   VoiceProfile,
 } from "@/components/tts/types";
@@ -46,8 +47,10 @@ interface TtsState {
   advancedSettings: TtsAdvancedSettings;
   selectedProfileId?: string;
   voiceProfiles: VoiceProfile[];
+  speakerVoices: Record<string, TtsSpeakerVoiceConfig>;
   history: TtsHistoryItem[];
   hasSeenModelPrompt: boolean;
+  setSpeakerVoice: (tag: string, config: TtsSpeakerVoiceConfig) => void;
   setText: (value: string) => void;
   setInstruction: (value: string) => void;
   setMode: (value: TtsMode) => void;
@@ -103,8 +106,20 @@ export const useTtsStore = create<TtsState>()(
       advancedSettings: { ...DEFAULT_TTS_ADVANCED_SETTINGS },
       selectedProfileId: undefined,
       voiceProfiles: [],
+      speakerVoices: {},
       history: [],
       hasSeenModelPrompt: false,
+      setSpeakerVoice: (tag, config) =>
+        set((state) => {
+          const next = { ...state.speakerVoices };
+          for (const existingKey of Object.keys(next)) {
+            if (existingKey.toLowerCase() === tag.toLowerCase() && existingKey !== tag) {
+              delete next[existingKey];
+            }
+          }
+          next[tag] = config;
+          return { speakerVoices: next };
+        }),
       setText: (text) => set({ text }),
       setInstruction: (instruction) => set({ instruction }),
       setMode: (mode) => set({ mode }),

@@ -10,6 +10,7 @@ pub mod preview;
 pub mod project;
 pub mod search;
 pub mod transcript;
+pub mod tts;
 
 use serde_json::{json, Value};
 

@@ -1,7 +1,7 @@
 {
   "settings": {
     "title": "Settings",
-    "description": "Configure your AutoSubs preferences and options.",
+    "description": "Configure your logdd preferences and options.",
     "sections": {
       "transcription": "Transcription",
       "language": "Language",
@@ -36,7 +36,7 @@
       "confirmTitle": "Reset Settings"
     },
     "support": {
-      "supportAutoSubs": "Support AutoSubs",
+      "supportAutoSubs": "Support logdd",
       "viewSource": "Contribute"
     },
     "aiProjects": {
@@ -47,11 +47,11 @@
       "chatCount_one": "{{count}} chat",
       "chatCount_other": "{{count}} chats",
       "openFolder": "Open folder",
-      "delete": "Delete from AutoSubs",
+      "delete": "Delete from logdd",
       "confirmTitle": "Delete project",
-      "confirm_zero": "Delete \"{{name}}\" from AutoSubs? Its media, motion graphics and exports go to the Trash. The project in {{editor}} is not touched.",
-      "confirm_one": "Delete \"{{name}}\" from AutoSubs? Its media, motion graphics and exports go to the Trash, and its chat is deleted. The project in {{editor}} is not touched.",
-      "confirm_other": "Delete \"{{name}}\" from AutoSubs? Its media, motion graphics and exports go to the Trash, and its {{count}} chats are deleted. The project in {{editor}} is not touched.",
+      "confirm_zero": "Delete \"{{name}}\" from logdd? Its media, motion graphics and exports go to the Trash. The project in {{editor}} is not touched.",
+      "confirm_one": "Delete \"{{name}}\" from logdd? Its media, motion graphics and exports go to the Trash, and its chat is deleted. The project in {{editor}} is not touched.",
+      "confirm_other": "Delete \"{{name}}\" from logdd? Its media, motion graphics and exports go to the Trash, and its {{count}} chats are deleted. The project in {{editor}} is not touched.",
       "errorTitle": "Could not delete project"
     },
     "stockFootage": {
@@ -511,7 +511,7 @@
     "update": {
       "downloading": "Downloading Update",
       "installing": "Installing Update",
-      "restarting": "Restarting AutoSubs",
+      "restarting": "Restarting logdd",
       "installUpdateNow": "Install and Restart",
       "newVersionAvailable": "Update Available"
     },
@@ -594,16 +594,16 @@
     "addToTimelineFailed": "Couldn't add subtitles to timeline"
   },
   "support": {
-    "title": "Support AutoSubs",
-    "description": "Choose how you'd like to support AutoSubs development.",
+    "title": "Support logdd",
+    "description": "Choose how you'd like to support logdd development.",
     "coffee": {
       "title": "Buy me a coffee?",
-      "description": "If AutoSubs has saved you time, consider buying me a coffee to support the project!",
+      "description": "If logdd has saved you time, consider buying me a coffee to support the project!",
       "donate": "Donate"
     }
   },
   "subSlate": {
-    "creator": "From the creator of AutoSubs",
+    "creator": "From the creator of logdd",
     "tagline": "Craft your story, effortlessly.",
     "emailPlaceholder": "Enter your email",
     "notifyMe": "Notify Me",
@@ -667,7 +667,7 @@
   "appUpdate": {
     "checking": "Checking for updates…",
     "title": "A new version is available",
-    "body": "This update installs itself and restarts AutoSubs. It only takes a moment.",
+    "body": "This update installs itself and restarts logdd. It only takes a moment.",
     "downloading": "Downloading…",
     "installing": "Installing, the app will restart…",
     "action": "Update and restart",
@@ -877,7 +877,7 @@
   "externalAgent": {
     "enable": {
       "title": "Let agent apps drive",
-      "description": "Claude Code, Antigravity on this Mac use AutoSubs"
+      "description": "Claude Code, Antigravity on this Mac use logdd"
     },
     "status": {
       "notListening": "Not running",
@@ -885,14 +885,14 @@
       "waiting": "No agent app connected yet",
       "editor": "Editor: {{editor}} · {{project}}",
       "noProjectName": "no project name",
-      "noEditor": "No editor project open in AutoSubs",
+      "noEditor": "No editor project open in logdd",
       "driving": "Driving now: {{name}} ({{tool}}, {{ago}} ago)",
       "idle": "No agent is driving right now"
     },
     "lastTool": "{{tool}}, {{ago}} ago",
     "seen": "seen {{ago}} ago",
     "connectLabel": "Connect:",
-    "connectTooltip": "Add AutoSubs to {{name}} (once)",
+    "connectTooltip": "Add logdd to {{name}} (once)",
     "copyConfig": "Copy config",
     "copyTooltip": "MCP config for other agent apps",
     "errorTitle": "External agents",
@@ -916,7 +916,7 @@
       "title": "Text to speech",
       "savedWithoutModel": "Saved automatically, even without the model.",
       "characters": "{{count}} characters",
-      "placeholder": "Enter or paste text to turn into speech..."
+      "placeholder": "Type script... Wrap dialogue in [A] ... [A]."
     },
     "action": {
       "cancel": "Cancel",
@@ -948,11 +948,13 @@
       "oldest": "Oldest first",
       "resetFilters": "Reset filters",
       "noResults": "No matching audio found.",
-      "resultCount": "Showing {{visible}}/{{total}}"
+      "resultCount": "Showing {{visible}}/{{total}}",
+      "exportSrt": "Export SRT"
     },
     "native": {
       "selectReferenceAudio": "Select reference audio",
-      "exportAudio": "Export audio"
+      "exportAudio": "Export audio",
+      "exportSrt": "Export subtitles"
     },
     "settings": {
       "model": "Model",
@@ -1152,7 +1154,8 @@
       "instructionRequired": "Enter a voice description first",
       "generateFailed": "Could not generate speech",
       "audioCreated": "Audio generated",
-      "audioExported": "Audio exported"
+      "audioExported": "Audio exported",
+      "srtExported": "Subtitles exported"
     },
     "model": {
       "omnivoice": "Local multilingual speech, voice cloning, and voice design."
@@ -1225,6 +1228,19 @@
       },
       "count_one": "{{count}} voice",
       "count_other": "{{count}} voices"
+    },
+    "dialogue": {
+      "title": "Dialogue voices",
+      "hint": "Plain lines use main voice. Pick a voice per tag.",
+      "roleCount": "{{count}} roles",
+      "narrator": "Narrator",
+      "previewTitle": "Dialogue turns",
+      "insertTag": "Wrap or insert [{{tag}}] ... [{{tag}}]",
+      "chooseSpeakerVoice": "Choose a voice for [{{tag}}]",
+      "speakerModelNotReady": "Install model for [{{tag}}] or switch its engine",
+      "description": "Text outside [A] ... [A] uses the narrator voice.",
+      "unclosedHint": "Unclosed [{{tag}}]. Wrap both ends: [{{tag}}] ... [{{tag}}]",
+      "closeTagButton": "Close [{{tag}}]"
     }
   }
 }

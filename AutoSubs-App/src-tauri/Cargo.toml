@@ -12,6 +12,11 @@ version = "3.9.2"
 description = "Transcribe and diarize audio files"
 authors = ["Tom Moroney"]
 edition = "2024"
+default-run = "logdd"
+
+[[bin]]
+name = "logdd"
+path = "src/main.rs"
 
 [env]
 WHISPER_NO_VULKAN = "1"

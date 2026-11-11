@@ -74,6 +74,35 @@ export interface TtsProgressEvent {
   message: string;
 }
 
+export interface TtsSpeakerVoicePayload {
+  provider?: TtsProvider;
+  voiceId?: string;
+  profileId?: string;
+  referenceAudioPath?: string;
+  referenceText?: string;
+  mode?: TtsMode;
+  language?: string;
+  speed?: number;
+  instruction?: string;
+}
+
+export interface TtsSpeakerVoiceConfig {
+  provider: TtsProvider;
+  voiceKey?: string;
+  profileId?: string;
+  mode?: TtsMode;
+  instruction?: string;
+  speed?: number;
+}
+
+export interface TtsTurnTiming {
+  speaker: string;
+  text: string;
+  startSec: number;
+  endSec: number;
+  durationSec: number;
+}
+
 export interface TtsGeneratePayload {
   provider?: TtsProvider;
   voiceId?: string;
@@ -89,17 +118,21 @@ export interface TtsGeneratePayload {
   profileId?: string;
   referenceAudioPath?: string;
   referenceText?: string;
+  speakers?: Record<string, TtsSpeakerVoicePayload>;
+  gapSec?: number;
 }
 
 export interface TtsGenerateResult {
   success: boolean;
   outputPath?: string;
+  srtPath?: string;
   sampleRate?: number;
   durationSec?: number;
   canceled?: boolean;
   error?: string;
   partDurationsSec?: number[];
   partGapSec?: number;
+  turns?: TtsTurnTiming[];
 }
 
 export interface TtsActionOutcome {
@@ -169,5 +202,6 @@ export interface TtsHistoryItem {
   mode: TtsMode;
   voiceLabel: string;
   outputPath: string;
+  srtPath?: string;
   createdAt: number;
 }

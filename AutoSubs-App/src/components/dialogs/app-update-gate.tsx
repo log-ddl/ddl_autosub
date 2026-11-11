@@ -114,7 +114,7 @@ export function AppUpdateGate({ children }: { children: React.ReactNode }) {
         <p className="mt-4 text-sm text-muted-foreground">
           {t(
             "appUpdate.body",
-            "This update installs itself and restarts AutoSubs. It only takes a moment.",
+            "This update installs itself and restarts logdd. It only takes a moment.",
           )}
         </p>
 

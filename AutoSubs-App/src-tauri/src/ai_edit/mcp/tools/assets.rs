@@ -85,7 +85,7 @@ pub fn resolve_ids(workspace: &Path, args: &mut Value) -> Result<(), String> {
                             Some(p) => *value = Value::String(p),
                             None => {
                                 return Err(format!(
-                                    "Unknown media id {}. Ids come from list_media, download_media, render_motion \
+                                    "Unknown media id {}. Ids come from list_media, download_media, generate_speech, render_motion \
                                      and remove_background.",
                                     s
                                 ))

@@ -22,9 +22,9 @@ export function SupportDialog({ open, onOpenChange }: SupportDialogProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[600px] p-0 overflow-hidden">
         <DialogHeader className="p-6 pb-0">
-          <DialogTitle>{t("support.title", "Support AutoSubs")}</DialogTitle>
+          <DialogTitle>{t("support.title", "Support logdd")}</DialogTitle>
           <DialogDescription>
-            {t("support.description", "Choose how you'd like to support AutoSubs development.")}
+            {t("support.description", "Choose how you'd like to support logdd development.")}
           </DialogDescription>
         </DialogHeader>
 
@@ -41,7 +41,7 @@ export function SupportDialog({ open, onOpenChange }: SupportDialogProps) {
                 </div>
                 <h3 className="text-2xl font-bold tracking-tight text-yellow-950 dark:text-yellow-50">{t("support.coffee.title", "Buy me a coffee?")}</h3>
                 <p className="text-sm text-yellow-900/70 dark:text-yellow-200/60 leading-relaxed px-4 font-medium">
-                  {t("support.coffee.description", "If AutoSubs has saved you time, consider buying me a coffee to support the project!")}
+                  {t("support.coffee.description", "If logdd has saved you time, consider buying me a coffee to support the project!")}
                 </p>
               </div>
 

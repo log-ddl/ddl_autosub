@@ -52,6 +52,10 @@ pub fn voice_prompt_root(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app_data(app)?.join("tts").join("voices").join("omnivoice"))
 }
 
+pub fn profiles_file(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app_data(app)?.join("tts").join("profiles.json"))
+}
+
 pub fn venv_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(runtime_root(app)?.join(".venv"))
 }

@@ -2,6 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useTtsStore } from "@/stores/tts-store";
+import {
+  extractDialogueTags,
+  findUnclosedDialogueTag,
+  parseDialoguePreviewTurns,
+} from "./dialogue-tags";
 import { voiceKey } from "./voice-catalog";
 import { voicePreviewText } from "./voice-preview-text";
 import { createTtsJobId, toLocalTtsAudioUrl, ttsClient } from "./tts-client";
@@ -12,6 +17,9 @@ import {
   type TtsGenerateResult,
   type TtsModelStatus,
   type TtsProgressEvent,
+  type TtsProvider,
+  type TtsSpeakerVoiceConfig,
+  type TtsSpeakerVoicePayload,
   type VoiceProfile,
 } from "./types";
 import { useTtsBatch } from "./use-tts-batch";
@@ -37,6 +45,8 @@ export function useTtsController() {
   const [referenceAudioPath, setReferenceAudioPath] = useState("");
   const [referenceText, setReferenceText] = useState("");
   const [activeJobId, setActiveJobId] = useState<string>();
+  const activeJobIdRef = useRef<string>();
+  activeJobIdRef.current = activeJobId;
   const [progress, setProgress] = useState<TtsProgressEvent>();
   const batchRunningRef = useRef(false);
   const previewAudio = useRef<HTMLAudioElement>();
@@ -121,9 +131,26 @@ export function useTtsController() {
         ? t("tts.provider.local")
         : t("tts.provider.viaCapcut");
 
+  const [omniReady, setOmniReady] = useState(false);
+  const [vieneuReady, setVieneuReady] = useState(false);
+
+  useEffect(() => {
+    void ttsClient.syncProfiles(store.voiceProfiles).catch(() => undefined);
+  }, [store.voiceProfiles]);
+
   const statusRequest = useRef(0);
   const refreshStatuses = useCallback(async () => {
     const request = ++statusRequest.current;
+    void ttsClient
+      .getVieneuStatus()
+      .then((s) => setVieneuReady(s.status === "ready"))
+      .catch(() => setVieneuReady(false));
+    if (provider !== "omnivoice") {
+      void ttsClient
+        .getStatus()
+        .then((s) => setOmniReady(s.status === "ready"))
+        .catch(() => setOmniReady(false));
+    }
     try {
       const result =
         provider === "omnivoice"
@@ -136,6 +163,8 @@ export function useTtsController() {
                 runtimeReady: true,
                 pythonAvailable: true,
               };
+      if (provider === "omnivoice") setOmniReady(result.status === "ready");
+      if (provider === "vieneu") setVieneuReady(result.status === "ready");
       if (request === statusRequest.current) setSelectedStatus(result);
     } catch (error) {
       const msg = errorMessage(error, t("tts.toast.statusFailed"));
@@ -153,6 +182,19 @@ export function useTtsController() {
     }
   }, [selectedModel.id, provider, t]);
 
+  const isProviderReady = useCallback(
+    (targetProvider: TtsProvider): boolean => {
+      if (targetProvider === "capcut" || targetProvider === "elevenlabs") {
+        return true;
+      }
+      if (targetProvider === provider && selectedStatus) {
+        return selectedStatus.status === "ready";
+      }
+      return targetProvider === "vieneu" ? vieneuReady : omniReady;
+    },
+    [omniReady, provider, selectedStatus, vieneuReady],
+  );
+
   useEffect(() => {
     void refreshStatuses();
   }, [refreshStatuses]);
@@ -162,7 +204,12 @@ export function useTtsController() {
     let active = true;
     void ttsClient
       .onProgress((event) => {
-        if (active) setProgress(event);
+        if (
+          active &&
+          (!activeJobIdRef.current || event.jobId === activeJobIdRef.current)
+        ) {
+          setProgress(event);
+        }
       })
       .then((fn) => {
         if (active) unlisten = fn;
@@ -320,7 +367,168 @@ export function useTtsController() {
     [store.removeVoiceProfile],
   );
 
-  const voiceLabel =
+  const dialogueTags = useMemo(
+    () => extractDialogueTags(store.text),
+    [store.text],
+  );
+
+  const getSpeakerConfig = useCallback(
+    (tag: string, index = 0): TtsSpeakerVoiceConfig => {
+      const savedKey = Object.keys(store.speakerVoices).find(
+        (k) => k.toLowerCase() === tag.toLowerCase(),
+      );
+      if (savedKey && store.speakerVoices[savedKey]) {
+        return store.speakerVoices[savedKey];
+      }
+
+      const preferredLang =
+        provider === "omnivoice"
+          ? store.language
+          : (selectedVoice?.language ?? store.language);
+      const fallbackProvider: TtsProvider =
+        provider === "capcut" ||
+        provider === "elevenlabs" ||
+        (provider === "vieneu" && isProviderReady("vieneu"))
+          ? provider
+          : catalog.some(
+                (v) => v.provider === "capcut" && v.language === preferredLang,
+              )
+            ? "capcut"
+            : provider;
+
+      if (fallbackProvider === "omnivoice") {
+        const otherProfile = compatibleProfiles.find(
+          (p) => p.id !== store.selectedProfileId,
+        );
+        return otherProfile
+          ? { provider: "omnivoice", mode: "clone", profileId: otherProfile.id }
+          : { provider: "omnivoice", mode: "auto" };
+      }
+
+      const providerCatalog = catalog.filter(
+        (v) => v.provider === fallbackProvider,
+      );
+      const sameLang = providerCatalog.filter(
+        (v) => v.language === preferredLang,
+      );
+      const pool = sameLang.length > 0 ? sameLang : providerCatalog;
+      const nonNarratorPool =
+        selectedVoice && fallbackProvider === provider
+          ? pool.filter((v) => v.id !== selectedVoice.id)
+          : pool;
+      const pickFrom = nonNarratorPool.length > 0 ? nonNarratorPool : pool;
+      const picked =
+        pickFrom.length > 0 ? pickFrom[index % pickFrom.length] : undefined;
+
+      return {
+        provider: fallbackProvider,
+        voiceKey: picked ? voiceKey(picked) : undefined,
+      };
+    },
+    [
+      catalog,
+      compatibleProfiles,
+      isProviderReady,
+      provider,
+      selectedVoice,
+      store.language,
+      store.selectedProfileId,
+      store.speakerVoices,
+    ],
+  );
+
+  const resolveSpeakersForText = useCallback(
+    (
+      text: string,
+    ): {
+      speakers?: Record<string, TtsSpeakerVoicePayload>;
+      error?: string;
+    } => {
+      const tags = extractDialogueTags(text);
+      if (tags.length === 0) return {};
+
+      const speakers: Record<string, TtsSpeakerVoicePayload> = {};
+      for (let i = 0; i < tags.length; i++) {
+        const tag = tags[i];
+        const cfg = getSpeakerConfig(tag, i);
+        if (!isProviderReady(cfg.provider)) {
+          return {
+            error: t("tts.dialogue.speakerModelNotReady", { tag }),
+          };
+        }
+
+        if (cfg.provider === "omnivoice") {
+          const spkMode = cfg.profileId ? "clone" : (cfg.mode ?? "auto");
+          if (spkMode === "clone") {
+            const prof = store.voiceProfiles.find(
+              (p) => p.id === cfg.profileId && p.referenceText.trim(),
+            );
+            if (!prof) {
+              return { error: t("tts.dialogue.chooseSpeakerVoice", { tag }) };
+            }
+            speakers[tag] = {
+              provider: "omnivoice",
+              mode: "clone",
+              profileId: prof.id,
+              referenceAudioPath: prof.referenceAudioPath,
+              referenceText: prof.referenceText,
+              language: store.language,
+              speed: cfg.speed ?? store.speed,
+            };
+          } else {
+            speakers[tag] = {
+              provider: "omnivoice",
+              mode: "auto",
+              language: store.language,
+              speed: cfg.speed ?? store.speed,
+            };
+          }
+          continue;
+        }
+
+        if (cfg.provider === "vieneu" && cfg.profileId) {
+          const prof = store.voiceProfiles.find((p) => p.id === cfg.profileId);
+          if (!prof) {
+            return { error: t("tts.dialogue.chooseSpeakerVoice", { tag }) };
+          }
+          speakers[tag] = {
+            provider: "vieneu",
+            profileId: prof.id,
+            referenceAudioPath: prof.referenceAudioPath,
+            language: "vi",
+            speed: cfg.speed ?? store.speed,
+          };
+          continue;
+        }
+
+        const matchedVoice = catalog.find(
+          (v) => v.provider === cfg.provider && voiceKey(v) === cfg.voiceKey,
+        );
+        if (!matchedVoice) {
+          return { error: t("tts.dialogue.chooseSpeakerVoice", { tag }) };
+        }
+        speakers[tag] = {
+          provider: cfg.provider,
+          voiceId: matchedVoice.id,
+          language: matchedVoice.language,
+          speed: cfg.speed ?? store.speed,
+        };
+      }
+
+      return { speakers };
+    },
+    [
+      catalog,
+      getSpeakerConfig,
+      isProviderReady,
+      store.language,
+      store.speed,
+      store.voiceProfiles,
+      t,
+    ],
+  );
+
+  const baseVoiceLabel =
     provider === "vieneu" && vieneuProfile
       ? `VieNeu · ${vieneuProfile.name}`
       : provider !== "omnivoice"
@@ -329,77 +537,114 @@ export function useTtsController() {
           ? selectedProfile?.name || t("tts.settings.cloneMode")
           : t(`tts.mode.${mode}`);
 
-  const validateGeneration = useCallback((): string | null => {
-    if (
-      provider !== "omnivoice" &&
-      !selectedVoice &&
-      !(provider === "vieneu" && vieneuProfile)
-    )
-      return t("tts.provider.chooseVoice");
-    if (provider === "vieneu" && selectedStatus?.status !== "ready")
-      return t("tts.provider.installFirst");
-    if (
-      selectedStatus?.status !== "ready" ||
-      selectedStatus.modelId !== selectedModel.id
-    ) {
-      if (provider === "omnivoice") setMissingModelOpen(true);
-      return MODEL_NOT_READY;
-    }
-    if (provider === "omnivoice" && mode === "clone" && !selectedProfile) {
-      return t("tts.toast.profileRequired");
-    }
-    if (
-      provider === "omnivoice" &&
-      mode === "design" &&
-      !store.instruction.trim()
-    ) {
-      return t("tts.toast.instructionRequired");
-    }
-    return null;
-  }, [
-    mode,
-    selectedProfile,
-    selectedStatus,
-    store.instruction,
-    provider,
-    selectedVoice,
-    selectedModel.id,
-    vieneuProfile,
-    t,
-  ]);
+  const voiceLabel =
+    dialogueTags.length > 0
+      ? `${baseVoiceLabel} + [${dialogueTags.join(", ")}]`
+      : baseVoiceLabel;
 
-  const buildGeneratePayload = useCallback(
-    (jobId: string, text: string): TtsGeneratePayload => ({
-      jobId,
-      text,
-      mode: provider === "omnivoice" ? mode : "auto",
-      provider,
-      voiceId: selectedVoice?.id,
-      splitMode: store.splitMode,
-      language: store.language,
-      speed: store.speed,
-      numStep: store.numStep,
-      advancedSettings: store.advancedEnabled
-        ? store.advancedSettings
-        : undefined,
-      instruction: mode === "design" ? store.instruction.trim() : undefined,
-      profileId:
-        provider === "omnivoice" && mode === "clone"
-          ? selectedProfile?.id
-          : undefined,
-      referenceAudioPath:
-        provider === "vieneu"
-          ? vieneuProfile?.referenceAudioPath
-          : provider === "omnivoice" && mode === "clone"
-            ? selectedProfile?.referenceAudioPath
-            : undefined,
-      referenceText:
-        provider === "omnivoice" && mode === "clone"
-          ? selectedProfile?.referenceText
-          : undefined,
-    }),
+  const validateGeneration = useCallback(
+    (targetText?: string): string | null => {
+      const textToCheck = targetText ?? store.text;
+      const tags = extractDialogueTags(textToCheck);
+      const unclosed = findUnclosedDialogueTag(textToCheck, tags);
+      if (unclosed) {
+        return t("tts.dialogue.unclosedHint", { tag: unclosed.tag });
+      }
+
+      const previewTurns =
+        tags.length > 0 ? parseDialoguePreviewTurns(textToCheck) : [];
+      const hasNarratorTurn =
+        tags.length === 0 || previewTurns.some((turn) => turn.isNarrator);
+
+      if (hasNarratorTurn) {
+        if (
+          provider !== "omnivoice" &&
+          !selectedVoice &&
+          !(provider === "vieneu" && vieneuProfile)
+        )
+          return t("tts.provider.chooseVoice");
+        if (provider === "vieneu" && selectedStatus?.status !== "ready")
+          return t("tts.provider.installFirst");
+        if (
+          selectedStatus?.status !== "ready" ||
+          selectedStatus.modelId !== selectedModel.id
+        ) {
+          if (provider === "omnivoice") setMissingModelOpen(true);
+          return MODEL_NOT_READY;
+        }
+        if (provider === "omnivoice" && mode === "clone" && !selectedProfile) {
+          return t("tts.toast.profileRequired");
+        }
+        if (
+          provider === "omnivoice" &&
+          mode === "design" &&
+          !store.instruction.trim()
+        ) {
+          return t("tts.toast.instructionRequired");
+        }
+      }
+
+      const resolved = resolveSpeakersForText(textToCheck);
+      if (resolved.error) {
+        return resolved.error;
+      }
+      return null;
+    },
     [
       mode,
+      resolveSpeakersForText,
+      selectedProfile,
+      selectedStatus,
+      store.instruction,
+      store.text,
+      provider,
+      selectedVoice,
+      selectedModel.id,
+      vieneuProfile,
+      t,
+    ],
+  );
+
+  const buildGeneratePayload = useCallback(
+    (jobId: string, text: string): TtsGeneratePayload => {
+      const { speakers } = resolveSpeakersForText(text);
+      return {
+        jobId,
+        text,
+        mode: provider === "omnivoice" ? mode : "auto",
+        provider,
+        voiceId: selectedVoice?.id,
+        splitMode: store.splitMode,
+        language:
+          provider === "omnivoice"
+            ? store.language
+            : (selectedVoice?.language ?? store.language),
+        speed: store.speed,
+        numStep: store.numStep,
+        advancedSettings: store.advancedEnabled
+          ? store.advancedSettings
+          : undefined,
+        instruction: mode === "design" ? store.instruction.trim() : undefined,
+        profileId:
+          provider === "omnivoice" && mode === "clone"
+            ? selectedProfile?.id
+            : undefined,
+        referenceAudioPath:
+          provider === "vieneu"
+            ? vieneuProfile?.referenceAudioPath
+            : provider === "omnivoice" && mode === "clone"
+              ? selectedProfile?.referenceAudioPath
+              : undefined,
+        referenceText:
+          provider === "omnivoice" && mode === "clone"
+            ? selectedProfile?.referenceText
+            : undefined,
+        speakers,
+      };
+    },
+    [
+      mode,
+      resolveSpeakersForText,
       selectedProfile,
       store.advancedEnabled,
       store.advancedSettings,
@@ -435,7 +680,7 @@ export function useTtsController() {
   );
 
   const validateBatch = useCallback(() => {
-    const invalid = validateGeneration();
+    const invalid = validateGeneration("");
     return invalid === MODEL_NOT_READY ? t("tts.batch.modelNotReady") : invalid;
   }, [t, validateGeneration]);
 
@@ -451,10 +696,7 @@ export function useTtsController() {
         return;
       }
       if (activeJobId || previewJob.current || batchRunningRef.current) return;
-      if (
-        selectedStatus?.status !== "ready" ||
-        selectedStatus.modelId !== voice.provider
-      ) {
+      if (!isProviderReady(voice.provider)) {
         toast.info(t("tts.provider.installFirst"));
         return;
       }
@@ -492,7 +734,7 @@ export function useTtsController() {
               return;
             }
             if (!result.success || !result.outputPath)
-              throw new Error("preview-failed");
+              throw new Error(result.error || t("tts.provider.previewFailed"));
             path = result.outputPath;
             previewCache.current.set(key, path);
           } finally {
@@ -516,14 +758,14 @@ export function useTtsController() {
           toast.error(t("tts.provider.previewFailed"));
         };
         await audio.play();
-      } catch {
+      } catch (err) {
         if (epoch !== previewEpoch.current) return;
         previewCache.current.delete(key);
         stopPreview();
-        toast.error(t("tts.provider.previewFailed"));
+        toast.error(errorMessage(err, t("tts.provider.previewFailed")));
       }
     },
-    [activeJobId, previewVoiceKey, selectedStatus, stopPreview, t],
+    [activeJobId, isProviderReady, previewVoiceKey, stopPreview, t],
   );
 
   const cancelJob = useCallback(async () => {
@@ -542,7 +784,7 @@ export function useTtsController() {
       toast.error(t("tts.toast.textRequired"));
       return;
     }
-    const invalid = validateGeneration();
+    const invalid = validateGeneration(text);
     if (invalid) {
       if (invalid !== MODEL_NOT_READY) toast.error(invalid);
       return;
@@ -572,6 +814,7 @@ export function useTtsController() {
       mode,
       voiceLabel,
       outputPath: result.outputPath,
+      srtPath: result.srtPath,
       createdAt: Date.now(),
     });
     store.setText("");
@@ -616,6 +859,25 @@ export function useTtsController() {
     [t],
   );
 
+  const exportSrt = useCallback(
+    async (srtPath: string) => {
+      try {
+        const result = await ttsClient.exportAudio(
+          srtPath,
+          t("tts.native.exportSrt"),
+        );
+        if (result.success) {
+          toast.success(t("tts.toast.srtExported"));
+        } else if (!result.canceled && result.error) {
+          toast.error(result.error);
+        }
+      } catch (error) {
+        toast.error(errorMessage(error, "Could not export SRT"));
+      }
+    },
+    [t],
+  );
+
   const closeMissingModelPrompt = useCallback(() => {
     store.markModelPromptSeen();
     setMissingModelOpen(false);
@@ -627,6 +889,12 @@ export function useTtsController() {
   }, [closeMissingModelPrompt, installModel]);
 
   return {
+    catalog,
+    voiceProfiles: store.voiceProfiles,
+    dialogueTags,
+    getSpeakerConfig,
+    setSpeakerVoice: store.setSpeakerVoice,
+    isProviderReady,
     favoriteVoiceKeys: store.favoriteVoiceKeys,
     toggleFavoriteVoice: store.toggleFavoriteVoice,
     previewVoiceKey,
@@ -698,6 +966,7 @@ export function useTtsController() {
     generate,
     revealAudio,
     exportAudio,
+    exportSrt,
     closeMissingModelPrompt,
     installSelectedModelFromPrompt,
   };

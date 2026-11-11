@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  Captions,
   Check,
   Download,
   FileAudio,
@@ -32,6 +33,7 @@ interface AudioHistoryItemProps {
   onRemove: (id: string) => void;
   onReveal: (filePath: string) => void;
   onExport: (filePath: string) => void;
+  onExportSrt?: (srtPath: string) => void;
 }
 
 export function AudioHistoryItem({
@@ -40,6 +42,7 @@ export function AudioHistoryItem({
   onRemove,
   onReveal,
   onExport,
+  onExportSrt,
 }: AudioHistoryItemProps) {
   const { t, i18n } = useTranslation();
   const displayName = item.name?.trim() || item.text.slice(0, 80);
@@ -139,6 +142,16 @@ export function AudioHistoryItem({
         >
           <Download />
         </Button>
+        {item.srtPath && onExportSrt && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => onExportSrt(item.srtPath!)}
+            title={t("tts.history.exportSrt")}
+          >
+            <Captions />
+          </Button>
+        )}
         <AlertDialog>
           <AlertDialogTrigger asChild>
             <Button

@@ -1,7 +1,7 @@
 {
   "settings": {
     "title": "Cài đặt",
-    "description": "Tùy chỉnh các thiết lập và tùy chọn của AutoSubs.",
+    "description": "Tùy chỉnh các thiết lập và tùy chọn của logdd.",
     "sections": {
       "transcription": "Phiên âm",
       "language": "Ngôn ngữ",
@@ -36,7 +36,7 @@
       "confirmTitle": "Đặt lại cài đặt"
     },
     "support": {
-      "supportAutoSubs": "Ủng hộ AutoSubs",
+      "supportAutoSubs": "Ủng hộ logdd",
       "viewSource": "Đóng góp"
     },
     "aiProjects": {
@@ -47,11 +47,11 @@
       "chatCount_one": "{{count}} hội thoại",
       "chatCount_other": "{{count}} hội thoại",
       "openFolder": "Mở thư mục",
-      "delete": "Xóa khỏi AutoSubs",
+      "delete": "Xóa khỏi logdd",
       "confirmTitle": "Xóa project",
-      "confirm_zero": "Xóa \"{{name}}\" khỏi AutoSubs? Media, motion graphics và exports của project sẽ chuyển vào Thùng rác. Project trong {{editor}} được giữ nguyên.",
-      "confirm_one": "Xóa \"{{name}}\" khỏi AutoSubs? Media, motion graphics và exports của project sẽ chuyển vào Thùng rác, hội thoại liên quan bị xóa. Project trong {{editor}} được giữ nguyên.",
-      "confirm_other": "Xóa \"{{name}}\" khỏi AutoSubs? Media, motion graphics và exports của project sẽ chuyển vào Thùng rác, {{count}} hội thoại liên quan bị xóa. Project trong {{editor}} được giữ nguyên.",
+      "confirm_zero": "Xóa \"{{name}}\" khỏi logdd? Media, motion graphics và exports của project sẽ chuyển vào Thùng rác. Project trong {{editor}} được giữ nguyên.",
+      "confirm_one": "Xóa \"{{name}}\" khỏi logdd? Media, motion graphics và exports của project sẽ chuyển vào Thùng rác, hội thoại liên quan bị xóa. Project trong {{editor}} được giữ nguyên.",
+      "confirm_other": "Xóa \"{{name}}\" khỏi logdd? Media, motion graphics và exports của project sẽ chuyển vào Thùng rác, {{count}} hội thoại liên quan bị xóa. Project trong {{editor}} được giữ nguyên.",
       "errorTitle": "Không xóa được project"
     },
     "stockFootage": {
@@ -511,7 +511,7 @@
     "update": {
       "downloading": "Đang tải cập nhật",
       "installing": "Đang cài cập nhật",
-      "restarting": "Đang khởi động lại AutoSubs",
+      "restarting": "Đang khởi động lại logdd",
       "installUpdateNow": "Cài và khởi động lại",
       "newVersionAvailable": "Có bản cập nhật"
     },
@@ -594,16 +594,16 @@
     "addToTimelineFailed": "Không thêm được phụ đề lên dòng thời gian"
   },
   "support": {
-    "title": "Ủng hộ AutoSubs",
-    "description": "Chọn cách bạn muốn ủng hộ việc phát triển AutoSubs.",
+    "title": "Ủng hộ logdd",
+    "description": "Chọn cách bạn muốn ủng hộ việc phát triển logdd.",
     "coffee": {
       "title": "Mời tôi một ly cà phê?",
-      "description": "Nếu AutoSubs giúp bạn tiết kiệm thời gian, mời tôi một ly cà phê để ủng hộ dự án nhé!",
+      "description": "Nếu logdd giúp bạn tiết kiệm thời gian, mời tôi một ly cà phê để ủng hộ dự án nhé!",
       "donate": "Ủng hộ"
     }
   },
   "subSlate": {
-    "creator": "Từ tác giả của AutoSubs",
+    "creator": "Từ tác giả của logdd",
     "tagline": "Kể câu chuyện của bạn, thật dễ dàng.",
     "emailPlaceholder": "Nhập email của bạn",
     "notifyMe": "Báo tôi biết",
@@ -667,7 +667,7 @@
   "appUpdate": {
     "checking": "Đang kiểm tra bản mới…",
     "title": "Đã có phiên bản mới",
-    "body": "Bản cập nhật sẽ tự cài và khởi động lại AutoSubs. Chỉ mất một lát thôi.",
+    "body": "Bản cập nhật sẽ tự cài và khởi động lại logdd. Chỉ mất một lát thôi.",
     "downloading": "Đang tải…",
     "installing": "Đang cài, ứng dụng sẽ khởi động lại…",
     "action": "Cập nhật và khởi động lại",
@@ -877,7 +877,7 @@
   "externalAgent": {
     "enable": {
       "title": "Cho agent khác điều khiển",
-      "description": "Claude Code, Antigravity trên máy này dùng AutoSubs"
+      "description": "Claude Code, Antigravity trên máy này dùng logdd"
     },
     "status": {
       "notListening": "Chưa chạy",
@@ -885,14 +885,14 @@
       "waiting": "Chưa có agent nào kết nối",
       "editor": "Editor: {{editor}} · {{project}}",
       "noProjectName": "chưa có tên project",
-      "noEditor": "AutoSubs chưa mở project nào trong editor",
+      "noEditor": "logdd chưa mở project nào trong editor",
       "driving": "Đang điều khiển: {{name}} ({{tool}}, {{ago}} trước)",
       "idle": "Không có agent nào đang điều khiển"
     },
     "lastTool": "{{tool}}, {{ago}} trước",
     "seen": "thấy {{ago}} trước",
     "connectLabel": "Kết nối:",
-    "connectTooltip": "Thêm AutoSubs vào {{name}} (một lần)",
+    "connectTooltip": "Thêm logdd vào {{name}} (một lần)",
     "copyConfig": "Copy cấu hình",
     "copyTooltip": "Cấu hình MCP cho app agent khác",
     "errorTitle": "Agent bên ngoài",
@@ -916,7 +916,7 @@
       "title": "Nội dung cần đọc",
       "savedWithoutModel": "Tự lưu nội dung kể cả khi chưa cài model.",
       "characters": "{{count}} ký tự",
-      "placeholder": "Nhập hoặc dán văn bản cần chuyển thành giọng nói..."
+      "placeholder": "Nhập kịch bản... Bọc lời thoại bằng [A] ... [A]."
     },
     "action": {
       "cancel": "Hủy",
@@ -948,11 +948,13 @@
       "oldest": "Tạo lâu nhất",
       "resetFilters": "Đặt lại bộ lọc",
       "noResults": "Không tìm thấy audio phù hợp.",
-      "resultCount": "Hiện {{visible}}/{{total}}"
+      "resultCount": "Hiện {{visible}}/{{total}}",
+      "exportSrt": "Xuất SRT"
     },
     "native": {
       "selectReferenceAudio": "Chọn audio tham chiếu",
-      "exportAudio": "Xuất audio"
+      "exportAudio": "Xuất audio",
+      "exportSrt": "Xuất phụ đề"
     },
     "settings": {
       "model": "Model",
@@ -1152,7 +1154,8 @@
       "instructionRequired": "Hãy nhập mô tả giọng cần thiết kế",
       "generateFailed": "Không thể tạo giọng nói",
       "audioCreated": "Đã tạo audio",
-      "audioExported": "Đã xuất file audio"
+      "audioExported": "Đã xuất file audio",
+      "srtExported": "Đã xuất phụ đề SRT"
     },
     "model": {
       "omnivoice": "Tạo giọng đa ngôn ngữ, nhân bản và thiết kế giọng trên máy."
@@ -1225,6 +1228,19 @@
       },
       "count_one": "{{count}} giọng",
       "count_other": "{{count}} giọng"
+    },
+    "dialogue": {
+      "title": "Phân vai hội thoại",
+      "hint": "Lời dẫn dùng giọng chính. Chọn giọng riêng cho từng vai.",
+      "roleCount": "{{count}} vai",
+      "narrator": "Dẫn chuyện",
+      "previewTitle": "Lượt thoại",
+      "insertTag": "Bọc hoặc chèn [{{tag}}] ... [{{tag}}]",
+      "chooseSpeakerVoice": "Hãy chọn giọng đọc cho vai [{{tag}}]",
+      "speakerModelNotReady": "Cài model cho vai [{{tag}}] hoặc đổi nguồn giọng",
+      "description": "Chữ ngoài [A] ... [A] tự dùng giọng dẫn chuyện.",
+      "unclosedHint": "Thẻ [{{tag}}] chưa đóng. Hãy bọc [{{tag}}] ... [{{tag}}]",
+      "closeTagButton": "Đóng [{{tag}}]"
     }
   }
 }

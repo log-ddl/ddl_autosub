@@ -26,7 +26,7 @@ use crate::ai_edit::actions::{
 use crate::ai_edit::mcp::external;
 use crate::ai_edit::mcp::tools::tool_definitions;
 use crate::ai_edit::mcp::tools::transcript::{TranscriptArgs, get_transcript, transcripts_dir};
-use crate::ai_edit::mcp::tools::{analyze, assets, media, motion, project, search};
+use crate::ai_edit::mcp::tools::{analyze, assets, media, motion, project, search, tts};
 
 /// Event the UI listens to so it can refresh and toast after an agent edit.
 pub const TIMELINE_CHANGED_EVENT: &str = "ai-edit-timeline-changed";
@@ -515,6 +515,7 @@ async fn handle_message(session: &Session, msg: &Value) -> Option<Value> {
                 tools.extend(analyze::tools());
                 tools.extend(motion::tools());
                 tools.extend(assets::tools());
+                tools.extend(tts::tools());
             }
             rpc_result(id, json!({ "tools": tools }))
         }
@@ -542,8 +543,9 @@ fn instructions(session: &Session) -> String {
     }
     if session.external && !session.connected {
         s.push_str(
-            "No editor project is open in AutoSubs yet, so there are no timeline tools. Ask the user to \
-             open AutoSubs and their project; the tools for that editor then appear.",
+            "No editor project is open in AutoSubs yet, so there are no timeline tools (list_tts_voices, \
+             generate_speech, search_media and inspect_media still work). Ask the user to open AutoSubs \
+             and their project when timeline tools are needed.",
         );
         return s;
     }
@@ -565,7 +567,9 @@ fn instructions(session: &Session) -> String {
              analyze_media shows the shots and contact sheets of a video, to pick the srcIn/srcOut \
              section build_storyboard places (the editor trims; files are never cut). \
              preview_motion shows a Remotion project from motion-graphics/ as a contact sheet of \
-             frames; render_motion renders it into exports/ and waits for the file. list_media lists a folder (a sound effect pack) with ids and lengths, and images with their size and, for cut-outs, where the figure and its feet are. Every \
+             frames; render_motion renders it into exports/ and waits for the file. list_tts_voices \
+             and generate_speech create narration or multi-speaker dialogue ([ID1], [ID2]) in \
+             media/audio/voice/ with an .srt and turn timings. list_media lists a folder (a sound effect pack) with ids and lengths, and images with their size and, for cut-outs, where the figure and its feet are. Every \
              file these tools return has a short id (m12); pass it as path instead of the full path.",
         );
     }
@@ -632,8 +636,16 @@ async fn call_tool_inner(session: &Session, name: &str, mut args: Value) -> Valu
             };
         }
     }
-    // Searching needs no project; everything else saves into or edits one.
-    if !session.connected && !matches!(name, "search_media" | "inspect_media") {
+    // Searching, TTS synthesis, and reading an explicit .srt/.vtt path need no open editor project.
+    let standalone_ok = matches!(
+        name,
+        "search_media" | "inspect_media" | "list_tts_voices" | "generate_speech"
+    ) || (name == "get_transcript"
+        && args
+            .get("path")
+            .and_then(|v| v.as_str())
+            .is_some_and(|s| !s.trim().is_empty()));
+    if !session.connected && !standalone_ok {
         return tool_text(
             "AutoSubs has no editor project open yet. Ask the user to open AutoSubs and their project in \
              Premiere Pro, then try again.",
@@ -723,7 +735,10 @@ async fn call_tool_inner(session: &Session, name: &str, mut args: Value) -> Valu
                     Some(r) => Some(r),
                     None => match motion::call(app, workspace, name, &args).await {
                         Some(r) => Some(r),
-                        None => assets::call(workspace, name, &args),
+                        None => match tts::call(app, workspace, name, &args).await {
+                            Some(r) => Some(r),
+                            None => assets::call(workspace, name, &args),
+                        },
                     },
                 },
             },

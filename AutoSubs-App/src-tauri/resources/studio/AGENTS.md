@@ -26,5 +26,6 @@ Việc với Premiere là phần riêng, chạy song song với Video Studio ở
   Premiere đang mở trong AutoSubs và lưu file vào thư mục của project đó, link ở `project/` (media trong `project/media`,
   contact sheet trong `project/analysis`, kế hoạch trong `project/plan`).
 - Bắt đầu bằng `get_project_context` để biết project, ghi nhớ của nó và các skill có sẵn.
+- Tạo lồng tiếng đơn hoặc hội thoại nhiều vai (bọc hai đầu `[A] ... [A]` / `[ID1] ... [ID1]`) qua `list_tts_voices` và `generate_speech` của `autosubs-app` (hoạt động cả khi chưa mở Premiere, xuất kèm `.srt` và mốc giây từng vai).
 - Không tự cắt hay mã hoá lại video: đặt đoạn cần dùng bằng `build_storyboard` với `srcIn`/`srcOut`, Premiere tự cắt.
 - Tool báo AutoSubs chưa kết nối thì nhờ người dùng mở AutoSubs và project Premiere.

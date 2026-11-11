@@ -4,7 +4,7 @@ import { version } from "./package.json";
 const config: CEP_Config = {
   version,
   id: "com.autosubs.adobe",
-  displayName: "AutoSubs Adobe",
+  displayName: "logdd Adobe",
   symlink: "local",
   port: 3000,
   servePort: 5000,
