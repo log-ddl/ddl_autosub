@@ -8,17 +8,18 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use crate::bridges::adobe::bridge as adobe_bridge;
-use crate::ai_edit::mcp::tools::preview::FrameShot;
 use crate::ai_edit::actions::{
-    ActionOutcome, CutPoint, EffectSpec, Editor, MarkerSpec, SegmentUpdate, StoryboardItem, TextSpec, TimeRange,
+    ActionOutcome, CutPoint, Editor, EffectSpec, MarkerSpec, SegmentUpdate, StoryboardItem,
+    TextSpec, TimeRange,
 };
+use crate::ai_edit::mcp::tools::preview::FrameShot;
 use crate::ai_edit::mcp::tools::{
-    clip_target_props, delete_tool, marker_tool, remove_marker_tool, remove_ranges_tool, split_tool, storyboard_tool,
-    text_item, tool, CLIP_TARGET_DOC,
+    CLIP_TARGET_DOC, clip_target_props, delete_tool, marker_tool, remove_marker_tool,
+    remove_ranges_tool, split_tool, storyboard_tool, text_item, tool,
 };
+use crate::bridges::adobe::bridge as adobe_bridge;
 
 /// Importing media runs once per item and is slow in Premiere.
 const PREMIERE_TIMEOUT: Duration = Duration::from_secs(300);
@@ -32,7 +33,12 @@ async fn call_premiere(func: &str, args: Value) -> Result<Value, String> {
         PREMIERE_TIMEOUT,
     )
     .await
-    .map_err(|e| format!("{} Open Window > Extensions > AutoSubs in Premiere Pro, then retry.", e))?;
+    .map_err(|e| {
+        format!(
+            "{} Open Window > Extensions > AutoSubs in Premiere Pro, then retry.",
+            e
+        )
+    })?;
     // ExtendScript answers with a JSON string.
     let value: Value = match reply {
         Value::String(text) => serde_json::from_str(&text)
@@ -40,7 +46,10 @@ async fn call_premiere(func: &str, args: Value) -> Result<Value, String> {
         other => other,
     };
     if value.get("success").and_then(|s| s.as_bool()) == Some(false) {
-        let err = value.get("error").and_then(|e| e.as_str()).unwrap_or("Premiere Pro reported an error");
+        let err = value
+            .get("error")
+            .and_then(|e| e.as_str())
+            .unwrap_or("Premiere Pro reported an error");
         if err == "Invalid function name" || err.contains("Unsupported ExtendScript function") {
             return Err(format!(
                 "The AutoSubs panel in Premiere Pro is an older version without '{}'. \
@@ -56,7 +65,11 @@ async fn call_premiere(func: &str, args: Value) -> Result<Value, String> {
 fn string_lines(v: &Value) -> Vec<String> {
     v.get("lines")
         .and_then(|l| l.as_array())
-        .map(|a| a.iter().filter_map(|s| s.as_str().map(str::to_string)).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|s| s.as_str().map(str::to_string))
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -71,21 +84,40 @@ pub async fn timeline_snapshot() -> Result<Value, String> {
 /// The sequence's picture at `times` as PNGs in `dir` (QE exportFramePNG),
 /// for preview_timeline. A frame Premiere did not write has no path.
 pub async fn export_frames(dir: &std::path::Path, times: &[f64]) -> Result<Vec<FrameShot>, String> {
-    let reply = call_premiere("ExportFrames", json!({ "dir": dir.to_string_lossy(), "times": times })).await?;
+    let reply = call_premiere(
+        "ExportFrames",
+        json!({ "dir": dir.to_string_lossy(), "times": times }),
+    )
+    .await?;
     let mut shots = Vec::new();
-    for f in reply.get("frames").and_then(|f| f.as_array()).into_iter().flatten() {
+    for f in reply
+        .get("frames")
+        .and_then(|f| f.as_array())
+        .into_iter()
+        .flatten()
+    {
         let sec = f.get("sec").and_then(|s| s.as_f64()).unwrap_or(0.0);
         // Some versions write the file after the call returns, with or without ".png".
         let base = f.get("base").and_then(|b| b.as_str()).unwrap_or("");
-        let named = f.get("path").and_then(|p| p.as_str()).filter(|p| !p.is_empty());
+        let named = f
+            .get("path")
+            .and_then(|p| p.as_str())
+            .filter(|p| !p.is_empty());
         let candidates: Vec<std::path::PathBuf> = match named {
             Some(p) => vec![p.into()],
             None => vec![format!("{}.png", base).into(), base.into()],
         };
-        shots.push(FrameShot { sec, candidates, error: None });
+        shots.push(FrameShot {
+            sec,
+            candidates,
+            error: None,
+        });
     }
     for line in string_lines(&reply) {
-        if let Some(shot) = shots.iter_mut().find(|s| s.error.is_none() && line.contains(&format!("at {}s", s.sec))) {
+        if let Some(shot) = shots
+            .iter_mut()
+            .find(|s| s.error.is_none() && line.contains(&format!("at {}s", s.sec)))
+        {
             shot.error = Some(line);
         }
     }
@@ -125,8 +157,17 @@ pub async fn build_storyboard(
     )
     .await?;
     let appended = reply.get("appended").and_then(|v| v.as_u64()).unwrap_or(0);
-    let requested = reply.get("requested").and_then(|v| v.as_u64()).unwrap_or(items.len() as u64);
-    Ok(ActionOutcome::placed(Editor::Premiere, track, appended, requested, string_lines(&reply)))
+    let requested = reply
+        .get("requested")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(items.len() as u64);
+    Ok(ActionOutcome::placed(
+        Editor::Premiere,
+        track,
+        appended,
+        requested,
+        string_lines(&reply),
+    ))
 }
 
 pub async fn delete_markers(at_secs: Vec<f64>) -> Result<ActionOutcome, String> {
@@ -134,7 +175,10 @@ pub async fn delete_markers(at_secs: Vec<f64>) -> Result<ActionOutcome, String> 
     let reply = call_premiere("DeleteMarkers", json!({ "atSec": at_secs })).await?;
     let deleted = reply.get("deleted").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
     Ok(ActionOutcome {
-        message: format!("Removed {}/{} marker(s) in Premiere Pro.", deleted, requested),
+        message: format!(
+            "Removed {}/{} marker(s) in Premiere Pro.",
+            deleted, requested
+        ),
         partial: deleted < requested,
         lines: string_lines(&reply),
     })
@@ -163,14 +207,28 @@ pub async fn add_markers(markers: Vec<MarkerSpec>) -> Result<ActionOutcome, Stri
 
 fn srt_time(secs: f64) -> String {
     let ms = (secs.max(0.0) * 1000.0).round() as u64;
-    format!("{:02}:{:02}:{:02},{:03}", ms / 3_600_000, ms / 60_000 % 60, ms / 1000 % 60, ms % 1000)
+    format!(
+        "{:02}:{:02}:{:02},{:03}",
+        ms / 3_600_000,
+        ms / 60_000 % 60,
+        ms / 1000 % 60,
+        ms % 1000
+    )
 }
 
 fn to_srt(texts: &[TextSpec]) -> String {
     texts
         .iter()
         .enumerate()
-        .map(|(i, t)| format!("{}\n{} --> {}\n{}\n", i + 1, srt_time(t.start), srt_time(t.end), t.text.trim()))
+        .map(|(i, t)| {
+            format!(
+                "{}\n{} --> {}\n{}\n",
+                i + 1,
+                srt_time(t.start),
+                srt_time(t.end),
+                t.text.trim()
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -180,10 +238,19 @@ fn to_srt(texts: &[TextSpec]) -> String {
 /// default), one graphic per entry on the first free video track from
 /// `track` up (V2 when omitted). `template: "captions"` makes a caption track
 /// from an SRT instead, the same way Subtitles > Add to Timeline does it.
-pub async fn add_text(texts: Vec<TextSpec>, template: Option<String>, track: Option<String>) -> Result<ActionOutcome, String> {
+pub async fn add_text(
+    texts: Vec<TextSpec>,
+    template: Option<String>,
+    track: Option<String>,
+) -> Result<ActionOutcome, String> {
     let count = texts.len();
-    let template = template.map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
-    if template.as_deref().map_or(false, |t| t.eq_ignore_ascii_case("captions")) {
+    let template = template
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty());
+    if template
+        .as_deref()
+        .map_or(false, |t| t.eq_ignore_ascii_case("captions"))
+    {
         return add_captions(texts).await;
     }
     let name = template.unwrap_or_else(|| DEFAULT_MOGRT.to_string());
@@ -206,7 +273,12 @@ pub async fn add_text(texts: Vec<TextSpec>, template: Option<String>, track: Opt
     let added = reply.get("added").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
     let lines = string_lines(&reply);
     Ok(ActionOutcome {
-        message: format!("Added {}/{} \"{}\" graphic(s) in Premiere Pro.", added, count, mogrt_name(&mogrt)),
+        message: format!(
+            "Added {}/{} \"{}\" graphic(s) in Premiere Pro.",
+            added,
+            count,
+            mogrt_name(&mogrt)
+        ),
         partial: added < count || !lines.is_empty(),
         lines,
     })
@@ -214,10 +286,21 @@ pub async fn add_text(texts: Vec<TextSpec>, template: Option<String>, track: Opt
 
 async fn add_captions(texts: Vec<TextSpec>) -> Result<ActionOutcome, String> {
     let count = texts.len();
-    let path = std::env::temp_dir().join(format!("autosubs-ai-edit-{}.srt", uuid::Uuid::new_v4().simple()));
-    std::fs::write(&path, to_srt(&texts)).map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
-    let reply = call_premiere("ImportCaptions", json!({ "filePath": path.to_string_lossy() })).await?;
-    let mut outcome = ActionOutcome::ok(format!("Added {} caption(s) on a new Premiere caption track.", count));
+    let path = std::env::temp_dir().join(format!(
+        "autosubs-ai-edit-{}.srt",
+        uuid::Uuid::new_v4().simple()
+    ));
+    std::fs::write(&path, to_srt(&texts))
+        .map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
+    let reply = call_premiere(
+        "ImportCaptions",
+        json!({ "filePath": path.to_string_lossy() }),
+    )
+    .await?;
+    let mut outcome = ActionOutcome::ok(format!(
+        "Added {} caption(s) on a new Premiere caption track.",
+        count
+    ));
     if reply.get("method").and_then(|m| m.as_str()) == Some("importOnly") {
         outcome.partial = true;
         outcome.lines.push(
@@ -232,7 +315,9 @@ async fn add_captions(texts: Vec<TextSpec>) -> Result<ActionOutcome, String> {
 const DEFAULT_MOGRT: &str = "Basic Title";
 
 fn mogrt_name(path: &Path) -> String {
-    path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default()
+    path.file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default()
 }
 
 /// Folders holding .mogrt files: the newest Premiere's own Essential
@@ -240,10 +325,16 @@ fn mogrt_name(path: &Path) -> String {
 fn mogrt_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     let (apps, inner): (PathBuf, &[&str]) = if cfg!(target_os = "macos") {
-        (PathBuf::from("/Applications"), &["Contents", "Essential Graphics"])
+        (
+            PathBuf::from("/Applications"),
+            &["Contents", "Essential Graphics"],
+        )
     } else {
         (
-            std::env::var_os("ProgramFiles").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\Program Files")).join("Adobe"),
+            std::env::var_os("ProgramFiles")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from(r"C:\Program Files"))
+                .join("Adobe"),
             &["Essential Graphics"],
         )
     };
@@ -252,7 +343,11 @@ fn mogrt_dirs() -> Vec<PathBuf> {
         .flatten()
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.file_name().map_or(false, |n| n.to_string_lossy().starts_with("Adobe Premiere Pro")))
+        .filter(|p| {
+            p.file_name().map_or(false, |n| {
+                n.to_string_lossy().starts_with("Adobe Premiere Pro")
+            })
+        })
         .collect();
     installs.sort();
     if let Some(install) = installs.pop() {
@@ -270,9 +365,17 @@ fn mogrt_dirs() -> Vec<PathBuf> {
         };
         dirs.push(inner.iter().fold(base, |p, part| p.join(part)));
     }
-    let user = if cfg!(target_os = "macos") { dirs::data_dir() } else { dirs::config_dir() };
+    let user = if cfg!(target_os = "macos") {
+        dirs::data_dir()
+    } else {
+        dirs::config_dir()
+    };
     if let Some(d) = user {
-        dirs.push(d.join("Adobe").join("Common").join("Motion Graphics Templates"));
+        dirs.push(
+            d.join("Adobe")
+                .join("Common")
+                .join("Motion Graphics Templates"),
+        );
     }
     dirs
 }
@@ -284,8 +387,12 @@ fn installed_mogrts() -> Vec<PathBuf> {
             let path = entry.path();
             if path.is_dir() && depth < 4 {
                 walk(&path, depth + 1, out);
-            } else if path.extension().map_or(false, |x| x.eq_ignore_ascii_case("mogrt"))
-                && !out.iter().any(|p| mogrt_name(p).eq_ignore_ascii_case(&mogrt_name(&path)))
+            } else if path
+                .extension()
+                .map_or(false, |x| x.eq_ignore_ascii_case("mogrt"))
+                && !out
+                    .iter()
+                    .any(|p| mogrt_name(p).eq_ignore_ascii_case(&mogrt_name(&path)))
             {
                 out.push(path);
             }
@@ -302,7 +409,11 @@ fn installed_mogrts() -> Vec<PathBuf> {
 fn find_mogrt(name: &str) -> Result<PathBuf, String> {
     let as_path = PathBuf::from(name);
     if as_path.is_absolute() {
-        return if as_path.is_file() { Ok(as_path) } else { Err(format!("No .mogrt file at {}.", name)) };
+        return if as_path.is_file() {
+            Ok(as_path)
+        } else {
+            Err(format!("No .mogrt file at {}.", name))
+        };
     }
     let wanted = name.trim_end_matches(".mogrt").to_lowercase();
     let all = installed_mogrts();
@@ -352,7 +463,12 @@ pub async fn update_clips(ids: Vec<String>, u: SegmentUpdate) -> Result<ActionOu
     let changed = reply
         .get("updated")
         .and_then(|u| u.as_array())
-        .map(|a| a.iter().filter_map(|s| s.as_str()).collect::<Vec<_>>().join(", "))
+        .map(|a| {
+            a.iter()
+                .filter_map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
         .unwrap_or_default();
     let done = reply.get("clips").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
     let lines = string_lines(&reply);
@@ -360,21 +476,34 @@ pub async fn update_clips(ids: Vec<String>, u: SegmentUpdate) -> Result<ActionOu
         message: if count == 1 {
             format!("Updated the clip in Premiere Pro ({}).", changed)
         } else {
-            format!("Updated {}/{} clips in Premiere Pro ({}).", done, count, changed)
+            format!(
+                "Updated {}/{} clips in Premiere Pro ({}).",
+                done, count, changed
+            )
         },
         partial: done < count || !lines.is_empty(),
         lines,
     })
 }
 
-pub async fn add_effects(ids: Vec<String>, effects: Vec<EffectSpec>) -> Result<ActionOutcome, String> {
+pub async fn add_effects(
+    ids: Vec<String>,
+    effects: Vec<EffectSpec>,
+) -> Result<ActionOutcome, String> {
     let count = ids.len();
-    let names = effects.iter().map(|e| e.name.trim()).collect::<Vec<_>>().join(", ");
+    let names = effects
+        .iter()
+        .map(|e| e.name.trim())
+        .collect::<Vec<_>>()
+        .join(", ");
     let reply = call_premiere("AddEffects", json!({ "ids": ids, "effects": effects })).await?;
     let done = reply.get("clips").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
     let lines = string_lines(&reply);
     Ok(ActionOutcome {
-        message: format!("Added {} to {}/{} clip(s) in Premiere Pro.", names, done, count),
+        message: format!(
+            "Added {} to {}/{} clip(s) in Premiere Pro.",
+            names, done, count
+        ),
         partial: done < count || !lines.is_empty(),
         lines,
     })
@@ -399,9 +528,15 @@ pub async fn add_transitions(
     .await?;
     let added = reply.get("added").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
     let lines = string_lines(&reply);
-    let at = points.iter().map(|p| format!("{} {:.2}s", p.track, p.at_sec)).collect::<Vec<_>>();
+    let at = points
+        .iter()
+        .map(|p| format!("{} {:.2}s", p.track, p.at_sec))
+        .collect::<Vec<_>>();
     let mut outcome = ActionOutcome {
-        message: format!("Added {}/{} transition(s) ({:.2}s) in Premiere Pro.", added, count, duration),
+        message: format!(
+            "Added {}/{} transition(s) ({:.2}s) in Premiere Pro.",
+            added, count, duration
+        ),
         partial: added < count || !lines.is_empty(),
         lines,
     };
@@ -418,7 +553,9 @@ pub async fn delete_segments(ids: Vec<String>, ripple: bool) -> Result<ActionOut
     let mut outcome = ActionOutcome::ok(format!("Deleted {} clip(s) in Premiere Pro.", deleted));
     if missing > 0 {
         outcome.partial = true;
-        outcome.lines.push(format!("{} clip id(s) were not on the sequence.", missing));
+        outcome
+            .lines
+            .push(format!("{} clip id(s) were not on the sequence.", missing));
     }
     Ok(outcome)
 }
@@ -434,17 +571,31 @@ pub async fn split_clips(at_sec: f64, ids: Vec<String>) -> Result<ActionOutcome,
     })
 }
 
-pub async fn remove_ranges(ranges: Vec<TimeRange>, ripple: bool, tracks: Vec<String>) -> Result<ActionOutcome, String> {
+pub async fn remove_ranges(
+    ranges: Vec<TimeRange>,
+    ripple: bool,
+    tracks: Vec<String>,
+) -> Result<ActionOutcome, String> {
     let total: f64 = ranges.iter().map(|r| r.end - r.start).sum();
     let count = ranges.len();
-    let reply = call_premiere("RemoveRanges", json!({ "ranges": ranges, "ripple": ripple, "tracks": tracks })).await?;
+    let reply = call_premiere(
+        "RemoveRanges",
+        json!({ "ranges": ranges, "ripple": ripple, "tracks": tracks }),
+    )
+    .await?;
     let deleted = reply.get("deleted").and_then(|v| v.as_u64()).unwrap_or(0);
-    let markers = reply.get("markersRemoved").and_then(|v| v.as_u64()).unwrap_or(0);
+    let markers = reply
+        .get("markersRemoved")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
     let problems = string_lines(&reply);
     let partial = !problems.is_empty();
     let mut lines = vec![format!("{} clip piece(s) deleted.", deleted)];
     if markers > 0 {
-        lines.push(format!("{} marker(s) inside the spans were removed.", markers));
+        lines.push(format!(
+            "{} marker(s) inside the spans were removed.",
+            markers
+        ));
     }
     lines.extend(problems);
     Ok(ActionOutcome {
@@ -452,7 +603,11 @@ pub async fn remove_ranges(ranges: Vec<TimeRange>, ripple: bool, tracks: Vec<Str
             "Removed {} span(s) ({:.2}s) from the Premiere sequence{}.",
             count,
             total,
-            if ripple { " and closed the gaps" } else { ", leaving gaps" }
+            if ripple {
+                " and closed the gaps"
+            } else {
+                ", leaving gaps"
+            }
         ),
         partial,
         lines,
@@ -464,9 +619,12 @@ pub async fn remove_ranges(ranges: Vec<TimeRange>, ripple: bool, tracks: Vec<Str
 // ---------------------------------------------------------------------------
 
 /// Extra clip fields `get_timeline` returns for Premiere.
-pub const SNAPSHOT_FIELDS: &str = ", zoom, speed, fx=[effects added to it], selected when the user selected it";
+pub const SNAPSHOT_FIELDS: &str =
+    ", zoom, speed, fx=[effects added to it], selected when the user selected it";
 
-pub const MARKER_COLORS: &[&str] = &["Green", "Red", "Purple", "Orange", "Yellow", "White", "Blue", "Cyan"];
+pub const MARKER_COLORS: &[&str] = &[
+    "Green", "Red", "Purple", "Orange", "Yellow", "White", "Blue", "Cyan",
+];
 
 /// The edit tools, in the order the agent sees them.
 pub fn edit_tools() -> Vec<Value> {
@@ -485,7 +643,10 @@ pub fn edit_tools() -> Vec<Value> {
         update_clip_tool(),
         delete_tool("Premiere Pro", true),
         split_tool("Premiere Pro", ""),
-        remove_ranges_tool("Premiere Pro", " With ripple, markers inside a span are removed and later ones move left."),
+        remove_ranges_tool(
+            "Premiere Pro",
+            " With ripple, markers inside a span are removed and later ones move left.",
+        ),
         remove_marker_tool("Premiere Pro"),
         add_effects_tool(),
         add_transitions_tool(),
@@ -543,7 +704,7 @@ fn update_clip_tool() -> Value {
             "items": {
                 "type": "object",
                 "properties": {
-                    "property": { "type": "string", "description": "Scale, Scale Width, Scale Height, Position, Rotation, Opacity, Level, or \"<Effect>/<Parameter>\"" },
+                    "property": { "type": "string", "description": "Scale, Scale Width, Scale Height, Position, Rotation, Opacity, Level (volume: 1.0 = unchanged), or \"<Effect>/<Parameter>\"" },
                     "points": {
                         "type": "array",
                         "items": {
@@ -570,9 +731,10 @@ fn update_clip_tool() -> Value {
              startSec (move) and durationSec (length) take one clip. zoom (1.0 = 100%), panX/panY (-1..1, 0 = \
              centred), rotation (degrees), opacity (0-100); zoomEnd/panXEnd/panYEnd add eased keyframes from \
              clip start to end. volume: 1.0 = unchanged, 0.5 = about -6 dB, 0 = silent (a video clip's linked \
-             audio too). speed changes the clip's length with it, so a slower clip needs free room after it; \
+             audio too); on a clip with Level keyframes it moves them all, the loudest to that volume. speed changes the clip's length with it, so a slower clip needs free room after it; \
              reverse plays it backwards. keyframes animate any property in Premiere's own units (Scale 100 = \
-             100%; Scale Width / Scale Height for one side, squash and stretch, turn Uniform Scale off; Position [0.5, 0.5] = centre, Opacity 0-100, Rotation degrees, an effect's parameter as \
+             100%; Scale Width / Scale Height for one side, squash and stretch, turn Uniform Scale off; Position [0.5, 0.5] = centre, Opacity 0-100, Rotation degrees, Level in volume's units (1.0 = \
+             unchanged, 0 = silent), an effect's parameter as \
              its control shows it): sec counts from the clip's start, or back from its end with fromEnd, so one \
              list fits clips of any length (a fade-out is Opacity 100 at sec 1 fromEnd, 0 at sec 0 fromEnd). \
              anchor sets the point the clip scales and rotates around, in its own picture (a hammer's grip, a \
@@ -657,18 +819,36 @@ mod tests {
         // Only meaningful where Premiere is installed.
         let all = installed_mogrts();
         if all.iter().any(|p| mogrt_name(p) == DEFAULT_MOGRT) {
-            assert_eq!(mogrt_name(&find_mogrt("basic title").unwrap()), "Basic Title");
+            assert_eq!(
+                mogrt_name(&find_mogrt("basic title").unwrap()),
+                "Basic Title"
+            );
             assert!(find_mogrt("Lower Third").is_ok());
-            assert!(find_mogrt("no such template").unwrap_err().contains("Installed:"));
+            assert!(
+                find_mogrt("no such template")
+                    .unwrap_err()
+                    .contains("Installed:")
+            );
         }
     }
 
     #[test]
     fn writes_srt() {
         let srt = to_srt(&[
-            TextSpec { text: "Hi".into(), start: 0.0, end: 1.5 },
-            TextSpec { text: "Two".into(), start: 3661.25, end: 3662.0 },
+            TextSpec {
+                text: "Hi".into(),
+                start: 0.0,
+                end: 1.5,
+            },
+            TextSpec {
+                text: "Two".into(),
+                start: 3661.25,
+                end: 3662.0,
+            },
         ]);
-        assert_eq!(srt, "1\n00:00:00,000 --> 00:00:01,500\nHi\n\n2\n01:01:01,250 --> 01:01:02,000\nTwo\n");
+        assert_eq!(
+            srt,
+            "1\n00:00:00,000 --> 00:00:01,500\nHi\n\n2\n01:01:01,250 --> 01:01:02,000\nTwo\n"
+        );
     }
 }

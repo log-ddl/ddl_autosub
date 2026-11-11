@@ -8,8 +8,8 @@ interface SectionHeaderProps {
 
 export function SectionHeader({ label, action }: SectionHeaderProps) {
   return (
-    <div className="mb-3 flex items-center gap-2.5">
-      <h3 className="text-base font-semibold leading-none text-foreground">
+    <div className="mb-2.5 flex items-center gap-2.5 px-0.5">
+      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
         {label}
       </h3>
       {action ? <div className="ml-auto min-w-0">{action}</div> : null}
@@ -31,11 +31,11 @@ export function CompactSettingsRow({
   return (
     <div
       className={cn(
-        "grid grid-cols-[112px_minmax(0,1fr)] items-center gap-3 px-3 py-2.5",
+        "grid grid-cols-[104px_minmax(0,1fr)] items-center gap-3 px-3.5 py-2.5",
         className,
       )}
     >
-      <h3 className="min-w-0 truncate text-sm font-semibold leading-none text-foreground">
+      <h3 className="min-w-0 truncate text-xs font-semibold text-muted-foreground">
         {label}
       </h3>
       <div className="min-w-0">{children}</div>

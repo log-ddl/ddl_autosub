@@ -22,6 +22,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/animated-tabs";
+import {
+  SettingsGearIcon,
+  type SettingsGearIconHandle,
+} from "@/components/ui/icons/settings";
 import { useTheme } from "@/components/providers/theme-provider";
 import { SettingsDialog } from "@/components/dialogs/settings-dialog";
 import { ManageModelsDialog } from "@/components/settings/model-manager";
@@ -38,6 +42,7 @@ export function SettingsDropdown() {
   const [dropdownOpen, setDropdownOpen] = React.useState(false);
   const [tooltipOpen, setTooltipOpen] = React.useState(false);
   const suppressTooltipUntilRef = React.useRef(0);
+  const gearIconRef = React.useRef<SettingsGearIconHandle>(null);
 
   const managerModels: Model[] = [
     ...modelsState,
@@ -61,6 +66,11 @@ export function SettingsDropdown() {
   const handleDropdownOpenChange = (nextOpen: boolean) => {
     setDropdownOpen(nextOpen);
     suppressTooltip();
+    if (nextOpen) {
+      gearIconRef.current?.startAnimation();
+    } else {
+      gearIconRef.current?.stopAnimation();
+    }
   };
 
   return (
@@ -82,9 +92,14 @@ export function SettingsDropdown() {
                 type="button"
                 variant="ghost"
                 size="icon"
+                className="h-8 w-8 rounded-xl border border-border/60 bg-card/70 hover:bg-accent/80 shadow-2xs"
                 aria-label={t("settings.title", "Settings")}
+                onMouseEnter={() => gearIconRef.current?.startAnimation()}
+                onMouseLeave={() => {
+                  if (!dropdownOpen) gearIconRef.current?.stopAnimation();
+                }}
               >
-                <SettingsIcon />
+                <SettingsGearIcon ref={gearIconRef} size={15} />
               </Button>
             </DropdownMenuTrigger>
           </TooltipTrigger>
@@ -93,26 +108,26 @@ export function SettingsDropdown() {
           </TooltipContent>
         </Tooltip>
         <DropdownMenuContent
-          className="w-48 rounded-lg"
+          className="w-52 rounded-xl"
           side="bottom"
           align="end"
-          sideOffset={4}
+          sideOffset={6}
           onPointerDown={suppressTooltip}
           onClick={suppressTooltip}
         >
           <DropdownMenuGroup>
             <DropdownMenuItem
               onClick={() => setSettingsDialogOpen(true)}
-              className="cursor-pointer"
+              className="cursor-pointer font-medium"
             >
-              <SettingsIcon />
+              <SettingsIcon className="text-muted-foreground" />
               <span>{t("settings.title", "Settings")}</span>
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => setManageModelsOpen(true)}
-              className="cursor-pointer"
+              className="cursor-pointer font-medium"
             >
-              <Shapes />
+              <Shapes className="text-muted-foreground" />
               <span>{t("models.manage.title", "Manage Models")}</span>
             </DropdownMenuItem>
           </DropdownMenuGroup>
@@ -123,13 +138,13 @@ export function SettingsDropdown() {
             <Tabs value={theme} onValueChange={handleThemeChange}>
               <TabsList className="w-full">
                 <TabsTrigger value="light">
-                  <Sun />
+                  <Sun className="size-3.5" />
                 </TabsTrigger>
                 <TabsTrigger value="dark">
-                  <Moon />
+                  <Moon className="size-3.5" />
                 </TabsTrigger>
                 <TabsTrigger value="system">
-                  <Monitor />
+                  <Monitor className="size-3.5" />
                 </TabsTrigger>
               </TabsList>
             </Tabs>
@@ -148,7 +163,6 @@ export function SettingsDropdown() {
         open={settingsDialogOpen}
         onOpenChange={setSettingsDialogOpen}
       />
-
     </>
   );
 }

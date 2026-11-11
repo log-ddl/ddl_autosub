@@ -1,5 +1,7 @@
 import { cn } from "@/lib/utils";
+import { spring } from "@/lib/motion-tokens";
 import * as TabsPrimitive from "@radix-ui/react-tabs";
+import { motion } from "motion/react";
 import * as React from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
@@ -39,9 +41,6 @@ const TabsList = React.forwardRef<
       );
       if (!activeTab) return;
 
-      // Use offset-based measurements which are transform-invariant.
-      // This prevents the indicator from "expanding" during popover animations
-      // that use scale transforms.
       const listElement = activeTab.offsetParent as HTMLElement;
       if (!listElement) return;
 
@@ -111,21 +110,25 @@ const TabsList = React.forwardRef<
         ref={ref}
         data-slot="tabs-list"
         className={cn(
-          "bg-muted text-muted-foreground relative inline-flex h-9 w-fit items-center justify-center rounded-md p-[3px]",
+          "bg-muted/80 text-muted-foreground relative inline-flex h-9 w-fit items-center justify-center rounded-xl p-1 border border-border/50",
           className,
         )}
         {...props}
       />
       {isInitialized && (
-        <div
+        <motion.div
           data-indicator="true"
-          className={cn(
-            "absolute rounded-sm border border-transparent bg-background shadow-sm dark:border-input dark:bg-input/30",
-            shouldAnimateTransition
-              ? "transition-all duration-300 ease-in-out"
-              : "transition-none",
-          )}
-          style={indicatorStyle}
+          initial={false}
+          animate={{
+            x: indicatorStyle.left,
+            y: indicatorStyle.top,
+            width: indicatorStyle.width,
+            height: indicatorStyle.height,
+          }}
+          transition={
+            shouldAnimateTransition ? spring.selection : { duration: 0 }
+          }
+          className="pointer-events-none absolute left-0 top-0 rounded-lg border border-border/60 bg-card shadow-sm dark:border-white/10 dark:bg-accent"
         />
       )}
     </div>
@@ -141,7 +144,7 @@ const TabsTrigger = React.forwardRef<
     ref={ref}
     data-slot="tabs-trigger"
     className={cn(
-      "data-[state=active]:text-foreground focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:outline-ring inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-sm border border-transparent px-2 py-1 text-sm font-medium whitespace-nowrap transition-colors focus-visible:ring-[3px] focus-visible:outline-1 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 z-10",
+      "data-[state=active]:text-foreground hover:text-foreground/85 focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:outline-ring inline-flex h-full flex-1 items-center justify-center gap-1.5 rounded-lg border border-transparent px-2.5 py-1 text-sm font-medium whitespace-nowrap transition-colors duration-150 focus-visible:ring-[3px] focus-visible:outline-1 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 z-10",
       className,
     )}
     {...props}

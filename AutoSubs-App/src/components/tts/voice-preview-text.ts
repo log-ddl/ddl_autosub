@@ -1,0 +1,37 @@
+/** Short, fixed samples in the voice's language, independent of the editor text. */
+const SAMPLES: Record<string, string> = {
+  ar: "مرحباً، هذا نموذج للصوت الذي اخترته. أتمنى لك يوماً سعيداً.",
+  bg: "Здравейте, това е пример за избрания от вас глас. Приятен ден!",
+  cs: "Dobrý den, toto je ukázka vámi vybraného hlasu. Přeji krásný den!",
+  da: "Hej, dette er en prøve på den stemme, du har valgt. Hav en god dag!",
+  de: "Hallo, das ist eine Hörprobe der gewählten Stimme. Ich wünsche einen schönen Tag!",
+  el: "Γεια σας, αυτό είναι ένα δείγμα της φωνής που επιλέξατε. Καλή σας μέρα!",
+  en: "Hello, this is a sample of the voice you selected. Have a wonderful day!",
+  es: "Hola, esta es una muestra de la voz que has elegido. ¡Que tengas un buen día!",
+  fi: "Hei, tämä on näyte valitsemastasi äänestä. Mukavaa päivää!",
+  fil: "Kumusta, ito ang halimbawa ng boses na napili mo. Magandang araw!",
+  fr: "Bonjour, voici un aperçu de la voix que vous avez choisie. Bonne journée !",
+  hi: "नमस्ते, यह आपके चुने हुए स्वर का एक नमूना है। आपका दिन शुभ हो।",
+  hr: "Pozdrav, ovo je uzorak glasa koji ste odabrali. Ugodan dan!",
+  id: "Halo, ini contoh suara yang Anda pilih. Semoga hari Anda menyenangkan!",
+  it: "Ciao, questo è un esempio della voce che hai scelto. Buona giornata!",
+  ja: "こんにちは。これは選択した音声のサンプルです。素敵な一日をお過ごしください。",
+  ko: "안녕하세요. 선택하신 목소리의 샘플입니다. 좋은 하루 보내세요!",
+  ms: "Helo, ini ialah contoh suara yang anda pilih. Semoga hari anda menyenangkan!",
+  nl: "Hallo, dit is een voorbeeld van de stem die je hebt gekozen. Fijne dag!",
+  pl: "Dzień dobry, to jest próbka wybranego głosu. Miłego dnia!",
+  pt: "Olá, esta é uma amostra da voz que você escolheu. Tenha um ótimo dia!",
+  ro: "Bună, aceasta este o mostră a vocii pe care ai ales-o. O zi frumoasă!",
+  ru: "Здравствуйте, это образец выбранного вами голоса. Хорошего дня!",
+  sk: "Dobrý deň, toto je ukážka vami zvoleného hlasu. Prajem pekný deň!",
+  sv: "Hej, det här är ett prov på rösten du har valt. Ha en bra dag!",
+  ta: "வணக்கம், இது நீங்கள் தேர்ந்தெடுத்த குரலின் மாதிரி. இனிய நாளாக அமையட்டும்!",
+  th: "สวัสดี นี่คือตัวอย่างเสียงที่คุณเลือก ขอให้มีวันที่ดีค่ะ",
+  tr: "Merhaba, bu seçtiğiniz sesin bir örneği. İyi günler!",
+  uk: "Вітаю, це зразок вибраного вами голосу. Гарного дня!",
+  vi: "Xin chào, đây là giọng đọc bạn đã chọn. Chúc bạn một ngày tốt lành!",
+  zh: "你好，这是你所选择的声音示例。祝你今天愉快！",
+};
+export function voicePreviewText(language: string): string {
+  return SAMPLES[language] || SAMPLES.en;
+}

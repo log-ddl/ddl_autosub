@@ -4,6 +4,10 @@ import { useTranslation } from "react-i18next";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  SparklesIcon,
+  type SparklesIconHandle,
+} from "@/components/ui/icons/sparkles";
 import { ModelPicker } from "@/components/settings/model-picker";
 import { useSettingsStore } from "@/stores/settings-store";
 import { cn } from "@/lib/utils";
@@ -90,6 +94,7 @@ export function TranscriptionPanelView({
     string | null
   >(null);
   const [isRefreshingTracks, setIsRefreshingTracks] = React.useState(false);
+  const generateIconRef = React.useRef<SparklesIconHandle>(null);
 
   // Distinguish "prop not provided" (undefined → fall back to local state)
   // from "prop explicitly cleared" (null → respect the parent's reset).
@@ -198,7 +203,7 @@ export function TranscriptionPanelView({
         isSubtitleViewerOpen={isSubtitleViewerOpen}
       />
 
-      <div className="flex-1 min-h-0 flex flex-col p-3.5 pt-3 pb-4">
+      <div className="flex-1 min-h-0 flex flex-col p-4 pt-3.5 pb-4">
         {showProcessing && (
           <ProcessingStepsList
             steps={processingSteps}
@@ -208,7 +213,7 @@ export function TranscriptionPanelView({
         )}
 
         {hasCompletedRun ? (
-          <div className="flex-shrink-0 pt-3 flex flex-col gap-2.5">
+          <div className="flex-shrink-0 pt-3 flex flex-col gap-3">
             <CompletionStepItem
               onExportToFile={onExportToFile}
               onViewSubtitles={onViewSubtitles}
@@ -220,7 +225,7 @@ export function TranscriptionPanelView({
               onClick={onStartNewTranscription}
               size="lg"
               variant="default"
-              className="w-full"
+              className="h-11 w-full rounded-xl shadow-sm"
             >
               <PlayCircle className="size-4" />
               {t("common.startNewTranscription", "Start new transcription")}
@@ -229,7 +234,7 @@ export function TranscriptionPanelView({
         ) : (
           <div className={showProcessing ? "flex-shrink-0" : "min-h-0 flex-1"}>
             <div
-              className="flex h-full w-full flex-col gap-2.5"
+              className="flex h-full w-full flex-col gap-3.5"
               data-tour="transcription-controls"
             >
               {isProcessing ? (
@@ -257,7 +262,7 @@ export function TranscriptionPanelView({
                         onRefreshTracks={handleRefreshAudioTracks}
                         isRefreshingTracks={isRefreshingTracks}
                         className={cn(
-                          "row-start-1 col-start-1 transition-opacity duration-0",
+                          "row-start-1 col-start-1 transition-opacity duration-200",
                           audioInputMode !== "timeline" && "opacity-0 pointer-events-none"
                         )}
                       />
@@ -265,24 +270,24 @@ export function TranscriptionPanelView({
                         selectedFile={selectedFile}
                         onSelectedFileChange={setSelectedFile}
                         className={cn(
-                          "row-start-1 col-start-1 transition-opacity duration-0",
+                          "row-start-1 col-start-1 transition-opacity duration-200",
                           audioInputMode !== "file" && "opacity-0 pointer-events-none"
                         )}
                       />
                     </div>
                   </div>
 
-                  <Card className="z-50 overflow-hidden rounded-2xl bg-background p-0 shadow-none">
+                  <Card className="z-50 overflow-hidden rounded-2xl border-border/80 bg-card p-0 shadow-xs">
                     <CompactSettingsRow
                       label={t("actionBar.language.title", "Language")}
-                      className="border-b"
+                      className="border-b border-border/60"
                     >
                       <LanguageButton />
                     </CompactSettingsRow>
 
                     <CompactSettingsRow
                       label={t("actionBar.model", "Model")}
-                      className="border-b"
+                      className="border-b border-border/60"
                     >
                       <ModelPicker
                         modelsState={modelsState}
@@ -294,7 +299,7 @@ export function TranscriptionPanelView({
                         open={openModelSelector}
                         onOpenChange={onOpenModelSelectorChange}
                         isSmallScreen={isSmallScreen}
-                        triggerClassName="h-10 rounded-lg px-3 py-0"
+                        triggerClassName="h-9 rounded-lg px-3 py-0"
                       />
                     </CompactSettingsRow>
 
@@ -306,15 +311,17 @@ export function TranscriptionPanelView({
                   </Card>
 
                   {/* Start Transcription */}
-                  <div className="z-50 shadow-none">
+                  <div className="z-50">
                     <Button
                       onClick={onStart}
                       size="lg"
                       variant="default"
                       disabled={startDisabled}
-                      className="w-full"
+                      onMouseEnter={() => generateIconRef.current?.startAnimation()}
+                      onMouseLeave={() => generateIconRef.current?.stopAnimation()}
+                      className="h-11 w-full rounded-xl shadow-sm"
                     >
-                      <PlayCircle className="size-4" />
+                      <SparklesIcon ref={generateIconRef} size={16} />
                       {startButtonLabel}
                     </Button>
                   </div>
@@ -325,7 +332,7 @@ export function TranscriptionPanelView({
                   onClick={onCancel}
                   size="lg"
                   variant="destructive"
-                  className="w-full"
+                  className="h-11 w-full rounded-xl shadow-sm"
                 >
                   <X className="size-4" />
                   {t("common.cancel")}

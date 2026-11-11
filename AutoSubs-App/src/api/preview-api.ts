@@ -1,17 +1,22 @@
 import { invoke } from "@tauri-apps/api/core";
 
-/** Something under motion-graphics/ the preview panel can open. */
+/** Something the preview panel can open: a folder under motion-graphics/, or a code video project. */
 export interface PreviewTarget {
   name: string;
   path: string;
-  /** "static": served by the app (HTML, TS transpiled). "dev": runs the project's dev script. */
-  kind: "static" | "dev";
+  /**
+   * "static": served by the app (HTML, TS transpiled). "dev": runs the project's dev script.
+   * "studio": a project in the working folder's projects/, shown in its Remotion Studio.
+   */
+  kind: "static" | "dev" | "studio";
+  /** The project id, for "studio". */
+  id?: string;
   modifiedSec?: number;
 }
 
 export interface PreviewInfo {
   url: string;
-  kind: "static" | "dev";
+  kind: "static" | "dev" | "studio";
   root: string;
 }
 

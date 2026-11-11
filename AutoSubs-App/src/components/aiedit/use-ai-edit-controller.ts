@@ -1,12 +1,11 @@
 import * as React from "react";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { ask, open as openDialog } from "@tauri-apps/plugin-dialog";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
 import {
   ensureCliWorkspace,
   copyCliAsset,
-  importCliSkills,
   getCliModels,
   getCliRuntimeStatus,
   runCliTextTask,
@@ -30,7 +29,17 @@ import {
 } from "./ai-edit-helpers";
 import { useEditorAdapter } from "./editors";
 import { useAiEditPreview } from "./ai-edit-preview-panel";
-import { listPreviewCandidates } from "@/api/preview-api";
+import { listPreviewCandidates, type PreviewTarget } from "@/api/preview-api";
+import {
+  importStudioSkills,
+  listStudioProjects,
+  getStudioStatus,
+  listStudioSkills,
+  onStudioStatus,
+  removeStudioSkill,
+  setStudioRoot,
+  type StudioSkill,
+} from "@/api/studio-api";
 
 export function useAiEditController() {
   const { t } = useTranslation();
@@ -97,6 +106,24 @@ export function useAiEditController() {
   const [workspaceInfo, setWorkspaceInfo] =
     React.useState<WorkspaceInfo | null>(null);
   const [assetsOpen, setAssetsOpen] = React.useState(false);
+  // The working folder's skills: shared by every project, so they never wait
+  // for an editor project to be open.
+  const [studioSkills, setStudioSkills] = React.useState<StudioSkill[]>([]);
+  const [studioRoot, setStudioRootState] = React.useState("");
+  const refreshSkills = React.useCallback(() => {
+    listStudioSkills().then(setStudioSkills).catch(() => {});
+    getStudioStatus().then((s) => setStudioRootState(s.root)).catch(() => {});
+  }, []);
+  React.useEffect(() => {
+    if (assetsOpen) refreshSkills();
+  }, [assetsOpen, refreshSkills]);
+  React.useEffect(() => {
+    getStudioStatus().then((s) => setStudioRootState(s.root)).catch(() => {});
+    const un = onStudioStatus((s) => setStudioRootState(s.root));
+    return () => {
+      void un.then((f) => f());
+    };
+  }, []);
   const [memoryOpen, setMemoryOpen] = React.useState(false);
   const [memoryDraft, setMemoryDraft] = React.useState("");
   const [globalMemoryDraft, setGlobalMemoryDraft] = React.useState("");
@@ -368,9 +395,21 @@ export function useAiEditController() {
   }
 
   /** This project's motion graphics; templates open from the asset library. */
-  async function listPreviewTargets() {
+  /** Code video projects of the working folder first, then this project's motion graphics. */
+  async function listPreviewTargets(): Promise<PreviewTarget[]> {
     const dir = workspaceInfo?.motionGraphicsDir;
-    return dir ? listPreviewCandidates(dir).catch(() => []) : [];
+    const [videos, motion] = await Promise.all([
+      listStudioProjects().catch(() => []),
+      dir ? listPreviewCandidates(dir).catch(() => []) : Promise.resolve([]),
+    ]);
+    const studio: PreviewTarget[] = videos.map((p) => ({
+      name: p.title,
+      path: p.path,
+      kind: "studio",
+      id: p.id,
+      modifiedSec: p.modifiedSec,
+    }));
+    return [...studio, ...motion];
   }
 
   async function copyAsset(
@@ -391,13 +430,10 @@ export function useAiEditController() {
   function handleSaveAsTemplate(
     asset: import("@/api/cli-chat-api").ProjectAssetItem,
   ) {
-    const skill = asset.category === "skills";
     return copyAsset(
       asset,
-      skill ? workspaceInfo?.librarySkillsDir : workspaceInfo?.templatesDir,
-      t(skill ? "aiEdit.assets.savedSkill" : "aiEdit.assets.savedTemplate", {
-        name: asset.name,
-      }),
+      workspaceInfo?.templatesDir,
+      t("aiEdit.assets.savedTemplate", { name: asset.name }),
     );
   }
 
@@ -411,18 +447,12 @@ export function useAiEditController() {
         ? workspaceInfo?.musicDir
         : asset.category === "library-sfx"
           ? workspaceInfo?.sfxDir
-          : asset.category === "library-skills"
-            ? workspaceInfo?.skillsDir
-            : workspaceInfo?.motionGraphicsDir;
+          : workspaceInfo?.motionGraphicsDir;
     return copyAsset(asset, destination, t("aiEdit.assets.copied", { name: asset.name }));
   }
 
-  /** Picks a folder holding one skill (or several) and copies it into the project or the library. */
-  async function handleImportSkills(toLibrary: boolean) {
-    const destination = toLibrary
-      ? workspaceInfo?.librarySkillsDir
-      : workspaceInfo?.skillsDir;
-    if (!destination) return;
+  /** Picks a folder holding one skill (or several) and copies it into the working folder's skills/. */
+  async function handleImportSkills() {
     const picked = await openDialog({
       directory: true,
       multiple: false,
@@ -430,11 +460,44 @@ export function useAiEditController() {
     });
     if (typeof picked !== "string" || !picked.trim()) return;
     try {
-      const names = await importCliSkills(picked, destination);
-      await refreshWorkspace();
-      toast.success(
-        t("aiEdit.assets.importedSkills", { names: names.join(", ") }),
-      );
+      let names: string[];
+      try {
+        names = await importStudioSkills(picked);
+      } catch (err: any) {
+        const msg = String(err?.message || err);
+        if (!msg.startsWith("EXISTS:")) throw err;
+        const yes = await ask(t("aiEdit.assets.replaceSkill", { name: msg.slice(7) }), { kind: "warning" });
+        if (!yes) return;
+        names = await importStudioSkills(picked, true);
+      }
+      refreshSkills();
+      if (names.length) {
+        toast.success(t("aiEdit.assets.importedSkills", { names: names.join(", ") }));
+      }
+    } catch (err: any) {
+      toast.error(err?.message || String(err));
+    }
+  }
+
+  /** Picks another working folder; its skills and code videos replace the list. */
+  async function handleChangeStudioRoot() {
+    const dir = await openDialog({ directory: true, defaultPath: studioRoot || undefined });
+    if (typeof dir !== "string") return;
+    try {
+      const status = await setStudioRoot(dir);
+      setStudioRootState(status.root);
+      refreshSkills();
+    } catch (err: any) {
+      toast.error(err?.message || String(err));
+    }
+  }
+
+  async function handleRemoveSkill(skill: StudioSkill) {
+    const yes = await ask(t("aiEdit.assets.removeSkillConfirm", { name: skill.name }), { kind: "warning" });
+    if (!yes) return;
+    try {
+      await removeStudioSkill(skill.folder);
+      refreshSkills();
     } catch (err: any) {
       toast.error(err?.message || String(err));
     }
@@ -731,6 +794,9 @@ export function useAiEditController() {
     refreshWorkspace,
     assetsOpen,
     setAssetsOpen,
+    studioSkills,
+    studioRoot,
+    handleChangeStudioRoot,
     memoryOpen,
     setMemoryOpen,
     memoryDraft,
@@ -760,6 +826,7 @@ export function useAiEditController() {
     handleSaveAsTemplate,
     handleUseTemplate,
     handleImportSkills,
+    handleRemoveSkill,
     handleSaveMemory,
     handleSendPrompt,
     handleStopRunning,

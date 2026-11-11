@@ -1,9 +1,7 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { Check, Copy, FolderOpen, Plug } from "lucide-react";
+import { Check, Copy, Plug } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item";
@@ -12,7 +10,6 @@ import { cn } from "@/lib/utils";
 import {
   connectExternalAgent,
   setExternalAgentEnabled,
-  setExternalAgentHome,
   type ExternalAgentStatus,
 } from "@/api/external-agent-api";
 import { ago, useExternalAgentStatus } from "./use-external-agent";
@@ -104,11 +101,6 @@ export function ExternalAgentPanel() {
     window.setTimeout(() => setCopied(false), 1500);
   };
 
-  const pickHome = async () => {
-    const dir = await openDialog({ directory: true, defaultPath: status.home });
-    if (typeof dir === "string") await run("home", () => setExternalAgentHome(dir));
-  };
-
   const connectButton = (client: "claude" | "agy", name: string, installed: boolean, registered: boolean) =>
     installed && (
       <Button
@@ -170,27 +162,6 @@ export function ExternalAgentPanel() {
                   ))}
                 </ul>
               )}
-
-              <div className="space-y-1.5 border-t pt-2">
-                <div className="text-[11px] text-muted-foreground">{t("externalAgent.folderHint")}</div>
-                <div className="flex items-center gap-1.5">
-                  <code className="min-w-0 flex-1 truncate rounded bg-muted px-1.5 py-1 font-mono text-[11px]" title={status.home}>
-                    {status.home}
-                  </code>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-7"
-                    onClick={() => void revealItemInDir(status.home)}
-                    title={t("externalAgent.openFolder")}
-                  >
-                    <FolderOpen className="size-3.5" />
-                  </Button>
-                  <Button variant="ghost" size="sm" className="h-7 text-[11px]" disabled={busy !== null} onClick={pickHome}>
-                    {t("externalAgent.changeFolder")}
-                  </Button>
-                </div>
-              </div>
 
               <div className="flex flex-wrap items-center gap-1.5 border-t pt-2">
                 <span className="mr-1 text-[11px] text-muted-foreground">{t("externalAgent.connectLabel")}</span>

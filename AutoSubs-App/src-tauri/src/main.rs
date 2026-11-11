@@ -5,33 +5,35 @@
 #![recursion_limit = "512"]
 
 use serde_json::json;
-use std::time::Duration;
-use tauri::{Manager, RunEvent};
-use tauri::Emitter; // for app.emit
 use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
+use std::time::Duration;
+use tauri::Emitter; // for app.emit
+use tauri::{Manager, RunEvent};
 
 // Import plugins
+use tauri_plugin_clipboard_manager::init as clipboard_plugin;
 use tauri_plugin_fs::init as fs_plugin;
 use tauri_plugin_http::init as http_plugin;
-use tauri_plugin_process::init as process_plugin;
-use tauri_plugin_shell::init as shell_plugin;
-use tauri_plugin_shell::ShellExt; // for app.shell()
-use tauri_plugin_store::Builder as StoreBuilder;
-use tauri_plugin_clipboard_manager::init as clipboard_plugin;
 use tauri_plugin_opener::init as opener_plugin;
+use tauri_plugin_process::init as process_plugin;
+use tauri_plugin_shell::ShellExt; // for app.shell()
+use tauri_plugin_shell::init as shell_plugin;
 use tauri_plugin_single_instance::init as single_instance_plugin;
+use tauri_plugin_store::Builder as StoreBuilder;
 use tokio::process::Command as TokioCommand;
 
-mod audio_preprocess;
-mod models;
-mod transcription_api;
-mod transcript_types;
-mod logging;
-mod bridges;
-mod media;
-mod process_ext;
 mod ai_cli;
 mod ai_edit;
+mod audio_preprocess;
+mod bridges;
+mod logging;
+mod media;
+mod models;
+mod process_ext;
+mod studio;
+mod transcript_types;
+mod transcription_api;
+mod tts;
 
 use crate::bridges::adobe::bridge as adobe_bridge;
 use crate::media::{article, download as media_download, site_session};
@@ -62,11 +64,13 @@ fn setup_proxy_env() {
         return;
     }
 
-    use winreg::enums::*;
     use winreg::RegKey;
+    use winreg::enums::*;
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let Ok(ie) = hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings") else {
+    let Ok(ie) =
+        hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings")
+    else {
         return;
     };
 
@@ -86,7 +90,8 @@ fn setup_proxy_env() {
     // ProxyServer is either a bare "host:port" or a semicolon-separated
     // "proto=host:port" list (e.g. "http=127.0.0.1:8080;https=127.0.0.1:8080;socks=127.0.0.1:1080").
     let make_url = |addr: &str| -> String {
-        if addr.starts_with("http://") || addr.starts_with("https://") || addr.starts_with("socks") {
+        if addr.starts_with("http://") || addr.starts_with("https://") || addr.starts_with("socks")
+        {
             addr.to_string()
         } else {
             format!("http://{}", addr)
@@ -162,7 +167,6 @@ fn setup_proxy_env() {
 
 #[cfg(not(target_os = "windows"))]
 fn setup_proxy_env() {}
-
 
 /// Build the main GUI window programmatically.
 ///
@@ -320,6 +324,7 @@ fn main() {
             ai_edit::mcp::start(app.handle().clone());
             ai_edit::mcp::external::start(app.handle());
             tauri::async_runtime::spawn(media::remotion::prepare(app.handle().clone()));
+            tauri::async_runtime::spawn(studio::prepare(app.handle().clone()));
 
 
             Ok(())
@@ -350,7 +355,6 @@ fn main() {
             ai_edit::mcp::external::external_agent_open_app,
             ai_cli::workspace::cli_save_memory,
             ai_cli::workspace::cli_copy_asset,
-            ai_cli::workspace::cli_import_skills,
             ai_cli::workspace::cli_list_workspace_projects,
             ai_cli::workspace::cli_delete_workspace_project,
             ai_cli::chat::cli_run_text_task,
@@ -369,7 +373,34 @@ fn main() {
             media_download::media_download_cancel,
             site_session::site_session_sites,
             site_session::site_session_login,
-            article::article_snapshot
+            article::article_snapshot,
+            tts::tts_get_status,
+            tts::tts_voice_catalog,
+            tts::vieneu::tts_vieneu_status,
+            tts::vieneu::tts_install_vieneu,
+            tts::tts_install_model,
+            tts::tts_remove_model,
+            tts::tts_remove_voice_prompt,
+            tts::tts_generate,
+            tts::tts_cancel_job,
+            tts::tts_pick_reference_audio,
+            tts::tts_export_audio,
+            tts::tts_reveal_audio,
+            tts::tts_pick_batch_folder,
+            tts::tts_scan_batch_folder,
+            tts::tts_read_batch_text,
+            tts::tts_save_batch_output,
+            tts::tts_open_batch_folder,
+            studio::studio_status,
+            studio::studio_setup,
+            studio::studio_projects,
+            studio::studio_skills,
+            studio::studio_set_root,
+            studio::studio_open,
+            studio::studio_stop,
+            studio::studio_logs,
+            studio::studio_import_skills,
+            studio::studio_remove_skill
         ])
         .build(tauri::generate_context!())
         .expect("error while building Tauri application")
@@ -408,6 +439,8 @@ fn main() {
 
                     // A preview dev server is a separate process tree; don't orphan it.
                     crate::ai_cli::preview::shutdown();
+                    crate::studio::shutdown();
+                    crate::tts::shutdown();
 
                     #[cfg(target_os = "windows")]
                     {

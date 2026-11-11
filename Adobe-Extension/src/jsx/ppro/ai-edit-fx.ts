@@ -11,6 +11,7 @@ import {
   closeNames,
   foldName,
   freeVideoTrack,
+  gainToLevel,
   locate,
   num,
   qeClipFor,
@@ -268,6 +269,9 @@ export function applySpeed(hit: any, args: any, updated: string[], lines: string
 
 var INTERPOLATION: any = { linear: 0, hold: 4, ease: 5 };
 
+/** Property names that mean the clip's volume (folded). */
+var LEVEL_NAMES: any = { level: true, volume: true, volumelevel: true };
+
 /**
  * A property for keyframes: "Scale" (searched in every component, Motion
  * first) or "Effect/Parameter". Looks in linked clips too, so "Level" on a
@@ -430,7 +434,10 @@ export function applyKeyframes(hit: any, args: any, updated: string[], lines: st
   var specs: any[] = args.keyframes || [];
   for (var k = 0; k < specs.length; k++) {
     var spec = specs[k];
-    var found = scaleAxis(hit.clip, String(spec.property), lines) || keyframeProperty(hit.clip, String(spec.property));
+    // Volume keys take update_clip's volume units (1.0 = unchanged), not Level's raw value.
+    var isLevel = LEVEL_NAMES[foldName(spec.property)] === true;
+    var path = isLevel ? "Volume/Level" : String(spec.property);
+    var found = scaleAxis(hit.clip, path, lines) || keyframeProperty(hit.clip, path);
     if (!found) {
       note(lines, "No property \"" + spec.property + "\" on this clip (use \"Effect/Parameter\" for an effect's).");
       continue;
@@ -455,7 +462,7 @@ export function applyKeyframes(hit: any, args: any, updated: string[], lines: st
         // faster than the timeline.
         var t = secondsToTime(inSec + offset * speed);
         prop.addKey(t);
-        prop.setValueAtKey(t, coerce(pt.value), true);
+        prop.setValueAtKey(t, isLevel ? gainToLevel(coerce(pt.value)) : coerce(pt.value), true);
         try {
           prop.setInterpolationTypeAtKey(t, mode, true);
         } catch (e) {}

@@ -147,6 +147,11 @@ export function applyTransform(clip: any, args: any, updated: string[], lines: s
  */
 var LEVEL_AT_0DB = 0.17782794100389;
 
+/** Premiere's Level value for a linear gain (1.0 = unchanged). */
+export function gainToLevel(gain: number): number {
+  return Math.max(0, Number(gain)) * LEVEL_AT_0DB;
+}
+
 /** The Volume > Level property of an audio clip, found by property name. */
 function levelProperty(clip: any): any {
   if (!clip || !clip.components) return null;
@@ -157,7 +162,23 @@ function levelProperty(clip: any): any {
   return null;
 }
 
-/** Set the volume of an audio clip, or of the audio linked to a video clip. */
+/** Scale every Level key so the loudest is `peak`; false when all are silent. */
+function scaleLevelKeys(level: any, peak: number): boolean {
+  var keys = level.getKeys();
+  var loudest = 0;
+  for (var k = 0; keys && k < keys.length; k++) loudest = Math.max(loudest, Number(level.getValueAtKey(keys[k])));
+  if (loudest <= 0) return false;
+  for (var j = 0; j < keys.length; j++) {
+    level.setValueAtKey(keys[j], (Number(level.getValueAtKey(keys[j])) * peak) / loudest, true);
+  }
+  return true;
+}
+
+/**
+ * Set the volume of an audio clip, or of the audio linked to a video clip.
+ * A keyframed Level keeps its shape: every key moves by the same amount so
+ * the loudest one lands at `gain`.
+ */
 export function setVolume(clip: any, gain: number, lines: string[]): boolean {
   var targets: any[] = [];
   if (levelProperty(clip)) targets[targets.length] = clip;
@@ -173,8 +194,9 @@ export function setVolume(clip: any, gain: number, lines: string[]): boolean {
   }
   for (var t = 0; t < targets.length; t++) {
     var level = levelProperty(targets[t]);
+    if (level.isTimeVarying && level.isTimeVarying() && scaleLevelKeys(level, gainToLevel(gain))) continue;
     if (level.isTimeVarying && level.isTimeVarying()) level.setTimeVarying(false);
-    level.setValue(Math.max(0, gain) * LEVEL_AT_0DB, true);
+    level.setValue(gainToLevel(gain), true);
   }
   return true;
 }

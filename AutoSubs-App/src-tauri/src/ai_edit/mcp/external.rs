@@ -8,10 +8,11 @@
 //! by the frontend), with edits allowed.
 //!
 //! The app also keeps an "agent home" folder (default `~/Documents/AutoSub`)
-//! ready to open an agent app in: instructions (CLAUDE.md, AGENTS.md), the
-//! MCP entry for Claude Code (.mcp.json), the shared subagents and skills, and
-//! a `project` link to the open project's workspace, so the agent reads media,
-//! sheets and plans inside its own folder.
+//! ready to open an agent app in. It is the Video Studio root
+//! (`crate::studio`: AGENTS.md, CLAUDE.md, core/, skills/, projects/); this
+//! module adds the MCP entry for Claude Code (.mcp.json) and a `project`
+//! link to the open Premiere project's workspace, where the editor tools save
+//! media, sheets and plans.
 //!
 //! Each client is told apart by the `Mcp-Session-Id` it gets on initialize;
 //! the UI shows who connected and who is driving now.
@@ -28,11 +29,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::ai_cli::runtime::{build_cli_path_env, detect_cli_path};
-use crate::ai_cli::workspace::{ensure_library, global_workspace_root, resolve_workspace_dir, WorkspaceProject};
+use crate::ai_cli::workspace::{WorkspaceProject, resolve_workspace_dir};
 use crate::ai_edit::actions::{EditTarget, Editor};
 use crate::process_ext::HiddenConsole;
 
@@ -46,7 +47,7 @@ pub const STATUS_EVENT: &str = "external-agent-status";
 const ACTIVE_SECS: u64 = 120;
 const CONFIG_FILE: &str = "external-agents.json";
 /// Marks files in the agent home the app wrote, so it never overwrites the user's.
-const HOME_MARK: &str = "<!-- Written by AutoSubs. -->";
+pub const HOME_MARK: &str = "<!-- Written by AutoSubs. -->";
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -98,7 +99,10 @@ pub fn tools_changed() -> tokio::sync::broadcast::Receiver<()> {
 }
 
 fn now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 fn lock() -> std::sync::MutexGuard<'static, State> {
@@ -143,11 +147,20 @@ fn save_config(app: &AppHandle, config: &Config) {
 
 /// The token external requests must carry, None while the feature is off.
 pub fn token() -> Option<String> {
-    lock().config.as_ref().filter(|c| c.enabled).map(|c| c.token.clone())
+    lock()
+        .config
+        .as_ref()
+        .filter(|c| c.enabled)
+        .map(|c| c.token.clone())
 }
 
 fn url() -> String {
     format!("http://127.0.0.1:{}/mcp", PORT)
+}
+
+/// The agent home, which is also the Video Studio root (`crate::studio`).
+pub fn home(app: &AppHandle) -> PathBuf {
+    home_dir(app, &load_config(app))
 }
 
 fn home_dir(app: &AppHandle, config: &Config) -> PathBuf {
@@ -202,7 +215,9 @@ fn open_listener(app: AppHandle) {
         emit_status(&emit_app);
         tracing::info!("External agent MCP endpoint on {}", url());
         loop {
-            let Ok((stream, _)) = listener.accept().await else { continue };
+            let Ok((stream, _)) = listener.accept().await else {
+                continue;
+            };
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = super::server::serve_external(stream).await {
                     tracing::debug!("External MCP connection error: {}", e);
@@ -233,16 +248,28 @@ pub fn current() -> Option<Current> {
 /// Stands in for a target before the app has seen a project; no editor
 /// tools are listed for it.
 pub fn fallback_target() -> EditTarget {
-    EditTarget { editor: Editor::Premiere, transcript_file: None }
+    EditTarget {
+        editor: Editor::Premiere,
+        transcript_file: None,
+    }
 }
 
 /// A client's `initialize`: returns the session id to hand back.
 pub fn client_initialized(app: Option<&AppHandle>, params: &Value, user_agent: &str) -> String {
     let id = uuid::Uuid::new_v4().simple().to_string();
     let info = params.get("clientInfo");
-    let field = |k: &str| info.and_then(|i| i.get(k)).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let field = |k: &str| {
+        info.and_then(|i| i.get(k))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
     let t = now();
-    tracing::info!("External agent connected: {} {}", field("name"), field("version"));
+    tracing::info!(
+        "External agent connected: {} {}",
+        field("name"),
+        field("version")
+    );
     lock().clients.insert(
         id.clone(),
         Client {
@@ -267,8 +294,12 @@ pub fn client_initialized(app: Option<&AppHandle>, params: &Value, user_agent: &
 pub fn touch(app: Option<&AppHandle>, session: Option<&str>, user_agent: &str, tool: Option<&str>) {
     let changed = {
         let mut st = lock();
-        let Some(key) = client_key(&st, session, user_agent) else { return };
-        let Some(c) = st.clients.get_mut(&key) else { return };
+        let Some(key) = client_key(&st, session, user_agent) else {
+            return;
+        };
+        let Some(c) = st.clients.get_mut(&key) else {
+            return;
+        };
         c.last_seen = now();
         if let Some(t) = tool {
             c.last_tool = Some(t.to_string());
@@ -286,13 +317,16 @@ pub fn touch(app: Option<&AppHandle>, session: Option<&str>, user_agent: &str, t
 }
 
 fn client_key(st: &State, session: Option<&str>, user_agent: &str) -> Option<String> {
-    session.filter(|s| st.clients.contains_key(*s)).map(str::to_string).or_else(|| {
-        st.clients
-            .iter()
-            .filter(|(_, c)| !user_agent.is_empty() && c.user_agent == user_agent)
-            .max_by_key(|(_, c)| c.last_seen)
-            .map(|(k, _)| k.clone())
-    })
+    session
+        .filter(|s| st.clients.contains_key(*s))
+        .map(str::to_string)
+        .or_else(|| {
+            st.clients
+                .iter()
+                .filter(|(_, c)| !user_agent.is_empty() && c.user_agent == user_agent)
+                .max_by_key(|(_, c)| c.last_seen)
+                .map(|(k, _)| k.clone())
+        })
 }
 
 /// "Claude Code", "Antigravity", ... from an MCP clientInfo name.
@@ -315,13 +349,21 @@ fn client_label(name: &str) -> String {
         .iter()
         .find(|(k, _)| n.contains(k))
         .map(|(_, l)| l.to_string())
-        .unwrap_or_else(|| if name.is_empty() { "Unknown agent".into() } else { name.to_string() })
+        .unwrap_or_else(|| {
+            if name.is_empty() {
+                "Unknown agent".into()
+            } else {
+                name.to_string()
+            }
+        })
 }
 
 /// Rewrites workspace paths in a tool's text to their place under the agent
 /// home's `project` link, which agent apps may read without asking.
 pub fn agent_paths(app: Option<&AppHandle>, text: String) -> String {
-    let (Some(app), Some(cur)) = (app, current()) else { return text };
+    let (Some(app), Some(cur)) = (app, current()) else {
+        return text;
+    };
     let Some(ws) = cur.workspace else { return text };
     let home = home_dir(app, &load_config(app)).join("project");
     let ws = ws.to_string_lossy().into_owned();
@@ -335,50 +377,6 @@ pub fn agent_paths(app: Option<&AppHandle>, text: String) -> String {
 // Agent home
 // ---------------------------------------------------------------------------
 
-fn instructions_md(cur: Option<&Current>) -> String {
-    let project = match cur {
-        Some(c) => format!(
-            "{}{}",
-            c.target.editor.display_name(),
-            c.label.as_deref().map(|l| format!(", project \"{}\"", l)).unwrap_or_default()
-        ),
-        None => "no editor project yet".into(),
-    };
-    format!(
-        "{HOME_MARK}\n# AutoSubs\n\n\
-         This folder is where you drive AutoSubs, a video editing assistant connected to the user's \
-         editor (Premiere Pro). Right now it follows: {project}.\n\n\
-         - Every edit, search, download and analysis goes through the `{SERVER_NAME}` MCP server. \
-         Its tools act on the editor project AutoSubs has open, and it saves files in that project's \
-         folder, which `project/` here links to (media in `project/media`, contact sheets in \
-         `project/analysis`, plans in `project/plan`).\n\
-         - Start with `get_project_context` to see the editor, the project and its memory.\n\
-         - Long workflows are skills: read one with `read_skill` (or from `.claude/skills/`) when a \
-         task matches, for example `footage-planning` to find footage for a script or voice.\n\
-         - Subagents `footage-scout` and `clip-analyst` run searches and video checks in parallel.\n\
-         - Never cut or re-encode video files yourself: place sections with build_storyboard \
-         srcIn/srcOut and the editor trims them.\n\
-         - If a tool says AutoSubs is not connected, ask the user to open AutoSubs and their editor \
-         project.\n"
-    )
-}
-
-fn owned_or_missing(path: &Path) -> bool {
-    match std::fs::read_to_string(path) {
-        Ok(t) => t.contains(HOME_MARK) || t.contains(crate::ai_cli::library::SYNC_MARK),
-        Err(_) => !path.exists(),
-    }
-}
-
-fn write_if_ours(path: &Path, contents: &str) {
-    if owned_or_missing(path) {
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        let _ = std::fs::write(path, contents);
-    }
-}
-
 /// (Re)writes the agent home. Cheap; runs on enable, connect and project change.
 pub fn write_home(app: &AppHandle) {
     let config = load_config(app);
@@ -390,9 +388,10 @@ pub fn write_home(app: &AppHandle) {
         return;
     }
     let cur = current();
-    let md = instructions_md(cur.as_ref());
-    write_if_ours(&home.join("CLAUDE.md"), &md);
-    write_if_ours(&home.join("AGENTS.md"), &md);
+    // AGENTS.md, CLAUDE.md and the skill links are the Video Studio's.
+    if let Err(e) = crate::studio::sync_shipped(app) {
+        tracing::warn!("Agent home: {e}");
+    }
 
     // Claude Code reads project MCP servers from .mcp.json (asking once).
     let mcp_path = home.join(".mcp.json");
@@ -410,13 +409,6 @@ pub fn write_home(app: &AppHandle) {
     });
     if let Ok(text) = serde_json::to_string_pretty(&mcp) {
         let _ = std::fs::write(&mcp_path, text + "\n");
-    }
-
-    if let Some(lib) = global_workspace_root(app).ok().and_then(|g| ensure_library(&g).ok()) {
-        crate::ai_cli::library::sync_agents(&lib, &home);
-        crate::ai_cli::library::sync_skills(&lib, &home.join(".claude/skills"));
-        // Antigravity reads the workspace's own `.agents/skills`.
-        crate::ai_cli::library::sync_skills(&lib, &home.join(".agents/skills"));
     }
 
     // `project` -> the open project's workspace.
@@ -481,7 +473,8 @@ pub struct Status {
 }
 
 fn file_mentions(path: Option<PathBuf>, needle: &str) -> bool {
-    path.and_then(|p| std::fs::read_to_string(p).ok()).is_some_and(|t| t.contains(needle))
+    path.and_then(|p| std::fs::read_to_string(p).ok())
+        .is_some_and(|t| t.contains(needle))
 }
 
 pub fn status(app: &AppHandle) -> Status {
@@ -535,7 +528,10 @@ pub fn status(app: &AppHandle) -> Status {
         token: config.token.clone(),
         server_name: SERVER_NAME.into(),
         home: home_dir(app, &config).to_string_lossy().into_owned(),
-        editor: st.current.as_ref().map(|c| c.target.editor.display_name().to_string()),
+        editor: st
+            .current
+            .as_ref()
+            .map(|c| c.target.editor.display_name().to_string()),
         project: st.current.as_ref().and_then(|c| c.label.clone()),
         clients,
         controller,
@@ -544,7 +540,11 @@ pub fn status(app: &AppHandle) -> Status {
         claude_app: find_app(&APP_CLAUDE).is_some(),
         antigravity_app: find_app(&APP_ANTIGRAVITY).is_some(),
         claude_registered: file_mentions(home.as_ref().map(|h| h.join(".claude.json")), &marker),
-        agy_registered: file_mentions(home.as_ref().map(|h| h.join(".gemini/config/mcp_config.json")), &marker),
+        agy_registered: file_mentions(
+            home.as_ref()
+                .map(|h| h.join(".gemini/config/mcp_config.json")),
+            &marker,
+        ),
         now_sec: t,
     }
 }
@@ -557,7 +557,10 @@ fn emit_status(app: &AppHandle) {
 /// turns off for the length of its own agy runs (its tools would be listed twice).
 pub fn agy_registered(app: &AppHandle) -> bool {
     let home = app.path().home_dir().ok();
-    file_mentions(home.map(|h| h.join(".gemini/config/mcp_config.json")), SERVER_NAME)
+    file_mentions(
+        home.map(|h| h.join(".gemini/config/mcp_config.json")),
+        SERVER_NAME,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -586,11 +589,16 @@ pub async fn external_agent_set_enabled(app: AppHandle, enabled: bool) -> Status
     s
 }
 
+/// Saves the agent home, which is also the Video Studio working folder.
+pub fn set_home(app: &AppHandle, home: String) {
+    let mut config = load_config(app);
+    config.home = Some(home).filter(|h| !h.trim().is_empty());
+    save_config(app, &config);
+}
+
 #[tauri::command]
 pub async fn external_agent_set_home(app: AppHandle, home: String) -> Status {
-    let mut config = load_config(&app);
-    config.home = Some(home).filter(|h| !h.trim().is_empty());
-    save_config(&app, &config);
+    set_home(&app, home);
     let a = app.clone();
     let _ = tauri::async_runtime::spawn_blocking(move || write_home(&a)).await;
     let s = status(&app);
@@ -612,7 +620,11 @@ pub async fn external_agent_set_target(
                 Some(p) => resolve_workspace_dir(&app, None, Some(p)).ok(),
                 None => None,
             };
-            Some(Current { target, label: label.filter(|l| !l.trim().is_empty()), workspace })
+            Some(Current {
+                target,
+                label: label.filter(|l| !l.trim().is_empty()),
+                workspace,
+            })
         }
         None => None,
     };
@@ -651,7 +663,11 @@ fn run_cli(bin: &Path, args: &[&str]) -> Result<String, String> {
         .hidden()
         .output()
         .map_err(|e| e.to_string())?;
-    let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
     if out.status.success() {
         Ok(text.trim().to_string())
     } else {
@@ -660,8 +676,7 @@ fn run_cli(bin: &Path, args: &[&str]) -> Result<String, String> {
 }
 
 /// Registers the server with an installed agent CLI ("claude" or "agy") for
-/// the user, everywhere (not only in the agent home), and installs the
-/// shared subagents where that CLI reads them globally.
+/// the user, everywhere (not only in the agent home).
 #[tauri::command]
 pub async fn external_agent_connect(app: AppHandle, client: String) -> Result<Status, String> {
     let config = load_config(&app);
@@ -671,20 +686,32 @@ pub async fn external_agent_connect(app: AppHandle, client: String) -> Result<St
     let header = format!("Authorization: Bearer {}", config.token);
     let a = app.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
-        let home = a.path().home_dir().map_err(|e| e.to_string())?;
-        let library = global_workspace_root(&a).and_then(|g| ensure_library(&g))?;
         match client.as_str() {
             "claude" => {
                 let bin = detect_cli_path("claude").ok_or("Claude Code is not installed.")?;
                 let _ = run_cli(&bin, &["mcp", "remove", "--scope", "user", SERVER_NAME]);
-                run_cli(&bin, &["mcp", "add", "--transport", "http", "--scope", "user", SERVER_NAME, &url(), "--header", &header])?;
-                crate::ai_cli::library::sync_agents_to(&library, &home.join(".claude/agents"), true);
-                crate::ai_cli::library::sync_skills(&library, &home.join(".claude/skills"));
+                run_cli(
+                    &bin,
+                    &[
+                        "mcp",
+                        "add",
+                        "--transport",
+                        "http",
+                        "--scope",
+                        "user",
+                        SERVER_NAME,
+                        &url(),
+                        "--header",
+                        &header,
+                    ],
+                )?;
             }
             "agy" => {
                 let bin = detect_cli_path("agy").ok_or("Antigravity (agy) is not installed.")?;
-                run_cli(&bin, &["mcp", "add", "--header", &header, SERVER_NAME, &url()])?;
-                crate::ai_cli::library::sync_agents_to(&library, &home.join(".gemini/config/agents"), false);
+                run_cli(
+                    &bin,
+                    &["mcp", "add", "--header", &header, SERVER_NAME, &url()],
+                )?;
             }
             other => return Err(format!("Unknown agent app: {}", other)),
         }
@@ -708,7 +735,10 @@ struct AgentApp {
 
 /// Claude opens through its `claude://code/new?folder=` link instead (the one
 /// Finder's "New Claude Code Session Here" uses), which lands in Code, not chat.
-const APP_CLAUDE: AgentApp = AgentApp { bundles: &[("Claude", true)], clis: &[] };
+const APP_CLAUDE: AgentApp = AgentApp {
+    bundles: &[("Claude", true)],
+    clis: &[],
+};
 /// The Antigravity app (agent manager) first: it is the one users mean. It
 /// takes no folder, so it opens as is; the IDE is the fallback.
 const APP_ANTIGRAVITY: AgentApp = AgentApp {
@@ -723,7 +753,12 @@ enum Launch {
 
 fn find_app(app: &AgentApp) -> Option<Launch> {
     if cfg!(target_os = "macos") {
-        let roots = [PathBuf::from("/Applications"), std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Applications")).unwrap_or_default()];
+        let roots = [
+            PathBuf::from("/Applications"),
+            std::env::var_os("HOME")
+                .map(|h| PathBuf::from(h).join("Applications"))
+                .unwrap_or_default(),
+        ];
         for (name, takes_folder) in app.bundles {
             for root in &roots {
                 let p = root.join(format!("{}.app", name));
@@ -733,7 +768,10 @@ fn find_app(app: &AgentApp) -> Option<Launch> {
             }
         }
     }
-    app.clis.iter().find_map(|c| detect_cli_path(c)).map(Launch::Cli)
+    app.clis
+        .iter()
+        .find_map(|c| detect_cli_path(c))
+        .map(Launch::Cli)
 }
 
 /// Opens the agent home in Claude (a Code session in the desktop app, or
@@ -745,7 +783,9 @@ pub async fn external_agent_open_app(app: AppHandle, which: String) -> Result<bo
     let home = home_dir(&app, &load_config(&app));
     std::fs::create_dir_all(&home).map_err(|e| e.to_string())?;
     let a = app.clone();
-    tauri::async_runtime::spawn_blocking(move || write_home(&a)).await.map_err(|e| e.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || write_home(&a))
+        .await
+        .map_err(|e| e.to_string())?;
     if which == "antigravity" {
         if let Ok(user_home) = app.path().home_dir() {
             if let Some(id) = ensure_antigravity_project(&user_home, &home) {
@@ -753,7 +793,12 @@ pub async fn external_agent_open_app(app: AppHandle, which: String) -> Result<bo
                 // running yet; a running one keeps its own state in memory.
                 if !antigravity_running() && select_antigravity_project(&app, &id) {
                     if let Some(Launch::Bundle(bundle, _)) = find_app(&APP_ANTIGRAVITY) {
-                        Command::new("open").arg("-a").arg(&bundle).hidden().status().map_err(|e| e.to_string())?;
+                        Command::new("open")
+                            .arg("-a")
+                            .arg(&bundle)
+                            .hidden()
+                            .status()
+                            .map_err(|e| e.to_string())?;
                         return Ok(true);
                     }
                 }
@@ -767,8 +812,15 @@ pub async fn external_agent_open_app(app: AppHandle, which: String) -> Result<bo
     };
     match find_app(spec) {
         Some(Launch::Bundle(_, true)) if which == "claude" => {
-            let link = format!("claude://code/new?folder={}", urlencode_path(&home.to_string_lossy()));
-            Command::new("open").arg(link).hidden().status().map_err(|e| e.to_string())?;
+            let link = format!(
+                "claude://code/new?folder={}",
+                urlencode_path(&home.to_string_lossy())
+            );
+            Command::new("open")
+                .arg(link)
+                .hidden()
+                .status()
+                .map_err(|e| e.to_string())?;
             Ok(true)
         }
         Some(Launch::Bundle(bundle, takes_folder)) => {
@@ -781,7 +833,12 @@ pub async fn external_agent_open_app(app: AppHandle, which: String) -> Result<bo
             Ok(takes_folder)
         }
         Some(Launch::Cli(cli)) => {
-            Command::new(cli).arg(&home).env("PATH", build_cli_path_env()).hidden().spawn().map_err(|e| e.to_string())?;
+            Command::new(cli)
+                .arg(&home)
+                .env("PATH", build_cli_path_env())
+                .hidden()
+                .spawn()
+                .map_err(|e| e.to_string())?;
             Ok(true)
         }
         None if which == "claude" => open_claude_code_in_terminal(&home).map(|_| true),
@@ -797,7 +854,10 @@ fn ensure_antigravity_project(user_home: &Path, folder: &Path) -> Option<String>
     let uri = format!("file://{}", folder.to_string_lossy());
     if let Ok(rd) = std::fs::read_dir(&dir) {
         for e in rd.flatten() {
-            let Some(p) = std::fs::read_to_string(e.path()).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()) else {
+            let Some(p) = std::fs::read_to_string(e.path())
+                .ok()
+                .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+            else {
                 continue;
             };
             let on_folder = p
@@ -805,7 +865,9 @@ fn ensure_antigravity_project(user_home: &Path, folder: &Path) -> Option<String>
                 .and_then(|r| r.as_array())
                 .is_some_and(|r| {
                     r.iter().any(|x| {
-                        x.get("folderUri").or_else(|| x.pointer("/gitFolder/folderUri")).and_then(|u| u.as_str())
+                        x.get("folderUri")
+                            .or_else(|| x.pointer("/gitFolder/folderUri"))
+                            .and_then(|u| u.as_str())
                             == Some(uri.as_str())
                     })
                 });
@@ -815,7 +877,10 @@ fn ensure_antigravity_project(user_home: &Path, folder: &Path) -> Option<String>
         }
     }
     let id = uuid::Uuid::new_v4().to_string();
-    let name = folder.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "AutoSub".into());
+    let name = folder
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "AutoSub".into());
     let project = json!({
         "id": id,
         "name": name,
@@ -825,7 +890,11 @@ fn ensure_antigravity_project(user_home: &Path, folder: &Path) -> Option<String>
         "isWorkspaceOnly": false
     });
     std::fs::create_dir_all(&dir).ok()?;
-    std::fs::write(dir.join(format!("{}.json", id)), serde_json::to_string_pretty(&project).ok()?).ok()?;
+    std::fs::write(
+        dir.join(format!("{}.json", id)),
+        serde_json::to_string_pretty(&project).ok()?,
+    )
+    .ok()?;
     Some(id)
 }
 
@@ -841,22 +910,39 @@ fn antigravity_running() -> bool {
 /// Makes `id` the project a new Antigravity conversation starts in. Only
 /// while Antigravity is closed, since it rewrites this file from memory.
 fn select_antigravity_project(app: &AppHandle, id: &str) -> bool {
-    let Ok(base) = app.path().home_dir() else { return false };
-    let path = base.join("Library/Application Support/Antigravity/app_storage.json");
-    let Some(mut storage) = std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()) else {
+    let Ok(base) = app.path().home_dir() else {
         return false;
     };
-    let Some(map) = storage.as_object_mut() else { return false };
-    map.insert("new-convo-last-selected-project".into(), Value::String(id.to_string()));
-    map.insert("new-convo-magic-workspace-selected".into(), Value::Bool(false));
-    serde_json::to_string(&storage).ok().is_some_and(|t| std::fs::write(&path, t).is_ok())
+    let path = base.join("Library/Application Support/Antigravity/app_storage.json");
+    let Some(mut storage) = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+    else {
+        return false;
+    };
+    let Some(map) = storage.as_object_mut() else {
+        return false;
+    };
+    map.insert(
+        "new-convo-last-selected-project".into(),
+        Value::String(id.to_string()),
+    );
+    map.insert(
+        "new-convo-magic-workspace-selected".into(),
+        Value::Bool(false),
+    );
+    serde_json::to_string(&storage)
+        .ok()
+        .is_some_and(|t| std::fs::write(&path, t).is_ok())
 }
 
 fn urlencode_path(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
             _ => out.push_str(&format!("%{:02X}", b)),
         }
     }
@@ -872,17 +958,33 @@ fn open_claude_code_in_terminal(home: &Path) -> Result<(), String> {
             "tell application \"Terminal\"\n activate\n do script \"cd {} && claude\"\nend tell",
             shell_quote(&dir).replace('\\', "\\\\").replace('"', "\\\"")
         );
-        Command::new("osascript").arg("-e").arg(script).hidden().status().map_err(|e| e.to_string())?;
+        Command::new("osascript")
+            .arg("-e")
+            .arg(script)
+            .hidden()
+            .status()
+            .map_err(|e| e.to_string())?;
     } else if cfg!(windows) {
         Command::new("cmd")
-            .args(["/c", "start", "cmd", "/k", &format!("cd /d \"{}\" && claude", dir)])
+            .args([
+                "/c",
+                "start",
+                "cmd",
+                "/k",
+                &format!("cd /d \"{}\" && claude", dir),
+            ])
             .env("PATH", build_cli_path_env())
             .hidden()
             .spawn()
             .map_err(|e| e.to_string())?;
     } else {
         Command::new("x-terminal-emulator")
-            .args(["-e", "sh", "-c", &format!("cd {} && claude", shell_quote(&dir))])
+            .args([
+                "-e",
+                "sh",
+                "-c",
+                &format!("cd {} && claude", shell_quote(&dir)),
+            ])
             .env("PATH", build_cli_path_env())
             .spawn()
             .map_err(|e| e.to_string())?;
@@ -902,7 +1004,11 @@ mod tests {
     #[tokio::test]
     async fn tells_clients_when_the_editor_changes() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        lock().config = Some(Config { enabled: true, token: "tok".into(), home: None });
+        lock().config = Some(Config {
+            enabled: true,
+            token: "tok".into(),
+            home: None,
+        });
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move {
@@ -910,20 +1016,28 @@ mod tests {
             let _ = super::super::server::serve_external(stream).await;
         });
         let mut sse = tokio::net::TcpStream::connect(addr).await.unwrap();
-        sse.write_all(b"GET /mcp HTTP/1.1\r\nAuthorization: Bearer tok\r\nAccept: text/event-stream\r\n\r\n")
-            .await
-            .unwrap();
+        sse.write_all(
+            b"GET /mcp HTTP/1.1\r\nAuthorization: Bearer tok\r\nAccept: text/event-stream\r\n\r\n",
+        )
+        .await
+        .unwrap();
         let mut buf = vec![0u8; 4096];
         let n = sse.read(&mut buf).await.unwrap();
         assert!(String::from_utf8_lossy(&buf[..n]).contains("text/event-stream"));
 
         lock().current = Some(Current {
-            target: EditTarget { editor: Editor::Premiere, transcript_file: None },
+            target: EditTarget {
+                editor: Editor::Premiere,
+                transcript_file: None,
+            },
             label: None,
             workspace: None,
         });
         let _ = TOOLS_CHANGED.send(());
-        let n = tokio::time::timeout(std::time::Duration::from_secs(5), sse.read(&mut buf)).await.unwrap().unwrap();
+        let n = tokio::time::timeout(std::time::Duration::from_secs(5), sse.read(&mut buf))
+            .await
+            .unwrap()
+            .unwrap();
         assert!(String::from_utf8_lossy(&buf[..n]).contains("notifications/tools/list_changed"));
 
         lock().current = None;
@@ -934,14 +1048,28 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let folder = tmp.path().join("AutoSub");
         let id = ensure_antigravity_project(tmp.path(), &folder).unwrap();
-        assert_eq!(ensure_antigravity_project(tmp.path(), &folder).unwrap(), id, "found, not added twice");
-        let text = std::fs::read_to_string(tmp.path().join(format!(".gemini/config/projects/{}.json", id))).unwrap();
-        assert!(text.contains("\"name\": \"AutoSub\"") && text.contains(&format!("file://{}", folder.display())));
+        assert_eq!(
+            ensure_antigravity_project(tmp.path(), &folder).unwrap(),
+            id,
+            "found, not added twice"
+        );
+        let text = std::fs::read_to_string(
+            tmp.path()
+                .join(format!(".gemini/config/projects/{}.json", id)),
+        )
+        .unwrap();
+        assert!(
+            text.contains("\"name\": \"AutoSub\"")
+                && text.contains(&format!("file://{}", folder.display()))
+        );
     }
 
     #[test]
     fn encodes_the_folder_for_claude_links() {
-        assert_eq!(urlencode_path("/Users/a b/AutoSub"), "%2FUsers%2Fa%20b%2FAutoSub");
+        assert_eq!(
+            urlencode_path("/Users/a b/AutoSub"),
+            "%2FUsers%2Fa%20b%2FAutoSub"
+        );
     }
 
     #[test]
@@ -960,7 +1088,11 @@ mod tests {
 
     #[test]
     fn tracks_clients_and_the_one_driving() {
-        let id = client_initialized(None, &json!({ "clientInfo": { "name": "claude-code", "version": "2.1" } }), "ua-claude");
+        let id = client_initialized(
+            None,
+            &json!({ "clientInfo": { "name": "claude-code", "version": "2.1" } }),
+            "ua-claude",
+        );
         touch(None, Some(&id), "ua-claude", Some("search_media"));
         // No session id: found by its User-Agent; an unknown one is ignored.
         touch(None, None, "ua-claude", Some("analyze_media"));
@@ -969,19 +1101,10 @@ mod tests {
         let c = st.clients.get(&id).unwrap();
         assert_eq!(c.last_tool.as_deref(), Some("analyze_media"));
         assert!(c.last_tool_at > 0);
-        assert!(!st.clients.values().any(|c| c.last_tool.as_deref() == Some("get_timeline")));
-    }
-
-    #[test]
-    fn instructions_name_the_project() {
-        let cur = Current {
-            target: EditTarget { editor: Editor::Premiere, transcript_file: None },
-            label: Some("Vlog 3".into()),
-            workspace: None,
-        };
-        let md = instructions_md(Some(&cur));
-        assert!(md.starts_with(HOME_MARK));
-        assert!(md.contains("Premiere Pro, project \"Vlog 3\""));
-        assert!(md.contains(SERVER_NAME));
+        assert!(
+            !st.clients
+                .values()
+                .any(|c| c.last_tool.as_deref() == Some("get_timeline"))
+        );
     }
 }

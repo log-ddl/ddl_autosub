@@ -5,7 +5,7 @@
 //!   └── `library/` (shared, read-only for the agent)
 //!       ├── `music/`, `sfx/`        packs the user keeps; copied into a project when used
 //!       ├── `motion-graphics/`      templates
-//!       └── `skills/`               skills, copied into a project to use
+//!       └── `skills/`               skills from older builds (still listed to the agent)
 //!
 //! Tier B (Per-Project Folder): `<base>/projects/<editor>/<project-slug>[-<id hash>]/`
 //!   One folder per editor project (a Premiere `.prproj`), never shared:
@@ -19,7 +19,10 @@
 //!   ├── `motion-graphics/`                      motion source code
 //!   ├── `exports/`                              rendered motion
 //!   ├── `articles/`                             saved web articles
-//!   └── `.agent/skills/<name>/SKILL.md`         skills the agent reads (any CLI)
+//!   └── `.agent/skills/<name>/SKILL.md`         older per-project skills (still listed)
+//!
+//! Skills the user adds go to the Video Studio working folder's `skills/`
+//! (`crate::studio`), shared by every project and agent app.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -59,7 +62,7 @@ pub struct WorkspaceInfo {
     pub templates_dir: String,
     pub library_music_dir: String,
     pub library_sfx_dir: String,
-    /// `.agent/skills` of this project.
+    /// `skills/` of the Video Studio working folder.
     pub skills_dir: String,
     /// `library/skills`: shared skills.
     pub library_skills_dir: String,
@@ -92,11 +95,17 @@ pub fn ensure_library(global_dir: &Path) -> Result<PathBuf, String> {
             let _ = fs::remove_dir(global_dir.join("templates"));
         }
     }
-    for sub in ["music", "sfx", "motion-graphics", "skills", crate::ai_cli::library::AGENTS_DIR] {
+    for sub in [
+        "music",
+        "sfx",
+        "motion-graphics",
+        "skills",
+        crate::ai_cli::library::AGENTS_DIR,
+    ] {
         fs::create_dir_all(library.join(sub))
             .map_err(|e| format!("Failed to create library/{}: {}", sub, e))?;
     }
-    crate::ai_cli::library::seed_defaults(&library);
+    crate::ai_cli::library::remove_old_defaults(&library);
     Ok(library)
 }
 
@@ -254,7 +263,9 @@ pub struct WorkspaceProjectEntry {
 /// Disk use of `path`, not following symlinks (Remotion projects link the
 /// shared kit's node_modules, which isn't theirs to count).
 fn dir_size(path: &Path) -> u64 {
-    let Ok(meta) = fs::symlink_metadata(path) else { return 0 };
+    let Ok(meta) = fs::symlink_metadata(path) else {
+        return 0;
+    };
     if meta.file_type().is_symlink() {
         return 0;
     }
@@ -269,7 +280,9 @@ fn dir_size(path: &Path) -> u64 {
 fn list_projects(projects: &Path) -> Vec<WorkspaceProjectEntry> {
     let mut out = Vec::new();
     for editor in EDITOR_DIRS {
-        let Ok(rd) = fs::read_dir(projects.join(editor)) else { continue };
+        let Ok(rd) = fs::read_dir(projects.join(editor)) else {
+            continue;
+        };
         for entry in rd.flatten() {
             let dir = entry.path();
             if !dir.is_dir() || entry.file_name().to_string_lossy().starts_with('.') {
@@ -302,20 +315,28 @@ fn list_projects(projects: &Path) -> Vec<WorkspaceProjectEntry> {
 
 /// Every project folder the AI Edit tab has made, newest first.
 #[tauri::command]
-pub async fn cli_list_workspace_projects(app: AppHandle) -> Result<Vec<WorkspaceProjectEntry>, String> {
+pub async fn cli_list_workspace_projects(
+    app: AppHandle,
+) -> Result<Vec<WorkspaceProjectEntry>, String> {
     let projects = global_workspace_root(&app)?.join("projects");
-    Ok(tauri::async_runtime::spawn_blocking(move || list_projects(&projects))
-        .await
-        .map_err(|e| e.to_string())?)
+    Ok(
+        tauri::async_runtime::spawn_blocking(move || list_projects(&projects))
+            .await
+            .map_err(|e| e.to_string())?,
+    )
 }
 
 /// `path` must be one project folder, `projects/<editor>/<folder>`.
 fn check_project_folder(projects: &Path, path: &Path) -> Result<PathBuf, String> {
     let projects = projects.canonicalize().map_err(|e| e.to_string())?;
     let dir = path.canonicalize().map_err(|e| e.to_string())?;
-    let rel = dir.strip_prefix(&projects).map_err(|_| "Not an AI Edit project folder.".to_string())?;
+    let rel = dir
+        .strip_prefix(&projects)
+        .map_err(|_| "Not an AI Edit project folder.".to_string())?;
     let parts: Vec<_> = rel.components().collect();
-    let editor = parts.first().map(|c| c.as_os_str().to_string_lossy().into_owned());
+    let editor = parts
+        .first()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned());
     if parts.len() != 2 || !editor.is_some_and(|e| EDITOR_DIRS.contains(&e.as_str())) {
         return Err("Not an AI Edit project folder.".into());
     }
@@ -340,7 +361,9 @@ const EDITOR_DIRS: &[&str] = &["davinci", "premiere", "capcut", "standalone"];
 /// True when `dir` holds no file with content (fresh folders only have empty
 /// subfolders and an empty memory.md).
 fn has_no_content(dir: &Path) -> bool {
-    let Ok(rd) = fs::read_dir(dir) else { return true };
+    let Ok(rd) = fs::read_dir(dir) else {
+        return true;
+    };
     rd.flatten().all(|e| {
         let p = e.path();
         if p.is_dir() {
@@ -355,7 +378,9 @@ fn has_no_content(dir: &Path) -> bool {
 /// unless `dir` already has content of its own. Best effort: on failure the
 /// old folder simply stays where it is.
 fn adopt_legacy_dir(projects: &Path, project: Option<&WorkspaceProject>, dir: &Path) {
-    let Some(legacy) = project.and_then(|p| p.legacy_name.as_deref()) else { return };
+    let Some(legacy) = project.and_then(|p| p.legacy_name.as_deref()) else {
+        return;
+    };
     if legacy.trim().is_empty() {
         return;
     }
@@ -374,7 +399,11 @@ fn adopt_legacy_dir(projects: &Path, project: Option<&WorkspaceProject>, dir: &P
         let _ = fs::create_dir_all(parent);
     }
     if let Err(e) = fs::rename(&old, dir) {
-        tracing::warn!("Could not move legacy AI workspace {}: {}", old.display(), e);
+        tracing::warn!(
+            "Could not move legacy AI workspace {}: {}",
+            old.display(),
+            e
+        );
     }
 }
 
@@ -433,9 +462,19 @@ pub fn build_workspace_info(
     let voice_dir = dir.join(VOICE_DIR);
     let music_dir = dir.join(MUSIC_DIR);
     let sfx_dir = dir.join(SFX_DIR);
-    let skills_dir = dir.join(SKILLS_DIR);
+    // The working folder's skills: one set every project and agent app shares.
+    let skills_dir = crate::studio::root(app).join("skills");
 
-    for sub in [&dir, &mg_dir, &exports_dir, &video_dir, &images_dir, &voice_dir, &music_dir, &sfx_dir, &skills_dir] {
+    for sub in [
+        &dir,
+        &mg_dir,
+        &exports_dir,
+        &video_dir,
+        &images_dir,
+        &voice_dir,
+        &music_dir,
+        &sfx_dir,
+    ] {
         fs::create_dir_all(sub)
             .map_err(|e| format!("Failed to create directory {}: {}", sub.display(), e))?;
     }
@@ -454,11 +493,9 @@ pub fn build_workspace_info(
     scan_category_dir(&sfx_dir, "sfx", &mut assets);
     scan_category_dir(&mg_dir, "motion-graphics", &mut assets);
     scan_category_dir(&exports_dir, "exports", &mut assets);
-    scan_category_dir(&skills_dir, "skills", &mut assets);
     scan_category_dir(&templates_dir, "templates", &mut assets);
     scan_category_dir(&library.join("music"), "library-music", &mut assets);
     scan_category_dir(&library.join("sfx"), "library-sfx", &mut assets);
-    scan_category_dir(&library.join("skills"), "library-skills", &mut assets);
     assets.sort_by(|a, b| b.modified_sec.cmp(&a.modified_sec));
 
     Ok(WorkspaceInfo {
@@ -513,7 +550,7 @@ pub async fn cli_save_memory(
     build_workspace_info(&app, workspace_path.as_deref(), project.as_ref())
 }
 
-fn copy_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+pub fn copy_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
     if src.is_dir() {
         fs::create_dir_all(dst)?;
         for entry in fs::read_dir(src)?.flatten() {
@@ -537,7 +574,9 @@ fn free_destination(dir: &Path, name: &str) -> PathBuf {
         return first;
     }
     let (stem, ext) = match name.rsplit_once('.') {
-        Some((s, e)) if !s.is_empty() && Path::new(&dir.join(name)).is_file() => (s.to_string(), format!(".{e}")),
+        Some((s, e)) if !s.is_empty() && Path::new(&dir.join(name)).is_file() => {
+            (s.to_string(), format!(".{e}"))
+        }
         _ => (name.to_string(), String::new()),
     };
     (2..)
@@ -557,7 +596,9 @@ pub async fn cli_copy_asset(
     let root = global_workspace_root(&app)?
         .canonicalize()
         .map_err(|e| e.to_string())?;
-    let src = PathBuf::from(&source).canonicalize().map_err(|e| e.to_string())?;
+    let src = PathBuf::from(&source)
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
     fs::create_dir_all(&destination_dir).map_err(|e| e.to_string())?;
     let dst_dir = PathBuf::from(&destination_dir)
         .canonicalize()
@@ -580,7 +621,7 @@ pub async fn cli_copy_asset(
 
 /// The skill folders inside `source`: `source` itself when it holds a
 /// `SKILL.md`, else each subfolder that does.
-fn find_skill_dirs(source: &Path) -> Vec<PathBuf> {
+pub fn find_skill_dirs(source: &Path) -> Vec<PathBuf> {
     if source.join("SKILL.md").is_file() {
         return vec![source.to_path_buf()];
     }
@@ -595,42 +636,6 @@ fn find_skill_dirs(source: &Path) -> Vec<PathBuf> {
     dirs
 }
 
-/// Imports skills from any folder on disk into a project's `.agent/skills`
-/// or `library/skills`. Returns the imported folder names.
-#[tauri::command]
-pub async fn cli_import_skills(
-    app: AppHandle,
-    source: String,
-    destination_dir: String,
-) -> Result<Vec<String>, String> {
-    let root = global_workspace_root(&app)?
-        .canonicalize()
-        .map_err(|e| e.to_string())?;
-    fs::create_dir_all(&destination_dir).map_err(|e| e.to_string())?;
-    let dst_dir = PathBuf::from(&destination_dir)
-        .canonicalize()
-        .map_err(|e| e.to_string())?;
-    if !dst_dir.starts_with(&root) {
-        return Err("Chỉ nhập skill vào thư mục AI workspace.".into());
-    }
-    let skills = find_skill_dirs(Path::new(&source));
-    if skills.is_empty() {
-        return Err("Không thấy SKILL.md trong thư mục này hoặc các thư mục con.".into());
-    }
-    let mut names = Vec::new();
-    for src in skills {
-        let name = src
-            .file_name()
-            .ok_or("Đường dẫn không hợp lệ")?
-            .to_string_lossy()
-            .into_owned();
-        let dst = free_destination(&dst_dir, &name);
-        copy_recursive(&src, &dst).map_err(|e| format!("Không chép được {name}: {e}"))?;
-        names.push(dst.file_name().unwrap().to_string_lossy().into_owned());
-    }
-    Ok(names)
-}
-
 /// `name` and `description` from a SKILL.md frontmatter. Handles plain,
 /// quoted and folded (`>` / `|`) values.
 pub fn skill_frontmatter(text: &str) -> (Option<String>, Option<String>) {
@@ -641,7 +646,10 @@ pub fn skill_frontmatter(text: &str) -> (Option<String>, Option<String>) {
     let (mut name, mut desc) = (None, None);
     let mut folding: Option<(&str, Vec<String>)> = None;
     fn finish(key: &str, value: String, name: &mut Option<String>, desc: &mut Option<String>) {
-        let value = value.trim().trim_matches(|c| c == '"' || c == '\'').to_string();
+        let value = value
+            .trim()
+            .trim_matches(|c| c == '"' || c == '\'')
+            .to_string();
         if value.is_empty() {
             return;
         }
@@ -663,7 +671,9 @@ pub fn skill_frontmatter(text: &str) -> (Option<String>, Option<String>) {
             let (key, parts) = folding.take().unwrap();
             finish(key, parts.join(" "), &mut name, &mut desc);
         }
-        let Some((key, value)) = line.split_once(':') else { continue };
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
         let key = match key.trim() {
             "name" => "name",
             "description" => "description",
@@ -683,29 +693,56 @@ pub fn skill_frontmatter(text: &str) -> (Option<String>, Option<String>) {
 }
 
 /// The system prompt block listing the skills, or None when there are none:
-/// this project's own, then the shared `library/skills` ones it does not
-/// override by name. Only names and descriptions go in; the agent reads a
+/// this project's own, then the Video Studio's `skills/`, then the shared
+/// `library/skills` ones, each skipped when an earlier one has its name. Only names and descriptions go in; the agent reads a
 /// SKILL.md itself when a task matches, so every CLI gets skills the same way.
-pub fn skills_prompt(workspace: &Path, library: Option<&Path>) -> Option<String> {
+pub fn skills_prompt(
+    workspace: &Path,
+    studio_skills: Option<&Path>,
+    library: Option<&Path>,
+) -> Option<String> {
     let mut seen: Vec<String> = Vec::new();
     let mut entries: Vec<String> = Vec::new();
     let mut add = |dirs: Vec<PathBuf>, shown: &dyn Fn(&str) -> String| {
         for dir in dirs {
-            let Ok(text) = fs::read_to_string(dir.join("SKILL.md")) else { continue };
+            let Ok(text) = fs::read_to_string(dir.join("SKILL.md")) else {
+                continue;
+            };
             let (name, desc) = skill_frontmatter(&text);
-            let Some(folder) = dir.file_name().map(|f| f.to_string_lossy().into_owned()) else { continue };
+            let Some(folder) = dir.file_name().map(|f| f.to_string_lossy().into_owned()) else {
+                continue;
+            };
             let name = name.unwrap_or_else(|| folder.clone());
             if seen.contains(&name) {
                 continue;
             }
-            entries.push(format!("- {name} (`{}`): {}", shown(&folder), desc.unwrap_or_default()));
+            entries.push(format!(
+                "- {name} (`{}`): {}",
+                shown(&folder),
+                desc.unwrap_or_default()
+            ));
             seen.push(name);
         }
     };
-    add(find_skill_dirs(&workspace.join(SKILLS_DIR)), &|folder| format!("{SKILLS_DIR}/{folder}/SKILL.md"));
+    add(find_skill_dirs(&workspace.join(SKILLS_DIR)), &|folder| {
+        format!("{SKILLS_DIR}/{folder}/SKILL.md")
+    });
+    if let Some(dir) = studio_skills {
+        add(find_skill_dirs(dir), &|folder| {
+            dir.join(folder)
+                .join("SKILL.md")
+                .to_string_lossy()
+                .into_owned()
+        });
+    }
     if let Some(lib) = library {
         let root = lib.join("skills");
-        add(find_skill_dirs(&root), &|folder| root.join(folder).join("SKILL.md").to_string_lossy().into_owned());
+        add(find_skill_dirs(&root), &|folder| {
+            root.join(folder)
+                .join("SKILL.md")
+                .to_string_lossy()
+                .into_owned()
+        });
     }
     if entries.is_empty() {
         return None;
@@ -735,7 +772,10 @@ mod tests {
         let projects = tmp.path();
         fs::create_dir_all(projects.join("Timeline-1/exports")).unwrap();
         fs::write(projects.join("Timeline-1/exports/a.mp4"), "x").unwrap();
-        let p = WorkspaceProject { legacy_name: Some("Timeline 1".into()), ..project("davinci", "Film", "id") };
+        let p = WorkspaceProject {
+            legacy_name: Some("Timeline 1".into()),
+            ..project("davinci", "Film", "id")
+        };
         let dir = projects.join(project_rel_dir(Some(&p)).0);
         // An already-created empty folder doesn't block the move.
         fs::create_dir_all(dir.join("motion-graphics")).unwrap();
@@ -748,7 +788,10 @@ mod tests {
         fs::create_dir_all(projects.join("Timeline-1")).unwrap();
         fs::write(projects.join("Timeline-1/b.txt"), "y").unwrap();
         adopt_legacy_dir(projects, Some(&p), &dir);
-        assert!(projects.join("Timeline-1/b.txt").is_file(), "has content, keep both");
+        assert!(
+            projects.join("Timeline-1/b.txt").is_file(),
+            "has content, keep both"
+        );
     }
 
     #[test]
@@ -759,7 +802,10 @@ mod tests {
         assert_ne!(a, b);
         assert_ne!(a, c);
         assert!(a.starts_with("davinci"));
-        assert_eq!(a, project_rel_dir(Some(&project("davinci", "My Film", "id-a"))).0);
+        assert_eq!(
+            a,
+            project_rel_dir(Some(&project("davinci", "My Film", "id-a"))).0
+        );
     }
 
     #[test]
@@ -796,7 +842,10 @@ mod tests {
 
     #[test]
     fn falls_back_without_project() {
-        assert_eq!(project_rel_dir(None).0, PathBuf::from("standalone/untitled"));
+        assert_eq!(
+            project_rel_dir(None).0,
+            PathBuf::from("standalone/untitled")
+        );
         let named = project_rel_dir(Some(&project("capcut", "Vlog 1", ""))).0;
         assert_eq!(named, PathBuf::from("capcut/Vlog-1"));
     }
@@ -817,23 +866,40 @@ mod tests {
 
         assert_eq!(find_skill_dirs(&skills).len(), 2);
         assert_eq!(find_skill_dirs(&skills.join("plain")).len(), 1);
-        let prompt = skills_prompt(tmp.path(), None).unwrap();
-        assert!(prompt.contains("- script-split (`.agent/skills/script-split/SKILL.md`): Split a script into scenes."));
+        let prompt = skills_prompt(tmp.path(), None, None).unwrap();
+        assert!(prompt.contains(
+            "- script-split (`.agent/skills/script-split/SKILL.md`): Split a script into scenes."
+        ));
         assert!(prompt.contains("- plain (`.agent/skills/plain/SKILL.md`): "));
         assert!(!prompt.contains("not-a-skill"));
-        assert!(skills_prompt(&tmp.path().join("empty"), None).is_none());
+        assert!(skills_prompt(&tmp.path().join("empty"), None, None).is_none());
 
         // Shared skills follow, unless the project has one of the same name.
         let lib = tmp.path().join("library");
         for name in ["script-split", "shared"] {
             fs::create_dir_all(lib.join("skills").join(name)).unwrap();
-            fs::write(lib.join("skills").join(name).join("SKILL.md"), format!("---\nname: {name}\ndescription: lib\n---\n")).unwrap();
+            fs::write(
+                lib.join("skills").join(name).join("SKILL.md"),
+                format!("---\nname: {name}\ndescription: lib\n---\n"),
+            )
+            .unwrap();
         }
-        let prompt = skills_prompt(tmp.path(), Some(&lib)).unwrap();
-        assert_eq!(prompt.matches("script-split").count(), 2, "listed once: name + its project path");
-        let shared = lib.join("skills/shared/SKILL.md").to_string_lossy().into_owned();
+        let prompt = skills_prompt(tmp.path(), None, Some(&lib)).unwrap();
+        assert_eq!(
+            prompt.matches("script-split").count(),
+            2,
+            "listed once: name + its project path"
+        );
+        let shared = lib
+            .join("skills/shared/SKILL.md")
+            .to_string_lossy()
+            .into_owned();
         assert!(prompt.contains(&format!("- shared (`{shared}`): lib")));
-        assert!(skills_prompt(&tmp.path().join("empty"), Some(&lib)).unwrap().contains("script-split (`"));
+        assert!(
+            skills_prompt(&tmp.path().join("empty"), None, Some(&lib))
+                .unwrap()
+                .contains("script-split (`")
+        );
     }
 
     #[test]

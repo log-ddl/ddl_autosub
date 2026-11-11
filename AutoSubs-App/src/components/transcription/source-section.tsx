@@ -141,10 +141,10 @@ export function FileDropArea({
   return (
     <div
       className={cn(
-        "group flex w-full cursor-pointer flex-col items-center justify-center overflow-hidden rounded-2xl border border-dashed border-muted-foreground/25 bg-muted/10 px-4 py-4 outline-none",
+        "group flex w-full cursor-pointer flex-col items-center justify-center overflow-hidden rounded-2xl border border-dashed border-border bg-card/60 px-4 py-5 outline-none shadow-2xs",
         selectedFile
-          ? "transition-none"
-          : "transition-colors hover:border-muted-foreground/40 hover:bg-muted/30",
+          ? "border-solid border-border/80 bg-card transition-none"
+          : "transition-all duration-200 hover:border-primary/45 hover:bg-card",
         className,
       )}
       data-tour="audio-input"
@@ -193,14 +193,14 @@ export function FileDropArea({
         </div>
       ) : (
         <div className="flex flex-col items-center gap-3">
-          <div className="rounded-full bg-black/5 dark:bg-white/5 p-3 text-muted-foreground group-hover:text-foreground transition-colors">
-            <UploadIcon ref={iconRef} size={24} />
+          <div className="rounded-2xl border border-border/70 bg-muted/60 p-3.5 text-muted-foreground shadow-2xs transition-all duration-200 group-hover:border-primary/30 group-hover:bg-primary/10 group-hover:text-primary">
+            <UploadIcon ref={iconRef} size={22} />
           </div>
-          <div className="flex flex-col items-center gap-1">
-            <span className="text-sm font-medium text-foreground/80 group-hover:text-foreground transition-colors">
+          <div className="flex flex-col items-center gap-1 text-center">
+            <span className="text-sm font-semibold text-foreground/90 group-hover:text-foreground transition-colors">
               {t("actionBar.fileDrop.prompt")}
             </span>
-            <span className="text-xs text-muted-foreground/80">
+            <span className="text-xs text-muted-foreground">
               {t("actionBar.fileDrop.supports")}
             </span>
           </div>
@@ -276,10 +276,10 @@ export function TimelineTrackSelector({
       data-tour="audio-input"
     >
       {inputTracks.length > 0 ? (
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border bg-background">
-          <div className="flex items-center justify-between px-3 py-2">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border/80 bg-card shadow-2xs">
+          <div className="flex items-center justify-between border-b border-border/60 bg-muted/30 px-3.5 py-2.5">
             <div className="flex items-center gap-2">
-              <span className="min-w-0 truncate text-xs font-medium text-muted-foreground">
+              <span className="min-w-0 truncate text-xs font-semibold text-muted-foreground">
                 {selectedTrackCount > 0
                   ? t("actionBar.tracks.countSelected", {
                       count: selectedTrackCount,
@@ -289,7 +289,7 @@ export function TimelineTrackSelector({
               {onRefreshTracks && (
                 <button
                   onClick={handleRefreshClick}
-                  className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  className="shrink-0 rounded-lg p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:scale-95"
                   aria-label={t("actionBar.tracks.refresh")}
                 >
                   <RefreshCw
@@ -298,7 +298,7 @@ export function TimelineTrackSelector({
                 </button>
               )}
             </div>
-            <label className="flex shrink-0 cursor-pointer items-center gap-2 text-xs font-medium text-muted-foreground">
+            <label className="flex shrink-0 cursor-pointer items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">
               <span>{t("actionBar.tracks.exportRange.inout")}</span>
               <Switch
                 checked={exportRange === "inout"}
@@ -310,7 +310,7 @@ export function TimelineTrackSelector({
             </label>
           </div>
           <div className="relative min-h-0 flex-1 overflow-hidden">
-            <div className="min-h-0 h-full space-y-1.5 overflow-y-auto p-2 pt-0 pr-2.5 pb-3">
+            <div className="min-h-0 h-full space-y-1.5 overflow-y-auto p-2.5 pr-3 pb-3">
               {inputTracks.map((track, index) => {
                 const isChecked = selectedTracks.includes(track.value);
 
@@ -320,10 +320,10 @@ export function TimelineTrackSelector({
                     role="button"
                     tabIndex={0}
                     className={cn(
-                      "flex min-h-12 w-full items-center gap-3 rounded-2xl border px-3 py-2 text-left transition-all",
+                      "flex min-h-11 w-full items-center gap-3 rounded-xl border px-3 py-2 text-left transition-all duration-150 active:scale-[0.985]",
                       isChecked
-                        ? "bg-card shadow-sm"
-                        : "border-transparent bg-transparent hover:bg-muted/50",
+                        ? "border-primary/35 bg-primary/[0.06] shadow-2xs dark:border-primary/40 dark:bg-primary/10"
+                        : "border-transparent bg-muted/25 hover:border-border/60 hover:bg-muted/55",
                     )}
                     onClick={() => toggleInputTrack(track.value)}
                     onKeyDown={(e) => {
@@ -337,28 +337,28 @@ export function TimelineTrackSelector({
                       checked={isChecked}
                       tabIndex={-1}
                       aria-hidden="true"
-                      className="pointer-events-none border-muted-foreground/35 data-[state=checked]:border-foreground data-[state=checked]:bg-foreground data-[state=checked]:text-background"
+                      className="pointer-events-none"
                     />
                     <AudioLines
                       className={cn(
                         "size-4 transition-colors",
-                        isChecked ? "text-foreground" : "text-muted-foreground",
+                        isChecked ? "text-primary" : "text-muted-foreground",
                       )}
                     />
                     <span
                       className={cn(
                         "min-w-0 flex-1 truncate text-sm font-medium transition-colors",
-                        isChecked ? "text-foreground" : "text-muted-foreground",
+                        isChecked ? "text-foreground font-semibold" : "text-foreground/80",
                       )}
                     >
                       {track.label}
                     </span>
                     <span
                       className={cn(
-                        "flex h-7 min-w-7 items-center justify-center rounded-full border px-2 text-xs font-semibold transition-colors",
+                        "flex h-6 min-w-6 items-center justify-center rounded-full border px-2 text-xs font-semibold transition-colors",
                         isChecked
-                          ? "border-primary/15 bg-muted/45 text-foreground"
-                          : "border-transparent bg-muted/20 text-muted-foreground/70",
+                          ? "border-primary/25 bg-primary/15 text-primary"
+                          : "border-border/50 bg-muted/50 text-muted-foreground",
                       )}
                     >
                       {formatTrackNumber(index + 1)}
@@ -367,11 +367,11 @@ export function TimelineTrackSelector({
                 );
               })}
             </div>
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-4 bg-gradient-to-t from-background to-transparent" />
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-4 bg-gradient-to-t from-card to-transparent" />
           </div>
         </div>
       ) : (
-        <div className="flex h-full items-center justify-center rounded-lg border border-dashed bg-muted/10 px-4 text-center">
+        <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-border bg-card/50 px-4 text-center shadow-2xs">
           <p className="text-sm text-muted-foreground">
             {t("actionBar.tracks.createTrack")}
           </p>

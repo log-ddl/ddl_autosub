@@ -1,8 +1,8 @@
 //! The shared library's agent parts: skills and subagents every project uses.
 //!
-//! The app ships defaults (`templates/library/`) and writes each one into
-//! `library/` when it is missing there, or replaces it with a newer default
-//! when the user never edited it, so the user's edits always stay.
+//! The app ships none: skills and subagents are the user's. Builds before
+//! this one wrote defaults into `library/`; `remove_old_defaults` takes back
+//! the ones the user never edited.
 //!
 //! Subagents live CLI-neutral in `library/agents/<name>.md` (frontmatter
 //! `name`, `description`, `model: fast | inherit | strong`, then the
@@ -13,48 +13,14 @@
 use std::fs;
 use std::path::Path;
 
-/// Files shipped with the app, relative to `library/`.
-const DEFAULTS: &[(&str, &str)] = &[
-    ("agents/clip-analyst.md", include_str!("../../templates/library/agents/clip-analyst.md")),
-    ("agents/footage-scout.md", include_str!("../../templates/library/agents/footage-scout.md")),
-    ("agents/chapter-planner.md", include_str!("../../templates/library/agents/chapter-planner.md")),
-    ("agents/motion-builder.md", include_str!("../../templates/library/agents/motion-builder.md")),
-    ("agents/chapter-builder.md", include_str!("../../templates/library/agents/chapter-builder.md")),
-    (
-        "skills/footage-planning/SKILL.md",
-        include_str!("../../templates/library/skills/footage-planning/SKILL.md"),
-    ),
-    (
-        "skills/remotion-motion/SKILL.md",
-        include_str!("../../templates/library/skills/remotion-motion/SKILL.md"),
-    ),
-    (
-        "skills/story-planning/SKILL.md",
-        include_str!("../../templates/library/skills/story-planning/SKILL.md"),
-    ),
-    (
-        "skills/premiere-full-edit/SKILL.md",
-        include_str!("../../templates/library/skills/premiere-full-edit/SKILL.md"),
-    ),
-    (
-        "skills/remotion-full-video/SKILL.md",
-        include_str!("../../templates/library/skills/remotion-full-video/SKILL.md"),
-    ),
-    (
-        "skills/remotion-premiere-hybrid/SKILL.md",
-        include_str!("../../templates/library/skills/remotion-premiere-hybrid/SKILL.md"),
-    ),
-    ("skills/long-video/SKILL.md", include_str!("../../templates/library/skills/long-video/SKILL.md")),
-];
-
 pub const AGENTS_DIR: &str = "agents";
 
 /// Marks the subagent files the app wrote, so it only ever replaces or
 /// removes its own.
 pub const SYNC_MARK: &str = "# Written by AutoSubs from library/agents. Edit the library copy.";
 
-/// Hashes of defaults earlier builds wrote, before `DEFAULTS_RECORD` existed:
-/// a file matching one is an untouched default.
+/// Hashes of defaults the earliest builds wrote, before `DEFAULTS_RECORD`
+/// existed: a file matching one is an untouched default.
 const LEGACY_DEFAULTS: &[&str] = &["f8cb9e486740aac9", "b963ae54a6cc7dde", "04c053fd4d92c0f5"];
 
 /// `library/<this>` remembers the hash of each default as last written.
@@ -69,44 +35,42 @@ fn fnv(bytes: &[u8]) -> String {
     format!("{:016x}", h)
 }
 
-/// Writes every default `library` is missing, and updates the ones the user
-/// left as they were.
-pub fn seed_defaults(library: &Path) {
+/// Removes the defaults earlier builds wrote into `library` and the user
+/// never edited (their hash is still the one recorded), then folders left
+/// empty. Edited ones stay as the user's own.
+pub fn remove_old_defaults(library: &Path) {
     let record_path = library.join(DEFAULTS_RECORD);
-    let mut record: std::collections::BTreeMap<String, String> = fs::read_to_string(&record_path)
+    let record: std::collections::BTreeMap<String, String> = fs::read_to_string(&record_path)
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or_default();
-    let mut changed = false;
-    for (rel, contents) in DEFAULTS {
-        let path = library.join(rel);
-        let shipped = fnv(contents.as_bytes());
-        let write = match fs::read(&path) {
-            Err(_) => true,
-            Ok(current) => {
-                let current = fnv(&current);
-                let untouched = record.get(*rel) == Some(&current) || LEGACY_DEFAULTS.contains(&current.as_str());
-                untouched && current != shipped
+    let mut candidates: Vec<(std::path::PathBuf, Option<String>)> = record
+        .into_iter()
+        .map(|(rel, hash)| (library.join(rel), Some(hash)))
+        .collect();
+    for entry in fs::read_dir(library.join(AGENTS_DIR))
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
+        candidates.push((entry.path(), None));
+    }
+    for (path, recorded) in candidates {
+        let Ok(bytes) = fs::read(&path) else { continue };
+        let hash = fnv(&bytes);
+        if recorded.as_deref() == Some(hash.as_str()) || LEGACY_DEFAULTS.contains(&hash.as_str()) {
+            let _ = fs::remove_file(&path);
+            if let Some(dir) = path.parent() {
+                // The Remotion docs link earlier builds put next to `remotion-motion`.
+                let reference = dir.join("reference");
+                if fs::symlink_metadata(&reference).is_ok_and(|m| m.file_type().is_symlink()) {
+                    let _ = fs::remove_file(&reference);
+                }
+                let _ = fs::remove_dir(dir);
             }
-        };
-        if write {
-            if let Some(parent) = path.parent() {
-                let _ = fs::create_dir_all(parent);
-            }
-            if fs::write(&path, contents).is_ok() {
-                record.insert(rel.to_string(), shipped);
-                changed = true;
-            }
-        } else if !record.contains_key(*rel) && fs::read(&path).is_ok_and(|c| fnv(&c) == shipped) {
-            record.insert(rel.to_string(), shipped);
-            changed = true;
         }
     }
-    if changed {
-        if let Ok(text) = serde_json::to_string_pretty(&record) {
-            let _ = fs::write(&record_path, text);
-        }
-    }
+    let _ = fs::remove_file(&record_path);
 }
 
 struct Agent {
@@ -128,7 +92,9 @@ fn parse_agent(text: &str, fallback_name: &str) -> Option<Agent> {
         })
     };
     Some(Agent {
-        name: field("name").filter(|n| !n.is_empty()).unwrap_or_else(|| fallback_name.to_string()),
+        name: field("name")
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| fallback_name.to_string()),
         description: field("description").unwrap_or_default(),
         model: field("model").unwrap_or_else(|| "inherit".into()),
         body: body.trim_start_matches(['\r', '\n']).to_string(),
@@ -178,11 +144,21 @@ impl Cli {
 fn read_agents(library: &Path) -> Vec<Agent> {
     let mut agents = Vec::new();
     if let Ok(rd) = fs::read_dir(library.join(AGENTS_DIR)) {
-        let mut paths: Vec<_> = rd.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == "md")).collect();
+        let mut paths: Vec<_> = rd
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|e| e == "md"))
+            .collect();
         paths.sort();
         for p in paths {
-            let stem = p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-            if let Some(agent) = fs::read_to_string(&p).ok().and_then(|t| parse_agent(&t, &stem)) {
+            let stem = p
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            if let Some(agent) = fs::read_to_string(&p)
+                .ok()
+                .and_then(|t| parse_agent(&t, &stem))
+            {
                 agents.push(agent);
             }
         }
@@ -223,90 +199,48 @@ pub fn sync_agents(library: &Path, workspace: &Path) -> Vec<String> {
     agents.into_iter().map(|a| a.name).collect()
 }
 
-/// Writes the library's agents into one CLI's own folder (`~/.claude/agents`
-/// when `claude`, else agy's `~/.gemini/config/agents`).
-pub fn sync_agents_to(library: &Path, dir: &Path, claude: bool) {
-    write_agents(&read_agents(library), if claude { Cli::Claude } else { Cli::Agy }, dir);
-}
-
-/// Marks a skill folder the app copied, so the next sync may replace it.
-const SKILL_MARK_FILE: &str = ".autosubs";
-
-/// Copies every `library/skills/<name>` into `dest/<name>` (Claude Code's
-/// skills folder), replacing earlier copies and leaving the user's own alone.
-pub fn sync_skills(library: &Path, dest: &Path) {
-    let Ok(rd) = fs::read_dir(library.join("skills")) else { return };
-    let skills: Vec<_> = rd.flatten().map(|e| e.path()).filter(|p| p.join("SKILL.md").is_file()).collect();
-    for src in skills {
-        let Some(name) = src.file_name() else { continue };
-        let to = dest.join(name);
-        if to.exists() {
-            if !to.join(SKILL_MARK_FILE).exists() {
-                continue;
-            }
-            let _ = fs::remove_dir_all(&to);
-        }
-        if copy_dir(&src, &to).is_ok() {
-            let _ = fs::write(to.join(SKILL_MARK_FILE), "Copied by AutoSubs from library/skills; edit the library copy.\n");
-        }
-    }
-}
-
-fn copy_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
-    fs::create_dir_all(dst)?;
-    for e in fs::read_dir(src)?.flatten() {
-        let (from, to) = (e.path(), dst.join(e.file_name()));
-        // Links stay links: a skill's `reference/` points at the Remotion
-        // kit, and Remotion's own skills link to each other.
-        #[cfg(unix)]
-        if e.file_type().is_ok_and(|t| t.is_symlink()) {
-            let _ = fs::remove_file(&to);
-            std::os::unix::fs::symlink(fs::read_link(&from)?, &to)?;
-            continue;
-        }
-        if from.is_dir() {
-            copy_dir(&from, &to)?;
-        } else {
-            fs::copy(&from, &to)?;
-        }
-    }
-    Ok(())
-}
+/// Marked the skill folders older builds copied into the agent home.
+pub const SKILL_MARK_FILE: &str = ".autosubs";
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn updates_untouched_defaults_only() {
+    fn removes_untouched_old_defaults_only() {
         let tmp = tempfile::tempdir().unwrap();
         let lib = tmp.path();
-        seed_defaults(lib);
-        let path = lib.join("agents/footage-scout.md");
-        // As if an older build had written it: recorded, then the default changed.
-        fs::write(&path, "old default").unwrap();
-        let mut record: std::collections::BTreeMap<String, String> =
-            serde_json::from_str(&fs::read_to_string(lib.join(DEFAULTS_RECORD)).unwrap()).unwrap();
-        record.insert("agents/footage-scout.md".into(), fnv(b"old default"));
-        fs::write(lib.join(DEFAULTS_RECORD), serde_json::to_string(&record).unwrap()).unwrap();
-        seed_defaults(lib);
-        assert_ne!(fs::read_to_string(&path).unwrap(), "old default", "untouched: updated");
+        fs::create_dir_all(lib.join("skills/story-planning")).unwrap();
+        fs::create_dir_all(lib.join("skills/footage-planning")).unwrap();
+        fs::create_dir_all(lib.join("skills/mine")).unwrap();
+        fs::write(lib.join("skills/story-planning/SKILL.md"), "shipped").unwrap();
+        fs::write(
+            lib.join("skills/footage-planning/SKILL.md"),
+            "edited by the user",
+        )
+        .unwrap();
+        fs::write(lib.join("skills/mine/SKILL.md"), "mine").unwrap();
+        let record = serde_json::json!({
+            "skills/story-planning/SKILL.md": fnv(b"shipped"),
+            "skills/footage-planning/SKILL.md": fnv(b"shipped too"),
+        });
+        fs::write(lib.join(DEFAULTS_RECORD), record.to_string()).unwrap();
 
-        fs::write(&path, "my edit").unwrap();
-        seed_defaults(lib);
-        assert_eq!(fs::read_to_string(&path).unwrap(), "my edit", "edited: kept");
-    }
+        remove_old_defaults(lib);
 
-    #[test]
-    fn seeds_defaults_without_overwriting() {
-        let tmp = tempfile::tempdir().unwrap();
-        let lib = tmp.path();
-        fs::create_dir_all(lib.join("agents")).unwrap();
-        fs::write(lib.join("agents/clip-analyst.md"), "mine").unwrap();
-        seed_defaults(lib);
-        assert_eq!(fs::read_to_string(lib.join("agents/clip-analyst.md")).unwrap(), "mine");
-        assert!(lib.join("agents/footage-scout.md").is_file());
-        assert!(lib.join("skills/footage-planning/SKILL.md").is_file());
+        assert!(
+            !lib.join("skills/story-planning").exists(),
+            "untouched: removed"
+        );
+        assert!(
+            lib.join("skills/footage-planning/SKILL.md").is_file(),
+            "edited: kept"
+        );
+        assert!(
+            lib.join("skills/mine/SKILL.md").is_file(),
+            "the user's own: kept"
+        );
+        assert!(!lib.join(DEFAULTS_RECORD).exists());
     }
 
     #[test]
@@ -320,36 +254,27 @@ mod tests {
         )
         .unwrap();
         fs::create_dir_all(ws.join(".claude/agents")).unwrap();
-        fs::write(ws.join(".claude/agents/hand-made.md"), "---\nname: hand-made\n---\n").unwrap();
+        fs::write(
+            ws.join(".claude/agents/hand-made.md"),
+            "---\nname: hand-made\n---\n",
+        )
+        .unwrap();
 
         assert_eq!(sync_agents(&lib, &ws), vec!["viewer"]);
         let claude = fs::read_to_string(ws.join(".claude/agents/viewer.md")).unwrap();
         let agy = fs::read_to_string(ws.join(".agents/agents/viewer.md")).unwrap();
-        assert!(claude.contains("model: haiku") && claude.contains("description: \"Looks: at clips\""));
+        assert!(
+            claude.contains("model: haiku") && claude.contains("description: \"Looks: at clips\"")
+        );
         assert!(agy.contains("model: flash") && agy.ends_with("Do the thing.\n"));
 
         fs::remove_file(lib.join("agents/viewer.md")).unwrap();
         sync_agents(&lib, &ws);
         assert!(!ws.join(".claude/agents/viewer.md").exists());
         assert!(!ws.join(".agents/agents/viewer.md").exists());
-        assert!(ws.join(".claude/agents/hand-made.md").is_file(), "never touch the user's own");
-    }
-
-    #[test]
-    fn copies_skills_and_keeps_the_users_own() {
-        let tmp = tempfile::tempdir().unwrap();
-        let (lib, dest) = (tmp.path().join("lib"), tmp.path().join("skills"));
-        for name in ["a", "b"] {
-            fs::create_dir_all(lib.join("skills").join(name)).unwrap();
-            fs::write(lib.join("skills").join(name).join("SKILL.md"), format!("v1 {name}")).unwrap();
-        }
-        fs::create_dir_all(dest.join("b")).unwrap();
-        fs::write(dest.join("b/SKILL.md"), "mine").unwrap();
-        sync_skills(&lib, &dest);
-        assert_eq!(fs::read_to_string(dest.join("a/SKILL.md")).unwrap(), "v1 a");
-        assert_eq!(fs::read_to_string(dest.join("b/SKILL.md")).unwrap(), "mine");
-        fs::write(lib.join("skills/a/SKILL.md"), "v2 a").unwrap();
-        sync_skills(&lib, &dest);
-        assert_eq!(fs::read_to_string(dest.join("a/SKILL.md")).unwrap(), "v2 a");
+        assert!(
+            ws.join(".claude/agents/hand-made.md").is_file(),
+            "never touch the user's own"
+        );
     }
 }

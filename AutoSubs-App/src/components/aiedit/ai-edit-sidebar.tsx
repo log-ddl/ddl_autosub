@@ -60,8 +60,8 @@ export function AiEditSidebar({
 }: AiEditSidebarProps) {
   const { t } = useTranslation();
   return (
-    <aside className="flex w-64 min-w-[16rem] max-w-[16rem] shrink-0 flex-col border-r border-border/60 bg-card/20 select-none overflow-hidden">
-      <div className="flex h-11 shrink-0 items-center justify-between px-3">
+    <aside className="flex w-64 min-w-[16rem] max-w-[16rem] shrink-0 flex-col border-r border-border/70 bg-card/45 select-none overflow-hidden">
+      <div className="flex h-11 shrink-0 items-center justify-between border-b border-border/60 px-3">
         <span className="text-xs font-semibold tracking-tight text-foreground/90">
           {t("aiEdit.sidebar.title")}
         </span>
@@ -89,19 +89,19 @@ export function AiEditSidebar({
         </div>
       </div>
 
-      <div className="px-2.5 pb-2 shrink-0">
+      <div className="px-2.5 pt-2.5 pb-2 shrink-0">
         <div className="relative">
           <Search className="size-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/70" />
           <Input
             value={searchQuery}
             onChange={(e) => onSearchQueryChange(e.target.value)}
             placeholder={t("aiEdit.sidebar.search")}
-            className="h-8 rounded-xl border-0 bg-muted/50 pl-8 text-xs shadow-none focus-visible:ring-1 focus-visible:ring-ring/40"
+            className="h-8 rounded-xl border border-border/60 bg-background/70 pl-8 text-xs shadow-2xs focus-visible:ring-1 focus-visible:ring-ring/40"
           />
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-2 py-1 space-y-0.5">
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-2 py-1 space-y-1">
         {conversations.map((conv) => {
           const tag =
             EDITOR_TAGS[
@@ -114,10 +114,10 @@ export function AiEditSidebar({
               key={conv.id}
               onClick={() => onSelectConversation(conv.id)}
               className={cn(
-                "group relative flex w-full max-w-full items-center justify-between gap-1.5 rounded-xl px-2.5 py-2 text-xs cursor-pointer transition-colors overflow-hidden",
+                "group relative flex w-full max-w-full items-center justify-between gap-1.5 rounded-xl border px-2.5 py-2 text-xs cursor-pointer transition-all duration-150 active:scale-[0.985] overflow-hidden",
                 isActive
-                  ? "bg-muted/90 text-foreground"
-                  : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+                  ? "border-border/80 bg-card text-foreground shadow-2xs"
+                  : "border-transparent text-muted-foreground hover:bg-accent/60 hover:text-foreground",
               )}
             >
               <div className="min-w-0 flex-1 overflow-hidden">

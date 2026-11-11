@@ -1,0 +1,11 @@
+# Thư viện Python cho tools/ (ASR, nhạc, tiếng hiệu ứng). Chạy tool bằng .venv/bin/python.
+# Cài:  python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+# Cần thêm ffmpeg/ffprobe trong PATH (brew install ffmpeg).
+faster-whisper==1.2.1   # ASR lấy timing từ voice (model deepdml/faster-whisper-large-v3-turbo-ct2)
+ctranslate2==4.8.2
+onnxruntime==1.19.2
+tokenizers==0.22.2
+huggingface_hub==1.8.0
+av==15.1.0
+numpy==2.0.2            # tools/sound.py, tools/music.py, tools/remotion_audio.py
+# scipy                 # tuỳ chọn: sfx.py dùng lfilter nếu có, không có vẫn chạy

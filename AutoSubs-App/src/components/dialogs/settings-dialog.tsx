@@ -26,6 +26,7 @@ import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle }
 import { Field, FieldGroup } from "@/components/ui/field";
 import { initI18n, normalizeUiLanguage } from "@/i18n";
 import { AiEditProjects } from "@/components/settings/ai-edit-projects";
+import { WorkFolderSettings } from "@/components/settings/work-folder-settings";
 import { StockFootageKeys } from "@/components/settings/stock-footage-keys";
 import { ExternalAgentPanel } from "@/components/external-agent/external-agent-panel";
 import { uiLanguages } from "@/lib/languages";
@@ -292,6 +293,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                 </Field>
               </FieldGroup>
             </div>
+
+            {/* AI Edit's working folder and the Remotion environment in it */}
+            <WorkFolderSettings />
 
             {/* Folders AI Edit keeps per editor project */}
             <AiEditProjects open={open} />

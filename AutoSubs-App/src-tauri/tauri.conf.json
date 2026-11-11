@@ -19,7 +19,9 @@
           "$DESKTOP/**",
           "$DOCUMENT/**",
           "$DOWNLOAD/**",
-          "$RESOURCE/**"
+          "$RESOURCE/**",
+          "$APPDATA/**",
+          "$APPLOCALDATA/**"
         ]
       }
     }

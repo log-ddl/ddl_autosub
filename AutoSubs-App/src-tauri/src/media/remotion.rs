@@ -24,10 +24,9 @@
 //!   times, so the agent can look at a graphic before rendering it.
 //! * The kit holds every Remotion library usable inside a composition, and
 //!   `reference/` holds Remotion's own agent skills and full docs at the same
-//!   version (a sparse clone of the Remotion repo). It is linked into the
-//!   `remotion-motion` library skill as `reference/`, so the agent reads them
-//!   next to that skill. `prepare` does all of this at app start, so the
-//!   reference is there before the agent first reads the skill.
+//!   version (a sparse clone of the Remotion repo). `prepare` does all of
+//!   this at app start, and the `render_motion` tool tells the agent where
+//!   the reference is.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -37,7 +36,7 @@ use std::time::{Duration, Instant};
 use image::{Rgb, RgbImage};
 use once_cell::sync::Lazy;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tauri::AppHandle;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
@@ -50,10 +49,22 @@ const STILLS_SCRIPT: &str = include_str!("../../templates/remotion-kit/stills.mj
 
 /// The starter project, as (path inside the project, contents).
 const STARTER_FILES: &[(&str, &str)] = &[
-    ("package.json", include_str!("../../templates/remotion-starter/package.json")),
-    ("src/index.ts", include_str!("../../templates/remotion-starter/src/index.ts")),
-    ("src/Root.tsx", include_str!("../../templates/remotion-starter/src/Root.tsx")),
-    ("src/Scene.tsx", include_str!("../../templates/remotion-starter/src/Scene.tsx")),
+    (
+        "package.json",
+        include_str!("../../templates/remotion-starter/package.json"),
+    ),
+    (
+        "src/index.ts",
+        include_str!("../../templates/remotion-starter/src/index.ts"),
+    ),
+    (
+        "src/Root.tsx",
+        include_str!("../../templates/remotion-starter/src/Root.tsx"),
+    ),
+    (
+        "src/Scene.tsx",
+        include_str!("../../templates/remotion-starter/src/Scene.tsx"),
+    ),
 ];
 
 pub const STARTER_NAME: &str = "remotion-starter";
@@ -72,7 +83,8 @@ static KIT_LOCK: Lazy<tokio::sync::Mutex<()>> = Lazy::new(|| tokio::sync::Mutex:
 
 /// Full renders at a time; the rest wait their turn, first come first served.
 pub const RENDER_SLOTS: usize = 1;
-static RENDER_QUEUE: Lazy<tokio::sync::Semaphore> = Lazy::new(|| tokio::sync::Semaphore::new(RENDER_SLOTS));
+static RENDER_QUEUE: Lazy<tokio::sync::Semaphore> =
+    Lazy::new(|| tokio::sync::Semaphore::new(RENDER_SLOTS));
 /// Previews are a few frames each (seconds), so they do not wait behind a
 /// long render, but parallel agents still never open more than this many
 /// browsers for them.
@@ -81,7 +93,6 @@ static PREVIEW_QUEUE: Lazy<tokio::sync::Semaphore> = Lazy::new(|| tokio::sync::S
 /// Where Remotion's skills and docs are cloned from, at tag `v<version>`.
 const REMOTION_REPO: &str = "https://github.com/remotion-dev/remotion";
 /// The library skill the reference is linked into.
-const SKILL_NAME: &str = "remotion-motion";
 /// One clone attempt per app run, so an offline machine does not retry on
 /// every render.
 static REFERENCE_TRIED: AtomicBool = AtomicBool::new(false);
@@ -107,7 +118,11 @@ pub fn seed_starter(templates_dir: &Path) {
 }
 
 fn remotion_bin(kit: &Path) -> PathBuf {
-    let name = if cfg!(windows) { "remotion.cmd" } else { "remotion" };
+    let name = if cfg!(windows) {
+        "remotion.cmd"
+    } else {
+        "remotion"
+    };
     kit.join("node_modules").join(".bin").join(name)
 }
 
@@ -132,27 +147,34 @@ pub async fn ensure_kit(app: &AppHandle) -> Result<(PathBuf, bool), String> {
         return Ok((kit, false));
     }
 
-    std::fs::create_dir_all(&kit).map_err(|e| format!("Could not create {}: {}", kit.display(), e))?;
-    std::fs::write(&manifest, KIT_PACKAGE_JSON).map_err(|e| format!("Could not write {}: {}", manifest.display(), e))?;
-    run(&kit, npm(), &["install", "--no-audit", "--no-fund", "--loglevel=error"], INSTALL_TIMEOUT)
-        .await
-        .map_err(|e| format!("Installing Remotion failed (needs Node.js and internet): {}", e))?;
+    std::fs::create_dir_all(&kit)
+        .map_err(|e| format!("Could not create {}: {}", kit.display(), e))?;
+    std::fs::write(&manifest, KIT_PACKAGE_JSON)
+        .map_err(|e| format!("Could not write {}: {}", manifest.display(), e))?;
+    run(
+        &kit,
+        npm(),
+        &["install", "--no-audit", "--no-fund", "--loglevel=error"],
+        INSTALL_TIMEOUT,
+    )
+    .await
+    .map_err(|e| {
+        format!(
+            "Installing Remotion failed (needs Node.js and internet): {}",
+            e
+        )
+    })?;
     install_browser(&kit).await;
     let _ = std::fs::write(&stamp, KIT_PACKAGE_JSON);
     ensure_reference(&kit).await;
     Ok((kit, true))
 }
 
-/// Install the kit and link its reference into the library skill. Run in the
-/// background at app start; failures are logged and retried by the next render.
+/// Install the kit. Run in the background at app start; failures are logged
+/// and retried by the next render.
 pub async fn prepare(app: AppHandle) {
-    match ensure_kit(&app).await {
-        Ok((kit, _)) => {
-            if let Err(e) = link_reference(&app, &kit) {
-                tracing::warn!("Remotion reference not linked: {}", e);
-            }
-        }
-        Err(e) => tracing::warn!("Remotion kit not installed: {}", e),
+    if let Err(e) = ensure_kit(&app).await {
+        tracing::warn!("Remotion kit not installed: {}", e);
     }
 }
 
@@ -190,7 +212,18 @@ async fn clone_reference(kit: &Path, version: &str, reference: &Path) -> Result<
     run(
         kit,
         "git",
-        &["clone", "-q", "--depth", "1", "--branch", &tag, "--filter=blob:none", "--sparse", REMOTION_REPO, &tmp_s],
+        &[
+            "clone",
+            "-q",
+            "--depth",
+            "1",
+            "--branch",
+            &tag,
+            "--filter=blob:none",
+            "--sparse",
+            REMOTION_REPO,
+            &tmp_s,
+        ],
         INSTALL_TIMEOUT,
     )
     .await?;
@@ -210,22 +243,15 @@ async fn clone_reference(kit: &Path, version: &str, reference: &Path) -> Result<
     .await?;
     let _ = std::fs::remove_dir_all(reference);
     std::fs::create_dir_all(reference).map_err(|e| e.to_string())?;
-    for (from, to) in [("packages/skills/skills", "skills"), ("packages/docs/docs", "docs")] {
-        std::fs::rename(tmp.join(from), reference.join(to)).map_err(|e| format!("{}: {}", from, e))?;
+    for (from, to) in [
+        ("packages/skills/skills", "skills"),
+        ("packages/docs/docs", "docs"),
+    ] {
+        std::fs::rename(tmp.join(from), reference.join(to))
+            .map_err(|e| format!("{}: {}", from, e))?;
     }
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::write(reference.join(".version"), version).map_err(|e| e.to_string())
-}
-
-/// Link `kit/reference` into `library/skills/remotion-motion/reference`.
-pub fn link_reference(app: &AppHandle, kit: &Path) -> Result<(), String> {
-    let target = kit.join("reference");
-    if !target.join("docs").is_dir() {
-        return Ok(());
-    }
-    let skill = crate::ai_cli::workspace::library_root(app)?.join("skills").join(SKILL_NAME);
-    std::fs::create_dir_all(&skill).map_err(|e| e.to_string())?;
-    link_dir(&target, &skill.join("reference"))
 }
 
 /// Let Remotion download its headless browser, then unzip it ourselves into
@@ -233,12 +259,22 @@ pub fn link_reference(app: &AppHandle, kit: &Path) -> Result<(), String> {
 /// falls back to an installed Chrome.
 async fn install_browser(kit: &Path) {
     let bin = remotion_bin(kit);
-    let _ = run(kit, &bin.to_string_lossy(), &["browser", "ensure"], INSTALL_TIMEOUT).await;
-    let zip_dir = kit.join("node_modules").join(".remotion").join("chrome-headless-shell");
-    let Some(zip) = std::fs::read_dir(&zip_dir)
-        .ok()
-        .and_then(|rd| rd.flatten().map(|e| e.path()).find(|p| p.extension().is_some_and(|x| x == "zip")))
-    else {
+    let _ = run(
+        kit,
+        &bin.to_string_lossy(),
+        &["browser", "ensure"],
+        INSTALL_TIMEOUT,
+    )
+    .await;
+    let zip_dir = kit
+        .join("node_modules")
+        .join(".remotion")
+        .join("chrome-headless-shell");
+    let Some(zip) = std::fs::read_dir(&zip_dir).ok().and_then(|rd| {
+        rd.flatten()
+            .map(|e| e.path())
+            .find(|p| p.extension().is_some_and(|x| x == "zip"))
+    }) else {
         return;
     };
     let dest = kit.join("browser");
@@ -246,20 +282,36 @@ async fn install_browser(kit: &Path) {
     if std::fs::create_dir_all(&dest).is_err() {
         return;
     }
-    let (zip_s, dest_s) = (zip.to_string_lossy().to_string(), dest.to_string_lossy().to_string());
+    let (zip_s, dest_s) = (
+        zip.to_string_lossy().to_string(),
+        dest.to_string_lossy().to_string(),
+    );
     // bsdtar on Windows 10+ reads zips; unzip elsewhere.
     let _ = if cfg!(windows) {
         run(kit, "tar", &["-xf", &zip_s, "-C", &dest_s], INSTALL_TIMEOUT).await
     } else {
-        run(kit, "unzip", &["-q", "-o", &zip_s, "-d", &dest_s], INSTALL_TIMEOUT).await
+        run(
+            kit,
+            "unzip",
+            &["-q", "-o", &zip_s, "-d", &dest_s],
+            INSTALL_TIMEOUT,
+        )
+        .await
     };
 }
 
 /// The browser renders run in: the kit's unzipped headless shell, else one
 /// Remotion managed to unpack, else an installed Google Chrome.
 fn browser_path(kit: &Path) -> Option<PathBuf> {
-    let name = if cfg!(windows) { "chrome-headless-shell.exe" } else { "chrome-headless-shell" };
-    for root in [kit.join("browser"), kit.join("node_modules").join(".remotion")] {
+    let name = if cfg!(windows) {
+        "chrome-headless-shell.exe"
+    } else {
+        "chrome-headless-shell"
+    };
+    for root in [
+        kit.join("browser"),
+        kit.join("node_modules").join(".remotion"),
+    ] {
         if let Some(found) = find_file(&root, name, 4) {
             return Some(found);
         }
@@ -272,7 +324,11 @@ fn browser_path(kit: &Path) -> Option<PathBuf> {
             r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
         ]
     } else {
-        &["/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"]
+        &[
+            "/usr/bin/google-chrome",
+            "/usr/bin/chromium",
+            "/usr/bin/chromium-browser",
+        ]
     };
     installed.iter().map(PathBuf::from).find(|p| p.exists())
 }
@@ -291,15 +347,13 @@ fn find_file(dir: &Path, name: &str, depth: usize) -> Option<PathBuf> {
     if depth == 0 {
         return None;
     }
-    subdirs.into_iter().find_map(|d| find_file(&d, name, depth - 1))
+    subdirs
+        .into_iter()
+        .find_map(|d| find_file(&d, name, depth - 1))
 }
 
 fn npm() -> &'static str {
-    if cfg!(windows) {
-        "npm.cmd"
-    } else {
-        "npm"
-    }
+    if cfg!(windows) { "npm.cmd" } else { "npm" }
 }
 
 /// Point `project/node_modules` at the kit's, unless the project already has
@@ -310,7 +364,7 @@ pub fn link_kit(kit: &Path, project: &Path) -> Result<(), String> {
 
 /// Make `link` point at the folder `target`, unless something is there
 /// already. A junction on Windows, which needs no admin rights.
-fn link_dir(target: &Path, link: &Path) -> Result<(), String> {
+pub(crate) fn link_dir(target: &Path, link: &Path) -> Result<(), String> {
     if link.exists() {
         return Ok(());
     }
@@ -325,8 +379,21 @@ fn link_dir(target: &Path, link: &Path) -> Result<(), String> {
         .arg(target)
         .output()
         .map_err(|e| e.to_string())
-        .and_then(|o| if o.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&o.stderr).into_owned()) });
-    result.map_err(|e| format!("Could not link {} to {}: {}", link.display(), target.display(), e))
+        .and_then(|o| {
+            if o.status.success() {
+                Ok(())
+            } else {
+                Err(String::from_utf8_lossy(&o.stderr).into_owned())
+            }
+        });
+    result.map_err(|e| {
+        format!(
+            "Could not link {} to {}: {}",
+            link.display(),
+            target.display(),
+            e
+        )
+    })
 }
 
 pub struct RenderRequest<'a> {
@@ -341,14 +408,28 @@ pub struct RenderRequest<'a> {
 /// The GL backend renders run with, so WebGL content (light leaks, shaders)
 /// renders in the headless browser: ANGLE where there is a GPU driver, its
 /// software fallback on Linux.
-const GL: &str = if cfg!(target_os = "linux") { "swangle" } else { "angle" };
+const GL: &str = if cfg!(target_os = "linux") {
+    "swangle"
+} else {
+    "angle"
+};
 
 /// The project's entry file (the one that calls registerRoot).
 fn entry_file(project: &Path) -> Result<&'static str, String> {
-    ["src/index.ts", "src/index.tsx", "src/index.js", "src/index.jsx"]
-        .into_iter()
-        .find(|e| project.join(e).exists())
-        .ok_or_else(|| format!("{} has no src/index.ts that calls registerRoot.", project.display()))
+    [
+        "src/index.ts",
+        "src/index.tsx",
+        "src/index.js",
+        "src/index.jsx",
+    ]
+    .into_iter()
+    .find(|e| project.join(e).exists())
+    .ok_or_else(|| {
+        format!(
+            "{} has no src/index.ts that calls registerRoot.",
+            project.display()
+        )
+    })
 }
 
 async fn browser_for(kit: &Path) -> Result<PathBuf, String> {
@@ -378,15 +459,26 @@ pub async fn render(
     let (kit, installed) = ensure_kit(app).await?;
     link_kit(&kit, req.project)?;
     if let Some(parent) = req.output.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("Could not create {}: {}", parent.display(), e))?;
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Could not create {}: {}", parent.display(), e))?;
     }
 
     let output = req.output.to_string_lossy().to_string();
-    let mut args: Vec<String> = vec!["render".into(), entry.into(), req.composition.into(), output];
+    let mut args: Vec<String> = vec![
+        "render".into(),
+        entry.into(),
+        req.composition.into(),
+        output,
+    ];
     if req.transparent {
         args.extend(
-            ["--codec=prores", "--prores-profile=4444", "--pixel-format=yuva444p10le", "--image-format=png"]
-                .map(String::from),
+            [
+                "--codec=prores",
+                "--prores-profile=4444",
+                "--pixel-format=yuva444p10le",
+                "--image-format=png",
+            ]
+            .map(String::from),
         );
     } else {
         args.push("--codec=h264".into());
@@ -402,7 +494,13 @@ pub async fn render(
     let started = Instant::now();
     let bin = remotion_bin(&kit);
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    run(req.project, &bin.to_string_lossy(), &arg_refs, RENDER_TIMEOUT).await?;
+    run(
+        req.project,
+        &bin.to_string_lossy(),
+        &arg_refs,
+        RENDER_TIMEOUT,
+    )
+    .await?;
     if !req.output.exists() {
         return Err("Remotion finished without writing the file.".into());
     }
@@ -448,12 +546,14 @@ pub async fn stills(app: &AppHandle, req: StillsRequest<'_>) -> Result<(Stills, 
     link_kit(&kit, req.project)?;
     let script = kit.join("stills.mjs");
     if std::fs::read_to_string(&script).ok().as_deref() != Some(STILLS_SCRIPT) {
-        std::fs::write(&script, STILLS_SCRIPT).map_err(|e| format!("Could not write {}: {}", script.display(), e))?;
+        std::fs::write(&script, STILLS_SCRIPT)
+            .map_err(|e| format!("Could not write {}: {}", script.display(), e))?;
     }
     let browser = browser_for(&kit).await?;
 
     let _ = std::fs::remove_dir_all(req.out_dir);
-    std::fs::create_dir_all(req.out_dir).map_err(|e| format!("Could not create {}: {}", req.out_dir.display(), e))?;
+    std::fs::create_dir_all(req.out_dir)
+        .map_err(|e| format!("Could not create {}: {}", req.out_dir.display(), e))?;
     let mut request = json!({
         "entry": req.project.join(entry),
         "composition": req.composition,
@@ -472,19 +572,32 @@ pub async fn stills(app: &AppHandle, req: StillsRequest<'_>) -> Result<(Stills, 
 
     let script_s = script.to_string_lossy().to_string();
     let request_s = request_path.to_string_lossy().to_string();
-    run(req.project, "node", &[&script_s, &request_s], STILLS_TIMEOUT).await?;
+    run(
+        req.project,
+        "node",
+        &[&script_s, &request_s],
+        STILLS_TIMEOUT,
+    )
+    .await?;
     let result = std::fs::read_to_string(req.out_dir.join("result.json"))
         .map_err(|_| "Remotion finished without writing the frames.".to_string())?;
-    let stills: Stills = serde_json::from_str(&result).map_err(|e| format!("Bad stills result: {}", e))?;
+    let stills: Stills =
+        serde_json::from_str(&result).map_err(|e| format!("Bad stills result: {}", e))?;
     Ok((stills, installed))
 }
 
 /// A checkerboard under transparent pixels, so a sheet shows what is see-through.
 fn flatten_on_checker(path: &Path) -> Result<RgbImage, String> {
-    let img = image::open(path).map_err(|e| format!("Bad frame {}: {}", path.display(), e))?.to_rgba8();
+    let img = image::open(path)
+        .map_err(|e| format!("Bad frame {}: {}", path.display(), e))?
+        .to_rgba8();
     let mut out = RgbImage::new(img.width(), img.height());
     for (x, y, px) in img.enumerate_pixels() {
-        let bg: f32 = if (x / 16 + y / 16) % 2 == 0 { 70.0 } else { 110.0 };
+        let bg: f32 = if (x / 16 + y / 16) % 2 == 0 {
+            70.0
+        } else {
+            110.0
+        };
         let a = px[3] as f32 / 255.0;
         let mix = |c: u8| (c as f32 * a + bg * (1.0 - a)).round() as u8;
         out.put_pixel(x, y, Rgb([mix(px[0]), mix(px[1]), mix(px[2])]));
@@ -494,13 +607,23 @@ fn flatten_on_checker(path: &Path) -> Result<RgbImage, String> {
 
 /// Lay the stills out as JPEG contact sheets in `out_dir`, each tile labelled
 /// with its time. Returns each sheet's path with the times on it.
-pub fn contact_sheet(stills: &Stills, out_dir: &Path, per_sheet: usize) -> Result<Vec<(PathBuf, Vec<f64>)>, String> {
+pub fn contact_sheet(
+    stills: &Stills,
+    out_dir: &Path,
+    per_sheet: usize,
+) -> Result<Vec<(PathBuf, Vec<f64>)>, String> {
     let mut frames = Vec::with_capacity(stills.stills.len());
     for s in &stills.stills {
         frames.push((s.frame as f64 / stills.fps, flatten_on_checker(&s.path)?));
     }
     let portrait = stills.height > stills.width;
-    let cols = if frames.len() <= 2 { 1 } else if portrait { 6 } else { 4 };
+    let cols = if frames.len() <= 2 {
+        1
+    } else if portrait {
+        6
+    } else {
+        4
+    };
     let mut sheets = Vec::new();
     for (i, chunk) in frames.chunks(per_sheet.max(1)).enumerate() {
         let path = out_dir.join(format!("sheet-{}.jpg", i + 1));
@@ -515,7 +638,8 @@ pub fn contact_sheet(stills: &Stills, out_dir: &Path, per_sheet: usize) -> Resul
 /// Run a command to completion; on failure return the tail of its output.
 async fn run(cwd: &Path, program: &str, args: &[&str], timeout: Duration) -> Result<(), String> {
     let path_env = build_cli_path_env();
-    let exe = which::which_in(program, Some(&path_env), cwd).unwrap_or_else(|_| PathBuf::from(program));
+    let exe =
+        which::which_in(program, Some(&path_env), cwd).unwrap_or_else(|_| PathBuf::from(program));
     let mut child = Command::new(&exe)
         .args(args)
         .current_dir(cwd)
@@ -545,14 +669,27 @@ async fn run(cwd: &Path, program: &str, args: &[&str], timeout: Duration) -> Res
     if status.success() {
         return Ok(());
     }
-    let text = format!("{}\n{}", String::from_utf8_lossy(&out), String::from_utf8_lossy(&err));
-    let lines: Vec<&str> = text.lines().map(str::trim_end).filter(|l| !l.trim().is_empty()).collect();
+    let text = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&out),
+        String::from_utf8_lossy(&err)
+    );
+    let lines: Vec<&str> = text
+        .lines()
+        .map(str::trim_end)
+        .filter(|l| !l.trim().is_empty())
+        .collect();
     let tail = lines[lines.len().saturating_sub(ERROR_TAIL_LINES)..].join("\n");
-    Err(format!("exit {}:\n{}", status.code().unwrap_or(-1), strip_ansi(&tail)))
+    Err(format!(
+        "exit {}:\n{}",
+        status.code().unwrap_or(-1),
+        strip_ansi(&tail)
+    ))
 }
 
 fn strip_ansi(s: &str) -> String {
-    static RE: Lazy<regex::Regex> = Lazy::new(|| regex::Regex::new(r"\x1b\[[0-9;?]*[A-Za-z]").unwrap());
+    static RE: Lazy<regex::Regex> =
+        Lazy::new(|| regex::Regex::new(r"\x1b\[[0-9;?]*[A-Za-z]").unwrap());
     RE.replace_all(s, "").into_owned()
 }
 
@@ -562,7 +699,10 @@ mod tests {
 
     #[test]
     fn starter_is_a_remotion_project() {
-        let dir = std::env::temp_dir().join(format!("autosubs-starter-{}", uuid::Uuid::new_v4().simple()));
+        let dir = std::env::temp_dir().join(format!(
+            "autosubs-starter-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
         seed_starter(&dir);
         let project = dir.join(STARTER_NAME);
         assert!(is_remotion_project(&project));
@@ -573,26 +713,41 @@ mod tests {
 
     #[test]
     fn sheet_shows_transparency_as_a_checkerboard() {
-        let dir = std::env::temp_dir().join(format!("autosubs-stills-{}", uuid::Uuid::new_v4().simple()));
+        let dir =
+            std::env::temp_dir().join(format!("autosubs-stills-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&dir).unwrap();
         let mut stills = Vec::new();
         for frame in [0u32, 15, 30] {
             // Left half opaque red, right half fully transparent.
             let img = image::RgbaImage::from_fn(64, 36, |x, _| {
-                if x < 32 { image::Rgba([255, 0, 0, 255]) } else { image::Rgba([0, 0, 0, 0]) }
+                if x < 32 {
+                    image::Rgba([255, 0, 0, 255])
+                } else {
+                    image::Rgba([0, 0, 0, 0])
+                }
             });
             let path = dir.join(format!("frame-{}.png", frame));
             img.save(&path).unwrap();
             stills.push(Still { frame, path });
         }
-        let stills = Stills { fps: 30.0, duration_in_frames: 45, width: 64, height: 36, stills };
+        let stills = Stills {
+            fps: 30.0,
+            duration_in_frames: 45,
+            width: 64,
+            height: 36,
+            stills,
+        };
         let sheets = contact_sheet(&stills, &dir, 2).unwrap();
         assert_eq!(sheets.len(), 2);
         assert_eq!(sheets[0].1, vec![0.0, 0.5]);
         assert_eq!(sheets[1].1, vec![1.0]);
         let flat = flatten_on_checker(&stills.stills[0].path).unwrap();
         assert_eq!(flat.get_pixel(5, 30), &Rgb([255, 0, 0]));
-        assert_ne!(flat.get_pixel(40, 30), flat.get_pixel(56, 30), "checker squares alternate");
+        assert_ne!(
+            flat.get_pixel(40, 30),
+            flat.get_pixel(56, 30),
+            "checker squares alternate"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

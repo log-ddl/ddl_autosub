@@ -1,37 +1,48 @@
 import * as React from "react"
 import { platform } from "@tauri-apps/plugin-os"
 import { useTranslation } from "react-i18next"
-import { Captions, Download, Sparkles } from "lucide-react"
+import { motion } from "motion/react"
 import { cn } from "@/lib/utils"
+import { spring } from "@/lib/motion-tokens"
 import { IntegrationStatus } from "@/components/layout/integration-status"
 import { SettingsDropdown } from "@/components/transcription/settings-dropdown"
 import { ExternalAgentDot } from "@/components/external-agent/external-agent-badge"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import {
+  CaptionsIcon,
+  type CaptionsIconHandle,
+} from "@/components/ui/icons/captions"
+import {
+  SparklesIcon,
+  type SparklesIconHandle,
+} from "@/components/ui/icons/sparkles"
+import {
+  DownloadIcon,
+  type DownloadIconHandle,
+} from "@/components/ui/icons/download"
+import {
+  AudioLinesIcon,
+  type AudioLinesIconHandle,
+} from "@/components/ui/icons/audio-lines"
 import { useAppModeStore, type AppMode } from "@/stores/app-mode-store"
 
-interface TabDef {
-  id: AppMode
-  labelKey: string
-  fallback: string
-  icon: React.ReactNode
+interface AnimatableIconHandle {
+  startAnimation: () => void
+  stopAnimation: () => void
 }
 
-const TABS: TabDef[] = [
-  { id: "autosub", labelKey: "shell.tabs.subtitles", fallback: "Subtitles", icon: <Captions className="size-4" /> },
-  { id: "aiedit", labelKey: "shell.tabs.aiEdit", fallback: "AI EDIT", icon: <Sparkles className="size-4" /> },
-  { id: "download", labelKey: "shell.tabs.download", fallback: "Download", icon: <Download className="size-4" /> },
-]
-
 // Shared top chrome for the whole app: a horizontal tab bar that switches
-// between the Subtitles, AI Edit and Download workspaces, plus the language and
-// theme controls on the right. Replaces the old mode-picker landing screen.
+// between the Subtitles, AI Edit, TTS and Download workspaces, plus the language
+// and theme controls on the right. Replaces the old mode-picker landing screen.
 export function WorkspaceShell({
   subtitles,
   aiedit,
+  tts,
   download,
 }: {
   subtitles: React.ReactNode
   aiedit: React.ReactNode
+  tts: React.ReactNode
   download: React.ReactNode
 }) {
   const { t } = useTranslation()
@@ -39,9 +50,56 @@ export function WorkspaceShell({
   const setMode = useAppModeStore((s) => s.setMode)
   const [isMacOs, setIsMacOs] = React.useState(true)
 
+  const captionsIconRef = React.useRef<CaptionsIconHandle>(null)
+  const sparklesIconRef = React.useRef<SparklesIconHandle>(null)
+  const audioLinesIconRef = React.useRef<AudioLinesIconHandle>(null)
+  const downloadIconRef = React.useRef<DownloadIconHandle>(null)
+
+  const tabs: {
+    id: AppMode
+    labelKey: string
+    fallback: string
+    iconRef: React.RefObject<AnimatableIconHandle | null>
+    icon: React.ReactNode
+  }[] = [
+    {
+      id: "autosub",
+      labelKey: "shell.tabs.subtitles",
+      fallback: "Subtitles",
+      iconRef: captionsIconRef,
+      icon: <CaptionsIcon ref={captionsIconRef} size={15} />,
+    },
+    {
+      id: "aiedit",
+      labelKey: "shell.tabs.aiEdit",
+      fallback: "AI Edit",
+      iconRef: sparklesIconRef,
+      icon: <SparklesIcon ref={sparklesIconRef} size={15} />,
+    },
+    {
+      id: "tts",
+      labelKey: "shell.tabs.tts",
+      fallback: "TTS",
+      iconRef: audioLinesIconRef,
+      icon: <AudioLinesIcon ref={audioLinesIconRef} size={15} />,
+    },
+    {
+      id: "download",
+      labelKey: "shell.tabs.download",
+      fallback: "Download",
+      iconRef: downloadIconRef,
+      icon: <DownloadIcon ref={downloadIconRef} size={15} />,
+    },
+  ]
+
   const [aiEditMounted, setAiEditMounted] = React.useState(false)
   React.useEffect(() => {
     if (mode === "aiedit") setAiEditMounted(true)
+  }, [mode])
+
+  const [ttsMounted, setTtsMounted] = React.useState(false)
+  React.useEffect(() => {
+    if (mode === "tts") setTtsMounted(true)
   }, [mode])
 
   // Download is gated behind a one-time yt-dlp + Deno download, so only mount
@@ -61,65 +119,89 @@ export function WorkspaceShell({
 
   return (
     <TooltipProvider>
-    <div className="flex flex-col h-screen bg-background">
-      <header
-        className={cn(
-          "flex h-12 shrink-0 items-center justify-between border-b pr-2 gap-2",
-          isMacOs ? "pl-20" : "pl-3",
-        )}
-        data-tauri-drag-region={isMacOs ? true : undefined}
-      >
-        <nav
-          className="flex items-center gap-1 min-w-0"
-          data-tauri-drag-region={isMacOs ? "false" : undefined}
+      <div className="flex flex-col h-screen bg-background">
+        <header
+          className={cn(
+            "flex h-12 shrink-0 items-center justify-between border-b border-border/80 bg-card/50 backdrop-blur-md pr-3 gap-3",
+            isMacOs ? "pl-20" : "pl-3.5",
+          )}
+          data-tauri-drag-region={isMacOs ? true : undefined}
         >
-          {TABS.map((tab) => {
-            const active = mode === tab.id
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setMode(tab.id)}
-                className={cn(
-                  "flex items-center gap-1.5 rounded-md px-3 h-8 text-sm font-medium transition-colors",
-                  active
-                    ? "bg-muted text-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
-                )}
-              >
-                {tab.icon}
-                {t(tab.labelKey, tab.fallback)}
-              </button>
-            )
-          })}
-        </nav>
-        <div
-          className="flex items-center gap-1 shrink-0"
-          data-tauri-drag-region={isMacOs ? "false" : undefined}
-        >
-          <IntegrationStatus />
-          <ExternalAgentDot />
-          <SettingsDropdown />
-        </div>
-      </header>
-
-      <main className="flex-1 min-h-0 overflow-hidden">
-        {/* All tabs stay mounted (hidden when inactive) so switching never
-            drops in-progress work or event listeners. AI Edit and Download
-            mount lazily. */}
-        <div className={cn("h-full", mode === "autosub" ? "block" : "hidden")}>
-          {subtitles}
-        </div>
-        <div className={cn("h-full", mode === "aiedit" ? "block" : "hidden")}>
-          {aiEditMounted ? aiedit : null}
-        </div>
-        <div className={cn("h-full", mode === "download" ? "block" : "hidden")}>
-          <div className="h-full overflow-auto px-6 py-8">
-            {downloadMounted ? download : null}
+          <nav
+            className="flex items-center gap-0.5 min-w-0 rounded-xl border border-border/60 bg-muted/60 p-1"
+            data-tauri-drag-region={isMacOs ? "false" : undefined}
+          >
+            {tabs.map((tab) => {
+              const active = mode === tab.id
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => {
+                    setMode(tab.id)
+                    tab.iconRef.current?.startAnimation()
+                  }}
+                  onMouseEnter={() => tab.iconRef.current?.startAnimation()}
+                  onMouseLeave={() => tab.iconRef.current?.stopAnimation()}
+                  className={cn(
+                    "relative flex items-center gap-1.5 rounded-lg px-3 h-7 text-xs font-semibold transition-colors duration-150 active:scale-[0.97] outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                    active
+                      ? "text-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {active && (
+                    <motion.span
+                      layoutId="workspace-nav-pill"
+                      transition={spring.selection}
+                      className="absolute inset-0 rounded-lg border border-border/70 bg-card shadow-2xs dark:border-white/10 dark:bg-accent"
+                    />
+                  )}
+                  <span
+                    className={cn(
+                      "relative z-10 flex items-center justify-center transition-colors",
+                      active ? "text-primary" : "text-current",
+                    )}
+                  >
+                    {tab.icon}
+                  </span>
+                  <span className="relative z-10">
+                    {t(tab.labelKey, tab.fallback)}
+                  </span>
+                </button>
+              )
+            })}
+          </nav>
+          <div
+            className="flex items-center gap-1.5 shrink-0"
+            data-tauri-drag-region={isMacOs ? "false" : undefined}
+          >
+            <IntegrationStatus />
+            <ExternalAgentDot />
+            <SettingsDropdown />
           </div>
-        </div>
-      </main>
-    </div>
+        </header>
+
+        <main className="flex-1 min-h-0 overflow-hidden">
+          {/* All tabs stay mounted (hidden when inactive) so switching never
+              drops in-progress work or event listeners. AI Edit and Download
+              mount lazily. */}
+          <div className={cn("h-full", mode === "autosub" ? "block" : "hidden")}>
+            {subtitles}
+          </div>
+          <div className={cn("h-full", mode === "aiedit" ? "block" : "hidden")}>
+            {aiEditMounted ? aiedit : null}
+          </div>
+          <div className={cn("h-full", mode === "tts" ? "block" : "hidden")}>
+            {ttsMounted ? tts : null}
+          </div>
+          <div className={cn("h-full", mode === "download" ? "block" : "hidden")}>
+            <div className="h-full overflow-auto px-6 py-7">
+              {downloadMounted ? download : null}
+            </div>
+          </div>
+        </main>
+      </div>
     </TooltipProvider>
   )
 }

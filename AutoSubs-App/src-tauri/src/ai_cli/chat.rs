@@ -15,7 +15,7 @@ use serde_json::Value;
 use tauri::AppHandle;
 
 use crate::ai_cli::runtime::{build_cli_path_env, detect_cli_path};
-use crate::ai_cli::stream_parser::{handle_stream_json_event, StreamParseState};
+use crate::ai_cli::stream_parser::{StreamParseState, handle_stream_json_event};
 use crate::ai_cli::workspace::resolve_workspace_dir;
 use crate::ai_edit::actions::EditTarget;
 use crate::ai_edit::mcp::{self, McpEndpoint};
@@ -188,7 +188,9 @@ fn run_cli_blocking(
     if let Some(lib) = &library {
         crate::ai_cli::library::sync_agents(lib, &cwd_dir);
     }
-    let skills = crate::ai_cli::workspace::skills_prompt(&cwd_dir, library.as_deref());
+    let studio_skills = crate::studio::root(app).join("skills");
+    let skills =
+        crate::ai_cli::workspace::skills_prompt(&cwd_dir, Some(&studio_skills), library.as_deref());
     let with_skills = |sys: Option<&str>| -> Option<String> {
         let parts: Vec<&str> = sys
             .into_iter()
@@ -234,7 +236,11 @@ fn run_cli_blocking(
             if let Some(ep) = &mcp_endpoint {
                 register_agy_mcp(&bin, ep);
                 if crate::ai_edit::mcp::external::agy_registered(app) {
-                    agy_external_paused = set_agy_mcp_enabled(&bin, crate::ai_edit::mcp::external::SERVER_NAME, false);
+                    agy_external_paused = set_agy_mcp_enabled(
+                        &bin,
+                        crate::ai_edit::mcp::external::SERVER_NAME,
+                        false,
+                    );
                 }
             }
         }
@@ -245,6 +251,13 @@ fn run_cli_blocking(
                 "--verbose".into(),
                 "--print".into(),
                 "-".into(),
+                // The Video Studio working folder, where code videos and skills live.
+                "--add-dir".into(),
+                studio_skills
+                    .parent()
+                    .unwrap_or(&studio_skills)
+                    .to_string_lossy()
+                    .into_owned(),
                 "--dangerously-skip-permissions".into(),
             ]);
             if let Some(m) = payload.model.as_deref().filter(|s| !s.is_empty()) {
@@ -259,8 +272,8 @@ fn run_cli_blocking(
             // Sent on every run, resumed or not: it carries the live timeline,
             // which changes between messages.
             if let Some(sys) = with_skills(payload.system_prompt.as_deref()) {
-                let tmp = std::env::temp_dir()
-                    .join(format!("autosubs-sys-{}.txt", uuid::Uuid::new_v4()));
+                let tmp =
+                    std::env::temp_dir().join(format!("autosubs-sys-{}.txt", uuid::Uuid::new_v4()));
                 if fs::write(&tmp, &sys).is_ok() {
                     args.extend([
                         "--append-system-prompt-file".into(),
@@ -462,6 +475,9 @@ fn register_agy_mcp(bin: &std::path::Path, ep: &McpEndpoint) {
         .hidden()
         .status();
     if !matches!(status, Ok(s) if s.success()) {
-        tracing::warn!("Could not register the AutoSubs MCP server with agy: {:?}", status);
+        tracing::warn!(
+            "Could not register the AutoSubs MCP server with agy: {:?}",
+            status
+        );
     }
 }

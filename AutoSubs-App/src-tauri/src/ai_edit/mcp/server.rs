@@ -15,16 +15,18 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-use crate::ai_edit::actions::{execute, timeline_snapshot, ActionOutcome, EditTarget, TimelineAction};
+use crate::ai_edit::actions::{
+    ActionOutcome, EditTarget, TimelineAction, execute, timeline_snapshot,
+};
 use crate::ai_edit::mcp::external;
-use crate::ai_edit::mcp::tools::{analyze, assets, media, motion, project, search};
-use crate::ai_edit::mcp::tools::transcript::{get_transcript, transcripts_dir, TranscriptArgs};
 use crate::ai_edit::mcp::tools::tool_definitions;
+use crate::ai_edit::mcp::tools::transcript::{TranscriptArgs, get_transcript, transcripts_dir};
+use crate::ai_edit::mcp::tools::{analyze, assets, media, motion, project, search};
 
 /// Event the UI listens to so it can refresh and toast after an agent edit.
 pub const TIMELINE_CHANGED_EVENT: &str = "ai-edit-timeline-changed";
@@ -94,7 +96,10 @@ pub fn start(app: AppHandle) {
                 return;
             }
         };
-        let _ = server().set(Server { port, token: uuid::Uuid::new_v4().simple().to_string() });
+        let _ = server().set(Server {
+            port,
+            token: uuid::Uuid::new_v4().simple().to_string(),
+        });
         tracing::info!("AI Edit MCP server listening on 127.0.0.1:{}", port);
         open_debug_session();
         loop {
@@ -119,20 +124,39 @@ fn open_debug_session() {
     }
     let workspace = std::env::temp_dir().join("autosubs-mcp-debug");
     let _ = std::fs::create_dir_all(&workspace);
-    let target = EditTarget { editor: crate::ai_edit::actions::Editor::Premiere, transcript_file: None };
+    let target = EditTarget {
+        editor: crate::ai_edit::actions::Editor::Premiere,
+        transcript_file: None,
+    };
     if let Some(ep) = open_session(target, false, Some(workspace.clone())) {
-        println!("[mcp-debug] url={} token={} workspace={}", ep.url, ep.token, workspace.display());
+        println!(
+            "[mcp-debug] url={} token={} workspace={}",
+            ep.url,
+            ep.token,
+            workspace.display()
+        );
     }
 }
 
 /// Register a session for one agent run. None if the server is not running.
-pub fn open_session(target: EditTarget, allow_edits: bool, workspace: Option<PathBuf>) -> Option<McpEndpoint> {
+pub fn open_session(
+    target: EditTarget,
+    allow_edits: bool,
+    workspace: Option<PathBuf>,
+) -> Option<McpEndpoint> {
     let srv = server().get()?;
     let session = uuid::Uuid::new_v4().simple().to_string();
-    sessions()
-        .lock()
-        .ok()?
-        .insert(session.clone(), Session { target, allow_edits, workspace, external: false, label: None, connected: true });
+    sessions().lock().ok()?.insert(
+        session.clone(),
+        Session {
+            target,
+            allow_edits,
+            workspace,
+            external: false,
+            label: None,
+            connected: true,
+        },
+    );
     Some(McpEndpoint {
         url: format!("http://127.0.0.1:{}/mcp/{}", srv.port, session),
         token: srv.token.clone(),
@@ -184,7 +208,10 @@ async fn read_request(stream: &mut TcpStream) -> Result<HttpRequest, String> {
         .map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_string()))
         .collect();
 
-    let content_length: usize = headers.get("content-length").and_then(|v| v.parse().ok()).unwrap_or(0);
+    let content_length: usize = headers
+        .get("content-length")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
     if content_length > MAX_REQUEST_BYTES {
         return Err("request too large".into());
     }
@@ -197,7 +224,12 @@ async fn read_request(stream: &mut TcpStream) -> Result<HttpRequest, String> {
         body.extend_from_slice(&chunk[..n]);
     }
     body.truncate(content_length);
-    Ok(HttpRequest { method, path, headers, body })
+    Ok(HttpRequest {
+        method,
+        path,
+        headers,
+        body,
+    })
 }
 
 async fn respond(stream: &mut TcpStream, status: &str, body: Option<&Value>) -> Result<(), String> {
@@ -205,9 +237,18 @@ async fn respond(stream: &mut TcpStream, status: &str, body: Option<&Value>) -> 
 }
 
 /// `extra` is more header lines, each ending in CRLF.
-async fn respond_with(stream: &mut TcpStream, status: &str, body: Option<&Value>, extra: &str) -> Result<(), String> {
+async fn respond_with(
+    stream: &mut TcpStream,
+    status: &str,
+    body: Option<&Value>,
+    extra: &str,
+) -> Result<(), String> {
     let payload = body.map(|b| b.to_string()).unwrap_or_default();
-    let content_type = if body.is_some() { "Content-Type: application/json\r\n" } else { "" };
+    let content_type = if body.is_some() {
+        "Content-Type: application/json\r\n"
+    } else {
+        ""
+    };
     let head = format!(
         "HTTP/1.1 {}\r\n{}{}Content-Length: {}\r\nConnection: close\r\n\r\n",
         status,
@@ -215,8 +256,14 @@ async fn respond_with(stream: &mut TcpStream, status: &str, body: Option<&Value>
         extra,
         payload.len()
     );
-    stream.write_all(head.as_bytes()).await.map_err(|e| e.to_string())?;
-    stream.write_all(payload.as_bytes()).await.map_err(|e| e.to_string())?;
+    stream
+        .write_all(head.as_bytes())
+        .await
+        .map_err(|e| e.to_string())?;
+    stream
+        .write_all(payload.as_bytes())
+        .await
+        .map_err(|e| e.to_string())?;
     stream.flush().await.map_err(|e| e.to_string())
 }
 
@@ -234,8 +281,17 @@ async fn serve_connection(mut stream: TcpStream) -> Result<(), String> {
         return respond(&mut stream, "401 Unauthorized", None).await;
     }
 
-    let session_id = req.path.strip_prefix("/mcp/").unwrap_or("").split('?').next().unwrap_or("");
-    let session = sessions().lock().ok().and_then(|m| m.get(session_id).cloned());
+    let session_id = req
+        .path
+        .strip_prefix("/mcp/")
+        .unwrap_or("")
+        .split('?')
+        .next()
+        .unwrap_or("");
+    let session = sessions()
+        .lock()
+        .ok()
+        .and_then(|m| m.get(session_id).cloned());
     let Some(session) = session else {
         return respond(&mut stream, "404 Not Found", None).await;
     };
@@ -281,7 +337,11 @@ pub async fn serve_external(mut stream: TcpStream) -> Result<(), String> {
     let Some(token) = external::token() else {
         return respond(&mut stream, "503 Service Unavailable", None).await;
     };
-    if !req.headers.get("authorization").is_some_and(|v| v == &format!("Bearer {}", token)) {
+    if !req
+        .headers
+        .get("authorization")
+        .is_some_and(|v| v == &format!("Bearer {}", token))
+    {
         return respond(&mut stream, "401 Unauthorized", None).await;
     }
     match req.method.as_str() {
@@ -310,7 +370,11 @@ pub async fn serve_external(mut stream: TcpStream) -> Result<(), String> {
     for m in &messages {
         match m.get("method").and_then(|v| v.as_str()) {
             Some("initialize") => {
-                let id = external::client_initialized(app, m.get("params").unwrap_or(&Value::Null), &user_agent);
+                let id = external::client_initialized(
+                    app,
+                    m.get("params").unwrap_or(&Value::Null),
+                    &user_agent,
+                );
                 extra = format!("Mcp-Session-Id: {}\r\n", id);
             }
             Some("tools/call") => {
@@ -327,7 +391,11 @@ pub async fn serve_external(mut stream: TcpStream) -> Result<(), String> {
             out.push(r);
         }
     }
-    let reply = if message.is_array() { (!out.is_empty()).then(|| Value::Array(out)) } else { out.pop() };
+    let reply = if message.is_array() {
+        (!out.is_empty()).then(|| Value::Array(out))
+    } else {
+        out.pop()
+    };
     match reply {
         Some(body) => respond_with(&mut stream, "200 OK", Some(&body), &extra).await,
         None => respond_with(&mut stream, "202 Accepted", None, &extra).await,
@@ -341,7 +409,10 @@ async fn stream_tool_changes(mut stream: TcpStream) -> Result<(), String> {
     use tokio::sync::broadcast::error::RecvError;
     let head = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\n\
                 Transfer-Encoding: chunked\r\n\r\n";
-    stream.write_all(head.as_bytes()).await.map_err(|e| e.to_string())?;
+    stream
+        .write_all(head.as_bytes())
+        .await
+        .map_err(|e| e.to_string())?;
     stream.flush().await.map_err(|e| e.to_string())?;
     let mut changes = external::tools_changed();
     let mut ping = tokio::time::interval(std::time::Duration::from_secs(20));
@@ -364,7 +435,10 @@ async fn stream_tool_changes(mut stream: TcpStream) -> Result<(), String> {
             }
         };
         let chunk = format!("{:x}\r\n{}\r\n", event.len(), event);
-        stream.write_all(chunk.as_bytes()).await.map_err(|e| e.to_string())?;
+        stream
+            .write_all(chunk.as_bytes())
+            .await
+            .map_err(|e| e.to_string())?;
         stream.flush().await.map_err(|e| e.to_string())?;
     }
 }
@@ -446,7 +520,10 @@ async fn handle_message(session: &Session, msg: &Value) -> Option<Value> {
         }
         "tools/call" => {
             let name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
-            let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+            let args = params
+                .get("arguments")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
             rpc_result(id, call_tool(session, name, args).await)
         }
         _ => rpc_error(id, -32601, &format!("Method not found: {}", method)),
@@ -459,7 +536,7 @@ fn instructions(session: &Session) -> String {
         s.push_str(
             "AutoSubs drives the user's video editor. This connection follows the editor project open \
              in the AutoSubs app; call get_project_context first to see which one, its memory notes and \
-             the skills (read_skill) for longer jobs such as footage-planning. Keep multi-step plans \
+             the skills the user installed (read_skill) for longer jobs. Keep multi-step plans \
              with save_plan / read_plan. ",
         );
     }
@@ -516,7 +593,11 @@ async fn call_tool(session: &Session, name: &str, args: Value) -> Value {
     let mut result = result;
     if let Some(items) = result.get_mut("content").and_then(|c| c.as_array_mut()) {
         for item in items {
-            if let Some(text) = item.get("text").and_then(|t| t.as_str()).map(str::to_string) {
+            if let Some(text) = item
+                .get("text")
+                .and_then(|t| t.as_str())
+                .map(str::to_string)
+            {
                 item["text"] = Value::String(external::agent_paths(app, text));
             }
         }
@@ -532,7 +613,8 @@ static EDITOR_LOCK: once_cell::sync::Lazy<tokio::sync::Mutex<()>> =
 
 /// Tools that read or change the open timeline.
 fn touches_editor(name: &str) -> bool {
-    matches!(name, "get_timeline" | "preview_timeline" | "apply_actions") || edit_action_name(name).is_some()
+    matches!(name, "get_timeline" | "preview_timeline" | "apply_actions")
+        || edit_action_name(name).is_some()
 }
 
 async fn call_tool_inner(session: &Session, name: &str, mut args: Value) -> Value {
@@ -573,12 +655,19 @@ async fn call_tool_inner(session: &Session, name: &str, mut args: Value) -> Valu
             }
         }
     }
-    let _editor = if touches_editor(name) { Some(EDITOR_LOCK.lock().await) } else { None };
+    let _editor = if touches_editor(name) {
+        Some(EDITOR_LOCK.lock().await)
+    } else {
+        None
+    };
     if name == "get_timeline" {
         return match timeline_snapshot(&session.target).await {
             Ok(snapshot) => {
                 let filter = crate::ai_edit::mcp::tools::TimelineFilter::from_args(&args);
-                tool_text(crate::ai_edit::mcp::tools::timeline_text(&snapshot, &filter), false)
+                tool_text(
+                    crate::ai_edit::mcp::tools::timeline_text(&snapshot, &filter),
+                    false,
+                )
             }
             Err(e) => tool_text(e, true),
         };
@@ -586,11 +675,21 @@ async fn call_tool_inner(session: &Session, name: &str, mut args: Value) -> Valu
     if name == "preview_timeline" {
         // Spreading frames over the whole timeline needs its length.
         let duration = if args.get("atSec").is_none() && args.get("toSec").is_none() {
-            timeline_snapshot(&session.target).await.ok().and_then(|s| s.get("durationSec").and_then(|d| d.as_f64()))
+            timeline_snapshot(&session.target)
+                .await
+                .ok()
+                .and_then(|s| s.get("durationSec").and_then(|d| d.as_f64()))
         } else {
             None
         };
-        return match crate::ai_edit::mcp::tools::preview::call(&session.target, session.workspace.as_deref(), &args, duration).await {
+        return match crate::ai_edit::mcp::tools::preview::call(
+            &session.target,
+            session.workspace.as_deref(),
+            &args,
+            duration,
+        )
+        .await
+        {
             Ok(text) => tool_text(text, false),
             Err(e) => tool_text(e, true),
         };
@@ -599,12 +698,16 @@ async fn call_tool_inner(session: &Session, name: &str, mut args: Value) -> Valu
         let args = if args.is_object() { args } else { json!({}) };
         let parsed: TranscriptArgs = match serde_json::from_value(args) {
             Ok(a) => a,
-            Err(e) => return tool_text(format!("Invalid arguments for get_transcript: {}", e), true),
+            Err(e) => {
+                return tool_text(format!("Invalid arguments for get_transcript: {}", e), true);
+            }
         };
         let Some(app) = app_handle().get() else {
             return tool_text("The app is not ready yet; retry.", true);
         };
-        return match transcripts_dir(app).and_then(|dir| get_transcript(&dir, &session.target, &parsed)) {
+        return match transcripts_dir(app)
+            .and_then(|dir| get_transcript(&dir, &session.target, &parsed))
+        {
             Ok(text) => tool_text(text, false),
             Err(e) => tool_text(e, true),
         };
@@ -700,9 +803,11 @@ fn parse_edit(name: &str, mut args: Value) -> Result<TimelineAction, String> {
         args = json!({});
     }
     args["action"] = json!(action);
-    let action: TimelineAction =
-        serde_json::from_value(args).map_err(|e| format!("Invalid arguments for {}: {}", name, e))?;
-    action.check().map_err(|e| format!("Invalid arguments for {}: {}", name, e))?;
+    let action: TimelineAction = serde_json::from_value(args)
+        .map_err(|e| format!("Invalid arguments for {}: {}", name, e))?;
+    action
+        .check()
+        .map_err(|e| format!("Invalid arguments for {}: {}", name, e))?;
     Ok(action)
 }
 
@@ -722,7 +827,10 @@ async fn apply_actions(session: &Session, args: Value) -> Result<ActionOutcome, 
             MAX_BATCH_ACTIONS
         ));
     }
-    let continue_on_error = args.get("continueOnError").and_then(|v| v.as_bool()).unwrap_or(false);
+    let continue_on_error = args
+        .get("continueOnError")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     let mut planned = Vec::with_capacity(entries.len());
     for (i, entry) in entries.iter().enumerate() {
@@ -731,7 +839,8 @@ async fn apply_actions(session: &Session, args: Value) -> Result<ActionOutcome, 
             return Err(format!("Action {}: apply_actions cannot be nested.", i + 1));
         }
         let args = entry.get("args").cloned().unwrap_or_else(|| json!({}));
-        let action = parse_edit(tool, args).map_err(|e| format!("Action {}: {}. Nothing was applied.", i + 1, e))?;
+        let action = parse_edit(tool, args)
+            .map_err(|e| format!("Action {}: {}. Nothing was applied.", i + 1, e))?;
         planned.push((tool.to_string(), action));
     }
 
@@ -752,7 +861,11 @@ async fn apply_actions(session: &Session, args: Value) -> Result<ActionOutcome, 
                 lines.push(format!("{}. {}: FAILED: {}", i + 1, tool, e));
                 if !continue_on_error {
                     if i + 1 < total {
-                        lines.push(format!("Stopped; actions {}-{} were not run.", i + 2, total));
+                        lines.push(format!(
+                            "Stopped; actions {}-{} were not run.",
+                            i + 2,
+                            total
+                        ));
                     }
                     break;
                 }
@@ -760,14 +873,21 @@ async fn apply_actions(session: &Session, args: Value) -> Result<ActionOutcome, 
         }
     }
     if done == 0 {
-        return Err(format!("No action in the batch was applied.\n{}", lines.join("\n")));
+        return Err(format!(
+            "No action in the batch was applied.\n{}",
+            lines.join("\n")
+        ));
     }
     Ok(ActionOutcome {
         message: format!(
             "Applied {}/{} action(s){}.",
             done,
             total,
-            if failed > 0 { format!(", {} failed", failed) } else { String::new() }
+            if failed > 0 {
+                format!(", {} failed", failed)
+            } else {
+                String::new()
+            }
         ),
         partial: partial || done < total,
         lines,
@@ -782,7 +902,10 @@ mod tests {
 
     fn session(editor: Editor, allow_edits: bool) -> Session {
         Session {
-            target: EditTarget { editor, transcript_file: None },
+            target: EditTarget {
+                editor,
+                transcript_file: None,
+            },
             allow_edits,
             workspace: None,
             external: false,
@@ -802,9 +925,14 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(init["result"]["protocolVersion"], json!("2025-06-18"));
-        assert!(handle_message(&s, &json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }))
+        assert!(
+            handle_message(
+                &s,
+                &json!({ "jsonrpc": "2.0", "method": "notifications/initialized" })
+            )
             .await
-            .is_none());
+            .is_none()
+        );
     }
 
     /// Run one raw HTTP exchange against serve_connection.
@@ -838,41 +966,76 @@ mod tests {
 
     #[tokio::test]
     async fn serves_mcp_over_http() {
-        let _ = server().set(Server { port: 0, token: "test-token".into() });
+        let _ = server().set(Server {
+            port: 0,
+            token: "test-token".into(),
+        });
         let token = server().get().unwrap().token.clone();
         sessions()
             .lock()
             .unwrap()
             .insert("s1".into(), session(Editor::Premiere, true));
 
-        let list = http(post("/mcp/s1", &token, &json!({ "jsonrpc": "2.0", "id": 7, "method": "tools/list" }))).await;
+        let list = http(post(
+            "/mcp/s1",
+            &token,
+            &json!({ "jsonrpc": "2.0", "id": 7, "method": "tools/list" }),
+        ))
+        .await;
         assert!(list.starts_with("HTTP/1.1 200 OK"), "{}", list);
         let body: Value = serde_json::from_str(list.split("\r\n\r\n").nth(1).unwrap()).unwrap();
         assert_eq!(body["id"], json!(7));
         assert_eq!(body["result"]["tools"].as_array().unwrap().len(), 14);
 
-        let note = http(post("/mcp/s1", &token, &json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }))).await;
+        let note = http(post(
+            "/mcp/s1",
+            &token,
+            &json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
+        ))
+        .await;
         assert!(note.starts_with("HTTP/1.1 202 Accepted"), "{}", note);
 
-        let bad_token = http(post("/mcp/s1", "nope", &json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" }))).await;
+        let bad_token = http(post(
+            "/mcp/s1",
+            "nope",
+            &json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" }),
+        ))
+        .await;
         assert!(bad_token.starts_with("HTTP/1.1 401"), "{}", bad_token);
 
-        let bad_session = http(post("/mcp/zzz", &token, &json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" }))).await;
+        let bad_session = http(post(
+            "/mcp/zzz",
+            &token,
+            &json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" }),
+        ))
+        .await;
         assert!(bad_session.starts_with("HTTP/1.1 404"), "{}", bad_session);
     }
 
     #[tokio::test]
     async fn read_only_session_refuses_edits() {
-        let result = call_tool(&session(Editor::Premiere, false), "add_marker", json!({ "markers": [] })).await;
+        let result = call_tool(
+            &session(Editor::Premiere, false),
+            "add_marker",
+            json!({ "markers": [] }),
+        )
+        .await;
         assert_eq!(result["isError"], json!(true));
-        let batch = call_tool(&session(Editor::Premiere, false), "apply_actions", json!({ "actions": [] })).await;
+        let batch = call_tool(
+            &session(Editor::Premiere, false),
+            "apply_actions",
+            json!({ "actions": [] }),
+        )
+        .await;
         assert_eq!(batch["isError"], json!(true));
     }
 
     #[tokio::test]
     async fn batch_is_checked_before_anything_runs() {
         let s = session(Editor::Premiere, true);
-        let err = apply_actions(&s, json!({ "actions": [] })).await.unwrap_err();
+        let err = apply_actions(&s, json!({ "actions": [] }))
+            .await
+            .unwrap_err();
         assert!(err.contains("non-empty"), "{}", err);
 
         // The second entry is bad, so the first (which would reach Premiere)
@@ -886,12 +1049,20 @@ mod tests {
         )
         .await
         .unwrap_err();
-        assert!(err.starts_with("Action 2: Invalid arguments for update_clip"), "{}", err);
+        assert!(
+            err.starts_with("Action 2: Invalid arguments for update_clip"),
+            "{}",
+            err
+        );
 
-        let err = apply_actions(&s, json!({ "actions": [{ "tool": "get_timeline" }] })).await.unwrap_err();
+        let err = apply_actions(&s, json!({ "actions": [{ "tool": "get_timeline" }] }))
+            .await
+            .unwrap_err();
         assert!(err.contains("Unknown tool: get_timeline"), "{}", err);
 
-        let err = apply_actions(&s, json!({ "actions": [{ "tool": "apply_actions" }] })).await.unwrap_err();
+        let err = apply_actions(&s, json!({ "actions": [{ "tool": "apply_actions" }] }))
+            .await
+            .unwrap_err();
         assert!(err.contains("cannot be nested"), "{}", err);
     }
 }

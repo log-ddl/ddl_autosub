@@ -43,13 +43,13 @@ export function OptionsRow() {
             variant="ghost"
             size="default"
             aria-haspopup="listbox"
-            className="group h-10 min-w-0 justify-center gap-1.5 rounded-lg bg-muted/35 px-2 dark:bg-muted"
+            className="group h-9 min-w-0 justify-center gap-1.5 rounded-lg border border-border/70 bg-muted/45 px-2.5 hover:border-border hover:bg-accent/70 shadow-2xs"
             aria-expanded={openSpeakerPopover}
             aria-label={`${t("actionBar.speakers.title", "Speakers")}: ${diarizeLabel}`}
             title={`${t("actionBar.speakers.title", "Speakers")}: ${diarizeLabel}`}
           >
-            <Speech className="size-4 shrink-0 text-muted-foreground group-hover:text-primary transition-colors" />
-            <span className="min-w-0 truncate text-sm font-semibold leading-none group-hover:text-primary transition-colors">
+            <Speech className="size-3.5 shrink-0 text-muted-foreground group-hover:text-primary transition-colors" />
+            <span className="min-w-0 truncate text-xs font-semibold leading-none text-foreground/90 group-hover:text-foreground transition-colors">
               {diarizeLabel}
             </span>
           </Button>
@@ -68,13 +68,13 @@ export function OptionsRow() {
             variant="ghost"
             size="default"
             aria-haspopup="listbox"
-            className="group h-10 min-w-0 justify-center gap-1.5 rounded-lg bg-muted/35 px-2 dark:bg-muted"
+            className="group h-9 min-w-0 justify-center gap-1.5 rounded-lg border border-border/70 bg-muted/45 px-2.5 hover:border-border hover:bg-accent/70 shadow-2xs"
             aria-expanded={openTextFormattingPopover}
             aria-label={t("actionBar.format.title", "Text")}
             title={t("actionBar.format.title", "Text")}
           >
-            <AlignLeft className="size-4 shrink-0 text-muted-foreground group-hover:text-primary transition-colors" />
-            <span className="min-w-0 truncate text-sm font-semibold leading-none group-hover:text-primary transition-colors">
+            <AlignLeft className="size-3.5 shrink-0 text-muted-foreground group-hover:text-primary transition-colors" />
+            <span className="min-w-0 truncate text-xs font-semibold leading-none text-foreground/90 group-hover:text-foreground transition-colors">
               {t("actionBar.format.title", "Text")}
             </span>
           </Button>
@@ -114,14 +114,12 @@ function CustomPromptPopover({
   const { t } = useTranslation();
   const [localPrompt, setLocalPrompt] = React.useState("");
 
-  // Sync local state when popover opens, migrating any legacy two-section format
   React.useEffect(() => {
     if (open) {
       setLocalPrompt(migrateCustomPrompt(customPrompt));
     }
   }, [open, customPrompt]);
 
-  // Sync to settings when popover closes
   React.useEffect(() => {
     if (open) return;
     if (localPrompt === customPrompt) return;
@@ -135,17 +133,17 @@ function CustomPromptPopover({
           variant="ghost"
           size="default"
           aria-haspopup="listbox"
-          className="group relative h-10 min-w-0 justify-center gap-1.5 rounded-lg bg-muted/35 px-2 dark:bg-muted"
+          className="group relative h-9 min-w-0 justify-center gap-1.5 rounded-lg border border-border/70 bg-muted/45 px-2.5 hover:border-border hover:bg-accent/70 shadow-2xs"
           aria-expanded={open}
           aria-label={t("actionBar.format.customPromptTitle")}
           title={t("actionBar.format.customPromptTitle")}
         >
-          <ScrollText className="size-4 shrink-0 text-muted-foreground group-hover:text-primary transition-colors" />
-          <span className="min-w-0 truncate text-sm font-semibold leading-none group-hover:text-primary transition-colors">
+          <ScrollText className="size-3.5 shrink-0 text-muted-foreground group-hover:text-primary transition-colors" />
+          <span className="min-w-0 truncate text-xs font-semibold leading-none text-foreground/90 group-hover:text-foreground transition-colors">
             {t("actionBar.format.customPromptButton", "Prompt")}
           </span>
           {customPrompt.trim() ? (
-            <span className="absolute right-2 top-2 size-1.5 rounded-full bg-primary" />
+            <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-primary" />
           ) : null}
         </Button>
       </PopoverTrigger>

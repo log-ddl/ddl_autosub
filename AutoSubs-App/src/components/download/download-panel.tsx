@@ -9,7 +9,15 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { Spinner } from "@/components/ui/spinner"
-import { CheckCircle2, Download, FileText, FolderOpen, Newspaper, X } from "lucide-react"
+import { CheckCircle2, FileText, Newspaper, X } from "lucide-react"
+import {
+  DownloadIcon,
+  type DownloadIconHandle,
+} from "@/components/ui/icons/download"
+import {
+  FolderOpenIcon,
+  type FolderOpenIconHandle,
+} from "@/components/ui/icons/folder-open"
 import { DownloadAccountsMenu } from "@/components/download/download-accounts-menu"
 import { DownloadUpdateButton } from "@/components/download/download-update-button"
 import {
@@ -44,6 +52,8 @@ export function DownloadPanel() {
   const [progress, setProgress] = React.useState<DownloadProgress | null>(null)
   const [donePath, setDonePath] = React.useState<string | null>(null)
   const jobIdRef = React.useRef<string>("")
+  const downloadBtnIconRef = React.useRef<DownloadIconHandle>(null)
+  const folderBtnIconRef = React.useRef<FolderOpenIconHandle>(null)
 
   const pickFolder = React.useCallback(async () => {
     const picked = await pickDownloadFolder()
@@ -189,132 +199,138 @@ export function DownloadPanel() {
 
   return (
     <div className="mx-auto w-full max-w-2xl">
-      <div className="mb-6 flex items-start justify-between gap-3">
+      <div className="mb-5 flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">
+          <h1 className="text-lg font-semibold tracking-tight">
             {t("download.title", "Download video")}
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-1 text-xs text-muted-foreground">
             {t("download.subtitle", "Paste a YouTube, TikTok, Facebook or Instagram link.")}
           </p>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1.5">
           <DownloadAccountsMenu />
           <DownloadUpdateButton />
         </div>
       </div>
 
-      {/* URL */}
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="download-url" className="text-xs">
-          {t("download.urlLabel", "Video or article link")}
-        </Label>
-        <Input
-          id="download-url"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void startDownload()
-          }}
-          placeholder="https://www.youtube.com/watch?v=…"
-          className="h-10"
-          disabled={downloading}
-        />
-      </div>
-
-      {/* Save to */}
-      <div className="mt-4 flex flex-col gap-1.5">
-        <Label className="text-xs">{t("download.folder", "Save to")}</Label>
-        <Button
-          variant="outline"
-          onClick={() => void pickFolder()}
-          disabled={downloading}
-          className="h-10 justify-start gap-2 font-normal"
-        >
-          <FolderOpen className="size-4 shrink-0" />
-          <span className="truncate">
-            {outputDir || t("download.chooseFolder", "Choose a folder…")}
-          </span>
-        </Button>
-      </div>
-
-      {/* Optional trim */}
-      <div className="mt-4 flex flex-col gap-1.5">
-        <Label className="text-xs">
-          {t("download.trim", "Trim (optional)")}
-        </Label>
-        <div className="flex items-center gap-2">
+      <div className="rounded-2xl border border-border/80 bg-card p-5 shadow-xs space-y-4">
+        {/* URL */}
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="download-url" className="text-xs font-semibold text-muted-foreground">
+            {t("download.urlLabel", "Video or article link")}
+          </Label>
           <Input
-            value={startTime}
-            onChange={(e) => setStartTime(e.target.value)}
-            placeholder={t("download.from", "From (e.g. 0:30)")}
-            className="h-10"
-            disabled={downloading}
-          />
-          <span className="text-muted-foreground">→</span>
-          <Input
-            value={endTime}
-            onChange={(e) => setEndTime(e.target.value)}
-            placeholder={t("download.to", "To (e.g. 1:20)")}
-            className="h-10"
+            id="download-url"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void startDownload()
+            }}
+            placeholder="https://www.youtube.com/watch?v=…"
+            className="h-10 rounded-xl bg-background/60"
             disabled={downloading}
           />
         </div>
-        <p className="text-xs text-muted-foreground">
-          {t(
-            "download.trimHint",
-            "Leave both empty to download the whole video.",
-          )}
-        </p>
-      </div>
 
-      {/* Batch from a .txt of URLs */}
-      <div className="mt-4 flex flex-col gap-1.5">
-        <Label className="text-xs">
-          {t("download.batch", "Batch download (.txt, one URL per line)")}
-        </Label>
-        {batchFile ? (
-          <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 h-10">
-            <FileText className="size-4 shrink-0 text-muted-foreground" />
-            <span className="truncate text-sm">{baseName(batchFile)}</span>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="ml-auto size-6 shrink-0"
-              onClick={() => setBatchFile(null)}
-              disabled={downloading}
-            >
-              <X className="size-4" />
-            </Button>
-          </div>
-        ) : (
+        {/* Save to */}
+        <div className="flex flex-col gap-1.5">
+          <Label className="text-xs font-semibold text-muted-foreground">
+            {t("download.folder", "Save to")}
+          </Label>
           <Button
             variant="outline"
-            onClick={() => void pickBatchFile()}
+            onClick={() => void pickFolder()}
+            onMouseEnter={() => folderBtnIconRef.current?.startAnimation()}
+            onMouseLeave={() => folderBtnIconRef.current?.stopAnimation()}
             disabled={downloading}
-            className="h-10 justify-start gap-2 font-normal"
+            className="h-10 rounded-xl justify-start gap-2.5 bg-background/60 font-normal"
           >
-            <FileText className="size-4 shrink-0" />
-            {t("download.pickBatch", "Choose a .txt file…")}
+            <FolderOpenIcon ref={folderBtnIconRef} size={16} className="shrink-0 text-muted-foreground" />
+            <span className="truncate">
+              {outputDir || t("download.chooseFolder", "Choose a folder…")}
+            </span>
           </Button>
-        )}
-        {batchFile && (
+        </div>
+
+        {/* Optional trim */}
+        <div className="flex flex-col gap-1.5">
+          <Label className="text-xs font-semibold text-muted-foreground">
+            {t("download.trim", "Trim (optional)")}
+          </Label>
+          <div className="flex items-center gap-2">
+            <Input
+              value={startTime}
+              onChange={(e) => setStartTime(e.target.value)}
+              placeholder={t("download.from", "From (e.g. 0:30)")}
+              className="h-10 rounded-xl bg-background/60"
+              disabled={downloading}
+            />
+            <span className="text-muted-foreground">→</span>
+            <Input
+              value={endTime}
+              onChange={(e) => setEndTime(e.target.value)}
+              placeholder={t("download.to", "To (e.g. 1:20)")}
+              className="h-10 rounded-xl bg-background/60"
+              disabled={downloading}
+            />
+          </div>
           <p className="text-xs text-muted-foreground">
             {t(
-              "download.batchHint",
-              "Every link in the file downloads at best quality. The single URL and trim above are ignored.",
+              "download.trimHint",
+              "Leave both empty to download the whole video.",
             )}
           </p>
-        )}
+        </div>
+
+        {/* Batch from a .txt of URLs */}
+        <div className="flex flex-col gap-1.5">
+          <Label className="text-xs font-semibold text-muted-foreground">
+            {t("download.batch", "Batch download (.txt, one URL per line)")}
+          </Label>
+          {batchFile ? (
+            <div className="flex items-center gap-2 rounded-xl border border-border/80 bg-muted/40 px-3 h-10">
+              <FileText className="size-4 shrink-0 text-primary" />
+              <span className="truncate text-sm font-medium">{baseName(batchFile)}</span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="ml-auto size-6 shrink-0"
+                onClick={() => setBatchFile(null)}
+                disabled={downloading}
+              >
+                <X className="size-4" />
+              </Button>
+            </div>
+          ) : (
+            <Button
+              variant="outline"
+              onClick={() => void pickBatchFile()}
+              disabled={downloading}
+              className="h-10 rounded-xl justify-start gap-2.5 bg-background/60 font-normal"
+            >
+              <FileText className="size-4 shrink-0 text-muted-foreground" />
+              {t("download.pickBatch", "Choose a .txt file…")}
+            </Button>
+          )}
+          {batchFile && (
+            <p className="text-xs text-muted-foreground">
+              {t(
+                "download.batchHint",
+                "Every link in the file downloads at best quality. The single URL and trim above are ignored.",
+              )}
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Action / progress */}
-      <div className="mt-6">
+      <div className="mt-4">
         {downloading ? (
-          <div>
+          <div className="rounded-2xl border border-border/80 bg-card p-4 shadow-xs">
             <div className="flex items-center justify-between gap-3">
-              <span className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Spinner className="size-4" />
+              <span className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <Spinner className="size-4 text-primary" />
                 {stageLabel}
                 {pctValue != null ? ` ${pctValue}%` : ""}
               </span>
@@ -323,25 +339,27 @@ export function DownloadPanel() {
                 {t("download.cancel", "Cancel")}
               </Button>
             </div>
-            <Progress value={pctValue} className="mt-2 h-2" />
+            <Progress value={pctValue} className="mt-3 h-2" />
           </div>
         ) : (
           <div className="flex flex-col gap-3">
-            <div className="flex gap-2">
+            <div className="flex gap-2.5">
               <Button
                 onClick={() => void startDownload()}
+                onMouseEnter={() => downloadBtnIconRef.current?.startAnimation()}
+                onMouseLeave={() => downloadBtnIconRef.current?.stopAnimation()}
                 disabled={(!url.trim() && !batchFile) || savingArticle}
-                className="flex-1 gap-2"
+                className="h-11 flex-1 gap-2 rounded-xl shadow-sm"
                 size="lg"
               >
-                <Download className="size-4" />
+                <DownloadIcon ref={downloadBtnIconRef} size={16} />
                 {t("download.start", "Download")}
               </Button>
               <Button
                 variant="outline"
                 onClick={() => void saveArticle()}
                 disabled={!url.trim() || Boolean(batchFile) || savingArticle}
-                className="gap-2"
+                className="h-11 gap-2 rounded-xl"
                 size="lg"
               >
                 {savingArticle ? <Spinner className="size-4" /> : <Newspaper className="size-4" />}
@@ -351,8 +369,8 @@ export function DownloadPanel() {
               </Button>
             </div>
             {donePath && (
-              <div className="flex items-center justify-between gap-3">
-                <span className="flex items-center gap-2 text-sm text-green-600 dark:text-green-500">
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] px-3.5 py-2.5">
+                <span className="flex items-center gap-2 text-sm font-medium text-emerald-600 dark:text-emerald-400">
                   <CheckCircle2 className="size-4" />
                   {t("download.savedTo", "Saved")}
                 </span>
@@ -361,7 +379,7 @@ export function DownloadPanel() {
                   size="sm"
                   onClick={() => void revealItemInDir(donePath)}
                 >
-                  <FolderOpen className="size-4" />
+                  <FolderOpenIcon size={15} />
                   {t("download.showInFolder", "Show in folder")}
                 </Button>
               </div>

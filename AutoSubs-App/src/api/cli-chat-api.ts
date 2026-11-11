@@ -173,14 +173,6 @@ export async function copyCliAsset(
   return invoke<string>("cli_copy_asset", { source, destinationDir });
 }
 
-/** Copies the skills in `source` (itself, or its subfolders with a SKILL.md) into `destinationDir`. */
-export async function importCliSkills(
-  source: string,
-  destinationDir: string,
-): Promise<string[]> {
-  return invoke<string[]>("cli_import_skills", { source, destinationDir });
-}
-
 export async function cancelCliTextTask(requestId: string): Promise<boolean> {
   return invoke<boolean>("cli_cancel_text_task", { requestId });
 }

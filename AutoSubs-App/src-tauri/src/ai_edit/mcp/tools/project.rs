@@ -8,10 +8,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tauri::AppHandle;
 
-use crate::ai_cli::workspace::{ensure_library, global_workspace_root, SKILLS_DIR};
+use crate::ai_cli::workspace::{SKILLS_DIR, ensure_library, global_workspace_root};
 use crate::ai_edit::actions::Editor;
 use crate::ai_edit::mcp::tools::tool;
 
@@ -29,8 +29,7 @@ pub fn tools() -> Vec<Value> {
         ),
         tool(
             "read_skill",
-            "Read a skill: the step-by-step instructions for a longer job (footage-planning finds \
-             footage for a script, story-planning plans the pictures of a 2D story video). \
+            "Read a skill the user installed: the step-by-step instructions for a longer job. \
              get_project_context lists them.",
             json!({
                 "type": "object",
@@ -71,18 +70,31 @@ pub struct Context<'a> {
     pub workspace: Option<&'a Path>,
 }
 
-pub fn call(app: &AppHandle, ctx: &Context, name: &str, args: &Value) -> Option<Result<String, String>> {
-    let library = global_workspace_root(app).and_then(|g| ensure_library(&g)).ok();
+pub fn call(
+    app: &AppHandle,
+    ctx: &Context,
+    name: &str,
+    args: &Value,
+) -> Option<Result<String, String>> {
+    let library = global_workspace_root(app)
+        .and_then(|g| ensure_library(&g))
+        .ok();
+    let studio_skills = crate::studio::root(app).join("skills");
     Some(match name {
-        "get_project_context" => Ok(context(ctx, library.as_deref())),
-        "read_skill" => read_skill(ctx.workspace, library.as_deref(), args),
+        "get_project_context" => Ok(context(ctx, Some(&studio_skills), library.as_deref())),
+        "read_skill" => read_skill(
+            ctx.workspace,
+            Some(&studio_skills),
+            library.as_deref(),
+            args,
+        ),
         "save_plan" => save_plan(ctx.workspace, args),
         "read_plan" => read_plan(ctx.workspace, args),
         _ => return None,
     })
 }
 
-fn context(ctx: &Context, library: Option<&Path>) -> String {
+fn context(ctx: &Context, studio: Option<&Path>, library: Option<&Path>) -> String {
     if !ctx.connected {
         return "AutoSubs has no editor project open yet. Ask the user to open AutoSubs and their project \
                 in Premiere Pro, then call this again."
@@ -99,7 +111,10 @@ fn context(ctx: &Context, library: Option<&Path>) -> String {
         ));
         let memory = fs::read_to_string(ws.join("memory.md")).unwrap_or_default();
         if !memory.trim().is_empty() {
-            out.push_str(&format!("\n\nProject memory (memory.md):\n{}", memory.trim()));
+            out.push_str(&format!(
+                "\n\nProject memory (memory.md):\n{}",
+                memory.trim()
+            ));
         }
         let plans = list_plans(ws);
         if !plans.is_empty() {
@@ -112,7 +127,13 @@ fn context(ctx: &Context, library: Option<&Path>) -> String {
             out.push_str(&format!("\n\nGlobal memory:\n{}", memory.trim()));
         }
     }
-    let skills = skill_list(ctx.workspace, library);
+    if let Some(root) = studio.and_then(Path::parent) {
+        out.push_str(&format!(
+            "\n\nVideo Studio (code-first videos with Remotion): {} (README.md, AGENTS.md; one video per projects/<id>/)",
+            root.display()
+        ));
+    }
+    let skills = skill_list(ctx.workspace, studio, library);
     if !skills.is_empty() {
         out.push_str("\n\nSkills (read_skill when a task matches):");
         for (name, desc, _) in skills {
@@ -122,18 +143,36 @@ fn context(ctx: &Context, library: Option<&Path>) -> String {
     out
 }
 
-/// (name, description, SKILL.md path): project skills first, then shared ones.
-fn skill_list(workspace: Option<&Path>, library: Option<&Path>) -> Vec<(String, String, PathBuf)> {
+/// (name, description, SKILL.md path): project skills first, then the Video
+/// Studio's (`studio` is its `skills/`), then the library's.
+fn skill_list(
+    workspace: Option<&Path>,
+    studio: Option<&Path>,
+    library: Option<&Path>,
+) -> Vec<(String, String, PathBuf)> {
     let mut out: Vec<(String, String, PathBuf)> = Vec::new();
-    let roots = workspace.map(|w| w.join(SKILLS_DIR)).into_iter().chain(library.map(|l| l.join("skills")));
+    let roots = workspace
+        .map(|w| w.join(SKILLS_DIR))
+        .into_iter()
+        .chain(studio.map(Path::to_path_buf))
+        .chain(library.map(|l| l.join("skills")));
     for root in roots {
-        let Ok(rd) = fs::read_dir(&root) else { continue };
-        let mut dirs: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| p.join("SKILL.md").is_file()).collect();
+        let Ok(rd) = fs::read_dir(&root) else {
+            continue;
+        };
+        let mut dirs: Vec<PathBuf> = rd
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.join("SKILL.md").is_file())
+            .collect();
         dirs.sort();
         for dir in dirs {
             let file = dir.join("SKILL.md");
             let text = fs::read_to_string(&file).unwrap_or_default();
-            let folder = dir.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+            let folder = dir
+                .file_name()
+                .map(|f| f.to_string_lossy().into_owned())
+                .unwrap_or_default();
             let (name, desc) = crate::ai_cli::workspace::skill_frontmatter(&text);
             let name = name.unwrap_or(folder);
             if out.iter().any(|(n, _, _)| *n == name) {
@@ -145,18 +184,35 @@ fn skill_list(workspace: Option<&Path>, library: Option<&Path>) -> Vec<(String, 
     out
 }
 
-fn read_skill(workspace: Option<&Path>, library: Option<&Path>, args: &Value) -> Result<String, String> {
-    let wanted = args.get("name").and_then(|n| n.as_str()).map(str::trim).unwrap_or("");
-    let skills = skill_list(workspace, library);
+fn read_skill(
+    workspace: Option<&Path>,
+    studio: Option<&Path>,
+    library: Option<&Path>,
+    args: &Value,
+) -> Result<String, String> {
+    let wanted = args
+        .get("name")
+        .and_then(|n| n.as_str())
+        .map(str::trim)
+        .unwrap_or("");
+    let skills = skill_list(workspace, studio, library);
     let found = skills.iter().find(|(n, _, f)| {
-        n.eq_ignore_ascii_case(wanted) || f.parent().and_then(|d| d.file_name()).is_some_and(|d| d.to_string_lossy().eq_ignore_ascii_case(wanted))
+        n.eq_ignore_ascii_case(wanted)
+            || f.parent()
+                .and_then(|d| d.file_name())
+                .is_some_and(|d| d.to_string_lossy().eq_ignore_ascii_case(wanted))
     });
     match found {
-        Some((_, _, file)) => fs::read_to_string(file).map_err(|e| format!("Could not read {}: {}", file.display(), e)),
+        Some((_, _, file)) => fs::read_to_string(file)
+            .map_err(|e| format!("Could not read {}: {}", file.display(), e)),
         None => Err(format!(
             "No skill named {}. Skills: {}",
             wanted,
-            skills.iter().map(|(n, _, _)| n.as_str()).collect::<Vec<_>>().join(", ")
+            skills
+                .iter()
+                .map(|(n, _, _)| n.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         )),
     }
 }
@@ -166,7 +222,9 @@ fn plan_path(workspace: &Path, name: &str) -> Result<PathBuf, String> {
     let name = name.trim();
     let ok = !name.is_empty()
         && !name.starts_with('.')
-        && name.chars().all(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | '.' | ' '));
+        && name
+            .chars()
+            .all(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | '.' | ' '));
     if !ok {
         return Err("name must be a plain file name like shotlist.json.".into());
     }
@@ -204,17 +262,33 @@ fn save_plan(workspace: Option<&Path>, args: &Value) -> Result<String, String> {
 
 fn read_plan(workspace: Option<&Path>, args: &Value) -> Result<String, String> {
     let ws = workspace.ok_or("No project is open in AutoSubs.")?;
-    match args.get("name").and_then(|n| n.as_str()).filter(|n| !n.trim().is_empty()) {
+    match args
+        .get("name")
+        .and_then(|n| n.as_str())
+        .filter(|n| !n.trim().is_empty())
+    {
         Some(name) => {
             let path = plan_path(ws, name)?;
             fs::read_to_string(&path).map_err(|_| {
                 let have = list_plans(ws);
-                format!("No plan file {}. Plan files: {}", name, if have.is_empty() { "none".into() } else { have.join(", ") })
+                format!(
+                    "No plan file {}. Plan files: {}",
+                    name,
+                    if have.is_empty() {
+                        "none".into()
+                    } else {
+                        have.join(", ")
+                    }
+                )
             })
         }
         None => {
             let have = list_plans(ws);
-            Ok(if have.is_empty() { "No plan files yet.".into() } else { have.join("\n") })
+            Ok(if have.is_empty() {
+                "No plan files yet.".into()
+            } else {
+                have.join("\n")
+            })
         }
     }
 }
@@ -227,26 +301,45 @@ mod tests {
     fn saves_and_reads_plans_inside_plan_only() {
         let tmp = tempfile::tempdir().unwrap();
         let ws = tmp.path();
-        save_plan(Some(ws), &json!({ "name": "shotlist.json", "content": [{ "line": 1 }] })).unwrap();
+        save_plan(
+            Some(ws),
+            &json!({ "name": "shotlist.json", "content": [{ "line": 1 }] }),
+        )
+        .unwrap();
         let text = read_plan(Some(ws), &json!({ "name": "shotlist.json" })).unwrap();
         assert!(text.contains("\"line\": 1"));
         assert_eq!(read_plan(Some(ws), &json!({})).unwrap(), "shotlist.json");
         assert!(save_plan(Some(ws), &json!({ "name": "../x.json", "content": "a" })).is_err());
         assert!(save_plan(Some(ws), &json!({ "name": ".hidden", "content": "a" })).is_err());
-        assert!(read_plan(Some(ws), &json!({ "name": "missing.json" })).unwrap_err().contains("shotlist.json"));
+        assert!(
+            read_plan(Some(ws), &json!({ "name": "missing.json" }))
+                .unwrap_err()
+                .contains("shotlist.json")
+        );
     }
 
     #[test]
     fn finds_skills_by_name_or_folder_project_first() {
         let tmp = tempfile::tempdir().unwrap();
         let (ws, lib) = (tmp.path().join("ws"), tmp.path().join("lib"));
-        for (root, body) in [(ws.join(SKILLS_DIR), "project"), (lib.join("skills"), "library")] {
+        for (root, body) in [
+            (ws.join(SKILLS_DIR), "project"),
+            (lib.join("skills"), "library"),
+        ] {
             fs::create_dir_all(root.join("plan-it")).unwrap();
-            fs::write(root.join("plan-it/SKILL.md"), format!("---\nname: planner\ndescription: d\n---\n{body}")).unwrap();
+            fs::write(
+                root.join("plan-it/SKILL.md"),
+                format!("---\nname: planner\ndescription: d\n---\n{body}"),
+            )
+            .unwrap();
         }
-        let got = read_skill(Some(&ws), Some(&lib), &json!({ "name": "planner" })).unwrap();
+        let got = read_skill(Some(&ws), None, Some(&lib), &json!({ "name": "planner" })).unwrap();
         assert!(got.ends_with("project"));
-        assert!(read_skill(Some(&ws), Some(&lib), &json!({ "name": "plan-it" })).is_ok());
-        assert!(read_skill(Some(&ws), Some(&lib), &json!({ "name": "nope" })).unwrap_err().contains("planner"));
+        assert!(read_skill(Some(&ws), None, Some(&lib), &json!({ "name": "plan-it" })).is_ok());
+        assert!(
+            read_skill(Some(&ws), None, Some(&lib), &json!({ "name": "nope" }))
+                .unwrap_err()
+                .contains("planner")
+        );
     }
 }

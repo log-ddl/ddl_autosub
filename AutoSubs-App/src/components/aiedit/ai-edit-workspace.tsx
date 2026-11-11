@@ -1,14 +1,19 @@
 import * as React from "react";
-import { Layers, MonitorPlay, PanelLeftOpen, X } from "lucide-react";
+import { MonitorPlay, PanelLeftOpen, X } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import {
+  LayersIcon,
+  type LayersIconHandle,
+} from "@/components/ui/icons/layers";
 import type { TimelineActionCommand } from "./ai-edit-helpers";
 import { AiEditSidebar } from "./ai-edit-sidebar";
 import { AiEditMessageList } from "./ai-edit-message-list";
 import { AiEditPromptBox } from "./ai-edit-prompt-box";
 import { AiEditDialogs } from "./ai-edit-dialogs";
-import { AiEditPreviewPanel } from "./ai-edit-preview-panel";
+import { AiEditPreviewPanel, kindLabel } from "./ai-edit-preview-panel";
 import { useAiEditController } from "./use-ai-edit-controller";
 import {
   DropdownMenu,
@@ -26,6 +31,7 @@ export type { TimelineActionCommand };
 export function AiEditWorkspace() {
   const { t } = useTranslation();
   const c = useAiEditController();
+  const layersIconRef = React.useRef<LayersIconHandle>(null);
   const assetCount =
     c.workspaceInfo?.assets?.filter((a) => !isLibraryAsset(a)).length ?? 0;
 
@@ -54,7 +60,7 @@ export function AiEditWorkspace() {
 
       <div className="flex min-w-0 flex-1 flex-col bg-background">
         {/* Minimal Top Sub-header */}
-        <div className="flex h-11 shrink-0 items-center justify-between px-4 gap-2">
+        <div className="flex h-11 shrink-0 items-center justify-between border-b border-border/60 bg-card/30 px-4 gap-2">
           <div className="flex items-center gap-2 min-w-0">
             {c.sidebarCollapsed && (
               <Button
@@ -69,12 +75,12 @@ export function AiEditWorkspace() {
               </Button>
             )}
 
-            <span className="text-xs font-medium text-muted-foreground truncate max-w-md">
+            <span className="text-xs font-semibold text-foreground/90 truncate max-w-md">
               {c.activeConversation?.title || t("aiEdit.newChat")}
             </span>
             {c.workspaceProject?.name && (
               <span
-                className="shrink-0 truncate max-w-48 rounded-full bg-muted px-2 py-0.5 text-[10.5px] text-muted-foreground"
+                className="shrink-0 truncate max-w-48 rounded-full border border-border/60 bg-muted/60 px-2 py-0.5 text-[10.5px] font-medium text-muted-foreground"
                 title={t("aiEdit.header.projectTooltip")}
               >
                 {c.workspaceProject.name}
@@ -87,6 +93,7 @@ export function AiEditWorkspace() {
               open={Boolean(c.preview.target)}
               activePath={c.preview.target?.path}
               loadTargets={c.listPreviewTargets}
+              studioRoot={c.studioRoot}
               onOpen={c.preview.open}
               onClose={c.preview.close}
             />
@@ -96,10 +103,16 @@ export function AiEditWorkspace() {
                 void c.refreshWorkspace();
                 c.setAssetsOpen(true);
               }}
-              className="flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/30 px-2.5 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+              onMouseEnter={() => layersIconRef.current?.startAnimation()}
+              onMouseLeave={() => layersIconRef.current?.stopAnimation()}
+              className="flex items-center gap-1.5 rounded-full border border-border/70 bg-card/80 px-2.5 py-1 text-[11px] font-medium text-muted-foreground shadow-2xs hover:text-foreground hover:bg-accent/70 active:scale-[0.97] transition-all"
               title={t("aiEdit.assets.tooltip")}
             >
-              <Layers className="size-3 text-primary" />
+              <LayersIcon
+                ref={layersIconRef}
+                size={13}
+                className="text-primary"
+              />
               <span>{t("aiEdit.assets.button")}</span>
               {assetCount > 0 && (
                 <span className="rounded-full bg-primary/15 px-1.5 py-0.2 text-[10px] font-semibold text-primary">
@@ -198,6 +211,9 @@ export function AiEditWorkspace() {
         assetsOpen={c.assetsOpen}
         onAssetsOpenChange={c.setAssetsOpen}
         workspaceInfo={c.workspaceInfo}
+        skills={c.studioSkills}
+        studioRoot={c.studioRoot}
+        onChangeStudioRoot={() => void c.handleChangeStudioRoot()}
         onInsertAssetPath={c.handleInsertAssetPath}
         onQuickPlaceOnTimeline={(filePath) =>
           void c.handleQuickPlaceAssetOnTimeline(filePath)
@@ -205,7 +221,8 @@ export function AiEditWorkspace() {
         onPreviewAsset={(asset) => void c.handlePreviewAsset(asset)}
         onSaveAsTemplate={(asset) => void c.handleSaveAsTemplate(asset)}
         onUseTemplate={(asset) => void c.handleUseTemplate(asset)}
-        onImportSkills={(toLibrary) => void c.handleImportSkills(toLibrary)}
+        onImportSkills={() => void c.handleImportSkills()}
+        onRemoveSkill={(asset) => void c.handleRemoveSkill(asset)}
         renameTarget={c.renameTarget}
         onClearRenameTarget={() => c.setRenameTarget(null)}
         renameDraft={c.renameDraft}
@@ -225,17 +242,36 @@ function PreviewMenu({
   open,
   activePath,
   loadTargets,
+  studioRoot,
   onOpen,
   onClose,
 }: {
   open: boolean;
   activePath?: string;
   loadTargets: () => Promise<PreviewTarget[]>;
+  /** The working folder; code videos are its projects/. */
+  studioRoot: string;
   onOpen: (target: PreviewTarget) => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
   const [targets, setTargets] = React.useState<PreviewTarget[] | null>(null);
+  const item = (target: PreviewTarget) => (
+    <DropdownMenuItem
+      key={target.path}
+      onSelect={() => onOpen(target)}
+      className="flex items-center justify-between gap-2 text-xs"
+      title={target.path}
+    >
+      <span className="min-w-0">
+        <span className={cn("block truncate", target.path === activePath && "font-medium")}>{target.name}</span>
+        {target.kind === "studio" && (
+          <span className="block truncate font-mono text-[10px] text-muted-foreground">projects/{target.id}</span>
+        )}
+      </span>
+      <span className="shrink-0 text-[10px] text-muted-foreground">{kindLabel(target.kind)}</span>
+    </DropdownMenuItem>
+  );
 
   return (
     <DropdownMenu
@@ -268,30 +304,25 @@ function PreviewMenu({
           <div className="px-2 py-1.5 text-xs text-muted-foreground">
             {t("aiEdit.preview.loading")}
           </div>
-        ) : targets.length === 0 ? (
-          <div className="px-2 py-1.5 text-xs text-muted-foreground">
-            {t("aiEdit.preview.empty")}
-          </div>
         ) : (
-          targets.map((target) => (
-            <DropdownMenuItem
-              key={target.path}
-              onSelect={() => onOpen(target)}
-              className="flex items-center justify-between gap-2 text-xs"
-              title={target.path}
-            >
-              <span
-                className={
-                  target.path === activePath ? "truncate font-medium" : "truncate"
-                }
-              >
-                {target.name}
-              </span>
-              <span className="shrink-0 text-[10px] text-muted-foreground">
-                {target.kind === "dev" ? "Dev server" : "HTML/TS"}
-              </span>
-            </DropdownMenuItem>
-          ))
+          <>
+            <div className="px-2 pb-1 pt-0.5 text-[10.5px] text-muted-foreground">
+              {t("aiEdit.preview.codeVideos")}
+              <div className="truncate font-mono text-foreground/80" title={`${studioRoot}/projects`}>
+                {studioRoot ? `${studioRoot}/projects` : "…"}
+              </div>
+            </div>
+            {targets.filter((x) => x.kind === "studio").length === 0 && (
+              <div className="px-2 py-1 text-xs text-muted-foreground">{t("aiEdit.preview.noCodeVideos")}</div>
+            )}
+            {targets.filter((x) => x.kind === "studio").map(item)}
+            <DropdownMenuSeparator />
+            <div className="px-2 pb-1 pt-0.5 text-[10.5px] text-muted-foreground">{t("aiEdit.preview.motionGraphics")}</div>
+            {targets.filter((x) => x.kind !== "studio").length === 0 && (
+              <div className="px-2 py-1 text-xs text-muted-foreground">{t("aiEdit.preview.empty")}</div>
+            )}
+            {targets.filter((x) => x.kind !== "studio").map(item)}
+          </>
         )}
         {open && (
           <>

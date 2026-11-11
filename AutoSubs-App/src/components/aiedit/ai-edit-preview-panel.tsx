@@ -1,5 +1,5 @@
 import * as React from "react";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
@@ -19,6 +19,16 @@ import {
   type PreviewInfo,
   type PreviewTarget,
 } from "@/api/preview-api";
+import { getStudioLogs, openStudio, stopStudio } from "@/api/studio-api";
+
+/** Starts what `target` needs: the project's Remotion Studio, or the app's preview server. */
+async function startTarget(target: PreviewTarget): Promise<PreviewInfo> {
+  if (target.kind === "studio" && target.id) {
+    const studio = await openStudio(target.id);
+    return { url: studio.url, kind: "studio", root: target.path };
+  }
+  return startPreview(target.path);
+}
 
 export interface AiEditPreview {
   target: PreviewTarget | null;
@@ -46,7 +56,7 @@ export function useAiEditPreview(): AiEditPreview {
     setInfo(null);
     setError("");
     setLoading(true);
-    startPreview(next.path)
+    startTarget(next)
       .then((result) => {
         if (request !== requestRef.current) return;
         setInfo(result);
@@ -68,23 +78,39 @@ export function useAiEditPreview(): AiEditPreview {
     setError("");
     setLoading(false);
     void stopPreview();
+    void stopStudio().catch(() => {});
   }, []);
 
-  const reload = React.useCallback(() => setReloadKey((k) => k + 1), []);
+  // A code video is rebuilt first (build.py), so plan changes show up too;
+  // its Studio keeps running and reloads by itself.
+  const reload = React.useCallback(() => {
+    if (target?.kind === "studio") open(target);
+    else setReloadKey((k) => k + 1);
+  }, [target, open]);
 
   // Leaving the AI Edit tab shouldn't leave a dev server running.
-  React.useEffect(() => () => void stopPreview(), []);
+  React.useEffect(
+    () => () => {
+      void stopPreview();
+      void stopStudio().catch(() => {});
+    },
+    [],
+  );
 
   return { target, info, loading, error, reloadKey, open, reload, close };
 }
 
-function useLogs(active: boolean) {
+export function kindLabel(kind: PreviewTarget["kind"] | undefined) {
+  return kind === "studio" ? "Remotion Studio" : kind === "dev" ? "Dev server" : "HTML/TS";
+}
+
+function useLogs(active: boolean, studio: boolean) {
   const [logs, setLogs] = React.useState("");
   React.useEffect(() => {
     if (!active) return;
     let cancelled = false;
     const tick = () =>
-      getPreviewLogs()
+      (studio ? getStudioLogs() : getPreviewLogs())
         .then((text) => !cancelled && setLogs(text))
         .catch(() => {});
     void tick();
@@ -93,7 +119,7 @@ function useLogs(active: boolean) {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [active]);
+  }, [active, studio]);
   return logs;
 }
 
@@ -101,8 +127,8 @@ export function AiEditPreviewPanel({ preview }: { preview: AiEditPreview }) {
   const { t } = useTranslation();
   const { target, info, loading, error, reloadKey } = preview;
   const [showLogs, setShowLogs] = React.useState(false);
-  const isDev = (info?.kind ?? target?.kind) === "dev";
-  const logs = useLogs(Boolean(target) && (loading || showLogs || !!error));
+  const kind = info?.kind ?? target?.kind;
+  const logs = useLogs(Boolean(target) && (loading || showLogs || !!error), kind === "studio");
 
   if (!target) return null;
 
@@ -115,7 +141,7 @@ export function AiEditPreviewPanel({ preview }: { preview: AiEditPreview }) {
             {target.name}
           </span>
           <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-            {isDev ? "Dev server" : "HTML/TS"}
+            {kindLabel(kind)}
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
@@ -164,6 +190,24 @@ export function AiEditPreviewPanel({ preview }: { preview: AiEditPreview }) {
         </div>
       </div>
 
+      {/* What is being previewed: the folder, and the server showing it. */}
+      <div className="flex shrink-0 items-center gap-1.5 border-b border-border/60 bg-muted/30 px-3 py-1 text-[10.5px] text-muted-foreground">
+        <span className="shrink-0">{t("aiEdit.preview.source")}</span>
+        <button
+          type="button"
+          onClick={() => void revealItemInDir(target.path)}
+          className="min-w-0 truncate font-mono text-foreground/80 hover:text-foreground hover:underline"
+          title={target.path}
+        >
+          {target.path}
+        </button>
+        {info && (
+          <span className="shrink-0 font-mono" title={info.url}>
+            → {info.url.replace(/^https?:\/\//, "")}
+          </span>
+        )}
+      </div>
+
       <div className="relative min-h-0 flex-1 bg-black">
         {info && !error && (
           <iframe
@@ -178,9 +222,11 @@ export function AiEditPreviewPanel({ preview }: { preview: AiEditPreview }) {
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background text-xs text-muted-foreground">
             <Loader2 className="size-5 animate-spin text-primary" />
             <span>
-              {target.kind === "dev"
-                ? t("aiEdit.preview.startingDev")
-                : t("aiEdit.preview.opening")}
+              {target.kind === "studio"
+                ? t("aiEdit.preview.startingStudio")
+                : target.kind === "dev"
+                  ? t("aiEdit.preview.startingDev")
+                  : t("aiEdit.preview.opening")}
             </span>
           </div>
         )}
@@ -207,7 +253,7 @@ export function AiEditPreviewPanel({ preview }: { preview: AiEditPreview }) {
         )}
       </div>
 
-      {(showLogs || (loading && isDev)) && (
+      {(showLogs || (loading && kind !== "static")) && (
         <pre className="max-h-48 shrink-0 overflow-auto whitespace-pre-wrap break-words border-t border-border/60 bg-muted/30 p-2 font-mono text-[10.5px] text-muted-foreground">
           {logs || t("aiEdit.preview.noLogs")}
         </pre>

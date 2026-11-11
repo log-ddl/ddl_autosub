@@ -11,17 +11,17 @@
 //! for them.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use once_cell::sync::Lazy;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tauri::AppHandle;
 
 use crate::ai_edit::mcp::tools::{assets, tool};
 use crate::media::analyze;
-use crate::media::remotion::{self, RenderRequest, StillsRequest, STARTER_NAME};
+use crate::media::remotion::{self, RenderRequest, STARTER_NAME, StillsRequest};
 
 /// Frames a preview takes by default, at most, and per sheet.
 const DEFAULT_FRAMES: usize = 12;
@@ -87,7 +87,7 @@ pub fn tools() -> Vec<Value> {
                 "Render a Remotion motion graphic and wait until the file is written, then place it with \
                  build_storyboard. project is a folder in the project's motion-graphics/: make it by copying \
                  templates/motion-graphics/{} (already set up, needs no install) and editing src/Scene.tsx \
-                 and src/Root.tsx (read the remotion-motion skill first for the libraries the kit has). \
+                 and src/Root.tsx (Remotion's own docs for the kit's version are in remotion-kit/reference). \
                  Check it with preview_motion before rendering. Never run npm, pnpm or remotion \
                  yourself. transparent (default true) renders ProRes 4444 with alpha (.mov) for \
                  overlays; false renders H.264 (.mp4) for full-frame cards. props are passed to the composition. The first render installs \
@@ -131,14 +131,21 @@ pub fn tools() -> Vec<Value> {
 /// A plain file or folder name: no separators or `..`, so the agent can only
 /// render inside its own workspace.
 fn plain_name(value: Option<&str>, what: &str) -> Result<Option<String>, String> {
-    let Some(v) = value.map(str::trim).filter(|v| !v.is_empty()) else { return Ok(None) };
+    let Some(v) = value.map(str::trim).filter(|v| !v.is_empty()) else {
+        return Ok(None);
+    };
     if v.contains(['/', '\\']) || v == "." || v == ".." {
         return Err(format!("{} must be a plain name, not a path: {}", what, v));
     }
     Ok(Some(v.to_string()))
 }
 
-pub async fn call(app: &AppHandle, workspace: Option<&Path>, name: &str, args: &Value) -> Option<Result<String, String>> {
+pub async fn call(
+    app: &AppHandle,
+    workspace: Option<&Path>,
+    name: &str,
+    args: &Value,
+) -> Option<Result<String, String>> {
     match name {
         "render_motion" => Some(render(app, workspace, args).await),
         "preview_motion" => Some(preview(app, workspace, args).await),
@@ -162,19 +169,41 @@ fn project_dir(workspace: &Path, args: &Value) -> Result<(String, PathBuf), Stri
 }
 
 fn composition(args: &Value) -> &str {
-    args.get("composition").and_then(|v| v.as_str()).filter(|c| !c.trim().is_empty()).unwrap_or("Main")
+    args.get("composition")
+        .and_then(|v| v.as_str())
+        .filter(|c| !c.trim().is_empty())
+        .unwrap_or("Main")
 }
 
-async fn preview(app: &AppHandle, workspace: Option<&Path>, args: &Value) -> Result<String, String> {
+async fn preview(
+    app: &AppHandle,
+    workspace: Option<&Path>,
+    args: &Value,
+) -> Result<String, String> {
     let workspace = workspace.ok_or("This run has no project workspace.")?;
     let (project_name, project) = project_dir(workspace, args)?;
     let at_sec: Vec<f64> = args
         .get("atSec")
         .and_then(|v| v.as_array())
-        .map(|a| a.iter().filter_map(|t| t.as_f64()).filter(|t| *t >= 0.0).take(MAX_FRAMES).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|t| t.as_f64())
+                .filter(|t| *t >= 0.0)
+                .take(MAX_FRAMES)
+                .collect()
+        })
         .unwrap_or_default();
-    let count = args.get("frames").and_then(|v| v.as_u64()).map(|n| n as usize).unwrap_or(DEFAULT_FRAMES).clamp(1, MAX_FRAMES);
-    let tiles = if at_sec.is_empty() { count } else { at_sec.len() };
+    let count = args
+        .get("frames")
+        .and_then(|v| v.as_u64())
+        .map(|n| n as usize)
+        .unwrap_or(DEFAULT_FRAMES)
+        .clamp(1, MAX_FRAMES);
+    let tiles = if at_sec.is_empty() {
+        count
+    } else {
+        at_sec.len()
+    };
     let out_dir = analyze::analysis_root(workspace).join(format!("motion-{}", project_name));
 
     let (stills, installed) = remotion::stills(
@@ -193,7 +222,8 @@ async fn preview(app: &AppHandle, workspace: Option<&Path>, args: &Value) -> Res
     let sheets = {
         let out_dir = out_dir.clone();
         tauri::async_runtime::spawn_blocking(move || {
-            remotion::contact_sheet(&stills, &out_dir, FRAMES_PER_SHEET).map(|sheets| (stills, sheets))
+            remotion::contact_sheet(&stills, &out_dir, FRAMES_PER_SHEET)
+                .map(|sheets| (stills, sheets))
         })
         .await
         .map_err(|e| e.to_string())??
@@ -224,12 +254,18 @@ async fn preview(app: &AppHandle, workspace: Option<&Path>, args: &Value) -> Res
 async fn render(app: &AppHandle, workspace: Option<&Path>, args: &Value) -> Result<String, String> {
     let workspace = workspace.ok_or("This run has no project workspace.")?;
     let (project_name, project) = project_dir(workspace, args)?;
-    let output_name = plain_name(args.get("output").and_then(|v| v.as_str()), "output")?.unwrap_or(project_name);
-    let transparent = args.get("transparent").and_then(|v| v.as_bool()).unwrap_or(true);
+    let output_name =
+        plain_name(args.get("output").and_then(|v| v.as_str()), "output")?.unwrap_or(project_name);
+    let transparent = args
+        .get("transparent")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
     let wait = args.get("wait").and_then(|v| v.as_bool()).unwrap_or(true);
-    let output = workspace
-        .join("exports")
-        .join(format!("{}.{}", output_name, if transparent { "mov" } else { "mp4" }));
+    let output = workspace.join("exports").join(format!(
+        "{}.{}",
+        output_name,
+        if transparent { "mov" } else { "mp4" }
+    ));
     let id = enqueue(workspace, &output)?;
 
     let (app, job_id, ws, composition, props) = (
@@ -243,12 +279,20 @@ async fn render(app: &AppHandle, workspace: Option<&Path>, args: &Value) -> Resu
         let started = job_id.clone();
         let result = remotion::render(
             &app,
-            RenderRequest { project: &project, composition: &composition, output: &output, transparent, props: props.as_ref() },
+            RenderRequest {
+                project: &project,
+                composition: &composition,
+                output: &output,
+                transparent,
+                props: props.as_ref(),
+            },
             move || set_state(&started, JobState::Rendering(Instant::now())),
         )
         .await;
         let state = match result {
-            Ok((took, installed)) => JobState::Done(rendered_line(&ws, &output, transparent, took, installed)),
+            Ok((took, installed)) => {
+                JobState::Done(rendered_line(&ws, &output, transparent, took, installed))
+            }
             Err(e) => JobState::Failed(e),
         };
         set_state(&job_id, state);
@@ -277,9 +321,18 @@ async fn status(workspace: Option<&Path>, args: &Value) -> Result<String, String
     let ids: Option<Vec<String>> = args
         .get("ids")
         .and_then(|v| v.as_array())
-        .map(|a| a.iter().filter_map(|i| i.as_str()).map(|i| i.trim().to_string()).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|i| i.as_str())
+                .map(|i| i.trim().to_string())
+                .collect()
+        })
         .filter(|ids: &Vec<String>| !ids.is_empty());
-    let wait = args.get("waitSec").and_then(|v| v.as_f64()).unwrap_or(0.0).clamp(0.0, MAX_WAIT.as_secs_f64());
+    let wait = args
+        .get("waitSec")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0)
+        .clamp(0.0, MAX_WAIT.as_secs_f64());
     if wait > 0.0 {
         wait_for(workspace, ids.as_deref(), Duration::from_secs_f64(wait)).await;
     }
@@ -296,7 +349,10 @@ async fn status(workspace: Option<&Path>, args: &Value) -> Result<String, String
 /// A new queued job for `output`, refused while another job still writes it.
 fn enqueue(workspace: &Path, output: &Path) -> Result<String, String> {
     let mut jobs = JOBS.lock().unwrap();
-    if let Some(busy) = jobs.iter().find(|j| j.output == output && !j.state.finished()) {
+    if let Some(busy) = jobs
+        .iter()
+        .find(|j| j.output == output && !j.state.finished())
+    {
         return Err(format!(
             "{} is already being rendered as {}; wait for it (render_status) or pick another output.",
             rel(workspace, output),
@@ -310,7 +366,12 @@ fn enqueue(workspace: &Path, output: &Path) -> Result<String, String> {
         }
     }
     let id = format!("r{}", NEXT_JOB.fetch_add(1, Ordering::Relaxed));
-    jobs.push(Job { id: id.clone(), workspace: workspace.to_path_buf(), output: output.to_path_buf(), state: JobState::Queued });
+    jobs.push(Job {
+        id: id.clone(),
+        workspace: workspace.to_path_buf(),
+        output: output.to_path_buf(),
+        state: JobState::Queued,
+    });
     Ok(id)
 }
 
@@ -328,7 +389,11 @@ fn selected(job: &Job, workspace: &Path, ids: Option<&[String]>) -> bool {
 async fn wait_for(workspace: &Path, ids: Option<&[String]>, limit: Duration) {
     let deadline = Instant::now() + limit;
     loop {
-        let pending = JOBS.lock().unwrap().iter().any(|j| selected(j, workspace, ids) && !j.state.finished());
+        let pending = JOBS
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|j| selected(j, workspace, ids) && !j.state.finished());
         if !pending || Instant::now() >= deadline {
             return;
         }
@@ -357,7 +422,12 @@ fn job_lines(workspace: &Path, ids: Option<&[String]>) -> Vec<String> {
             JobState::Failed(e) => format!("failed: {}", e),
         };
         if selected(job, workspace, ids) {
-            lines.push(format!("{} {}: {}", job.id, rel(workspace, &job.output), line));
+            lines.push(format!(
+                "{} {}: {}",
+                job.id,
+                rel(workspace, &job.output),
+                line
+            ));
         }
     }
     lines
@@ -365,23 +435,46 @@ fn job_lines(workspace: &Path, ids: Option<&[String]>) -> Vec<String> {
 
 /// `exports/x.mov`: the output inside the workspace.
 fn rel(workspace: &Path, path: &Path) -> String {
-    path.strip_prefix(workspace).unwrap_or(path).to_string_lossy().replace('\\', "/")
+    path.strip_prefix(workspace)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
 }
 
 fn minutes(d: Duration) -> String {
     let s = d.as_secs();
-    if s < 60 { format!("{} s", s) } else { format!("{} min {} s", s / 60, s % 60) }
+    if s < 60 {
+        format!("{} s", s)
+    } else {
+        format!("{} min {} s", s / 60, s % 60)
+    }
 }
 
-fn rendered_line(workspace: &Path, output: &Path, transparent: bool, took: Duration, installed: bool) -> String {
-    let size_mb = std::fs::metadata(output).map(|m| m.len() as f64 / 1_048_576.0).unwrap_or(0.0);
+fn rendered_line(
+    workspace: &Path,
+    output: &Path,
+    transparent: bool,
+    took: Duration,
+    installed: bool,
+) -> String {
+    let size_mb = std::fs::metadata(output)
+        .map(|m| m.len() as f64 / 1_048_576.0)
+        .unwrap_or(0.0);
     format!(
         "Rendered {} ({:.0} MB, {}) in {:.0}s{}.",
         assets::describe(workspace, output),
         size_mb,
-        if transparent { "ProRes 4444 with alpha" } else { "H.264" },
+        if transparent {
+            "ProRes 4444 with alpha"
+        } else {
+            "H.264"
+        },
         took.as_secs_f64(),
-        if installed { "; Remotion was installed first (one time)" } else { "" }
+        if installed {
+            "; Remotion was installed first (one time)"
+        } else {
+            ""
+        }
     )
 }
 
@@ -391,7 +484,10 @@ mod tests {
 
     #[test]
     fn names_stay_inside_the_workspace() {
-        assert_eq!(plain_name(Some(" wave "), "project").unwrap(), Some("wave".into()));
+        assert_eq!(
+            plain_name(Some(" wave "), "project").unwrap(),
+            Some("wave".into())
+        );
         assert_eq!(plain_name(None, "project").unwrap(), None);
         assert!(plain_name(Some("../etc"), "project").is_err());
         assert!(plain_name(Some("a/b"), "project").is_err());
@@ -400,10 +496,15 @@ mod tests {
 
     #[test]
     fn renders_queue_in_order_and_never_share_an_output() {
-        let ws = std::env::temp_dir().join(format!("autosubs-jobs-{}", uuid::Uuid::new_v4().simple()));
+        let ws =
+            std::env::temp_dir().join(format!("autosubs-jobs-{}", uuid::Uuid::new_v4().simple()));
         let a = enqueue(&ws, &ws.join("exports/a.mov")).unwrap();
         let b = enqueue(&ws, &ws.join("exports/b.mov")).unwrap();
-        assert!(enqueue(&ws, &ws.join("exports/a.mov")).unwrap_err().contains(&a));
+        assert!(
+            enqueue(&ws, &ws.join("exports/a.mov"))
+                .unwrap_err()
+                .contains(&a)
+        );
 
         set_state(&a, JobState::Rendering(Instant::now()));
         let lines = job_lines(&ws, None);

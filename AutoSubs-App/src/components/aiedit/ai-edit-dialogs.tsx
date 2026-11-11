@@ -5,6 +5,7 @@ import {
   BookOpen,
   CopyPlus,
   FolderInput,
+  FolderOpen,
   Film,
   Folder,
   Layers,
@@ -12,6 +13,7 @@ import {
   Paperclip,
   Play,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +32,8 @@ import {
   type ProjectAssetItem,
   type WorkspaceInfo,
 } from "@/api/cli-chat-api";
+import type { StudioSkill } from "@/api/studio-api";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 
 export interface AiEditDialogsProps {
   systemPromptOpen: boolean;
@@ -57,8 +61,14 @@ export interface AiEditDialogsProps {
   onSaveAsTemplate: (asset: ProjectAssetItem) => void;
   /** Copy a template into this project's motion-graphics. */
   onUseTemplate: (asset: ProjectAssetItem) => void;
-  /** Pick a folder of skills and copy it into the project, or the library. */
-  onImportSkills: (toLibrary: boolean) => void;
+  /** Pick a folder of skills and copy it into the working folder's skills/. */
+  onImportSkills: () => void;
+  onRemoveSkill: (skill: StudioSkill) => void;
+  /** The working folder's skills (not tied to the editor project). */
+  skills: StudioSkill[];
+  /** The working folder skills are copied into. */
+  studioRoot: string;
+  onChangeStudioRoot: () => void;
 
   renameTarget: { id: string; title: string } | null;
   onClearRenameTarget: () => void;
@@ -90,6 +100,10 @@ export function AiEditDialogs({
   onSaveAsTemplate,
   onUseTemplate,
   onImportSkills,
+  onRemoveSkill,
+  skills,
+  studioRoot,
+  onChangeStudioRoot,
   renameTarget,
   onClearRenameTarget,
   renameDraft,
@@ -105,11 +119,8 @@ export function AiEditDialogs({
   const assets = workspaceInfo?.assets || [];
   // "All" is this project's media only: the library is shared by every
   // project, and skills have their own tab.
-  const projectAssets = assets.filter(
-    (a) => !isLibraryAsset(a) && a.category !== "skills",
-  );
-  const skillsTab =
-    assetCategory === "skills" || assetCategory === "library-skills";
+  const projectAssets = assets.filter((a) => !isLibraryAsset(a));
+  const skillsTab = assetCategory === "skills";
   const filteredAssets =
     assetCategory === "all"
       ? projectAssets
@@ -311,7 +322,6 @@ export function AiEditDialogs({
               { id: "templates", label: t("aiEdit.assets.tabs.templates") },
               { id: "library-music", label: t("aiEdit.assets.tabs.libraryMusic") },
               { id: "library-sfx", label: t("aiEdit.assets.tabs.librarySfx") },
-              { id: "library-skills", label: t("aiEdit.assets.tabs.librarySkills") },
             ],
           ].map((row, rowIndex) => (
             <div
@@ -342,6 +352,35 @@ export function AiEditDialogs({
           ))}
 
           {skillsTab && (
+            <div className="flex items-center gap-1.5 rounded-xl border border-border/60 bg-muted/30 px-3 py-2 text-[11px]">
+              <span className="shrink-0 text-muted-foreground">{t("aiEdit.assets.workFolder")}</span>
+              <code className="min-w-0 flex-1 truncate font-mono text-foreground" title={studioRoot}>
+                {studioRoot}
+              </code>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-7 shrink-0"
+                disabled={!studioRoot}
+                onClick={() => void revealItemInDir(studioRoot)}
+                title={t("settings.workFolder.open")}
+              >
+                <FolderOpen className="size-3.5" />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 shrink-0 px-2.5 text-[11px]"
+                onClick={onChangeStudioRoot}
+              >
+                {t("settings.workFolder.change")}
+              </Button>
+            </div>
+          )}
+
+          {skillsTab && (
             <div className="flex items-center justify-between gap-2 rounded-xl border border-dashed border-border/70 px-3 py-2 text-[11px] text-muted-foreground">
               <span className="min-w-0">{t("aiEdit.assets.skillsHint")}</span>
               <Button
@@ -349,7 +388,7 @@ export function AiEditDialogs({
                 variant="secondary"
                 size="sm"
                 className="h-7 px-2.5 text-[11px] gap-1 shrink-0"
-                onClick={() => onImportSkills(assetCategory === "library-skills")}
+                onClick={() => onImportSkills()}
                 title={t("aiEdit.assets.importSkillTooltip")}
               >
                 <FolderInput className="size-3" />
@@ -359,12 +398,12 @@ export function AiEditDialogs({
           )}
 
           <div className="max-h-64 min-h-40 overflow-y-auto space-y-1.5 pr-1">
-            {filteredAssets.length === 0 ? (
+            {skillsTab ? (
+              <SkillList skills={skills} onRemove={onRemoveSkill} />
+            ) : filteredAssets.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-40 text-center text-xs text-muted-foreground gap-1.5">
                 <Sparkles className="size-5 opacity-50" />
-                <span>
-                  {t(skillsTab ? "aiEdit.assets.emptySkills" : "aiEdit.assets.empty")}
-                </span>
+                <span>{t("aiEdit.assets.empty")}</span>
               </div>
             ) : (
               filteredAssets.map((item) => {
@@ -381,10 +420,7 @@ export function AiEditDialogs({
                     className="flex items-center justify-between gap-2 rounded-xl border border-border/50 bg-card/40 px-3 py-2 text-xs"
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
-                      {item.category === "skills" ||
-                      item.category === "library-skills" ? (
-                        <BookOpen className="size-4 text-emerald-500 shrink-0" />
-                      ) : item.isDir ? (
+                      {item.isDir ? (
                         <Folder className="size-4 text-amber-500 shrink-0" />
                       ) : (
                         <Film className="size-4 text-primary shrink-0" />
@@ -414,8 +450,7 @@ export function AiEditDialogs({
                         <Paperclip className="size-3" />
                         {t("aiEdit.assets.attach")}
                       </Button>
-                      {(item.category === "motion-graphics" ||
-                        item.category === "skills") && (
+                      {item.category === "motion-graphics" && (
                         <Button
                           type="button"
                           variant="ghost"
@@ -533,6 +568,49 @@ export function AiEditDialogs({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </>
+  );
+}
+
+/** The working folder's skills, with a remove button each. */
+function SkillList({ skills, onRemove }: { skills: StudioSkill[]; onRemove: (skill: StudioSkill) => void }) {
+  const { t } = useTranslation();
+  if (skills.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-40 text-center text-xs text-muted-foreground gap-1.5">
+        <Sparkles className="size-5 opacity-50" />
+        <span>{t("aiEdit.assets.emptySkills")}</span>
+      </div>
+    );
+  }
+  return (
+    <>
+      {skills.map((skill) => (
+        <div
+          key={skill.folder}
+          className="flex items-center justify-between gap-2 rounded-xl border border-border/50 bg-card/40 px-3 py-2 text-xs"
+        >
+          <div className="flex min-w-0 items-center gap-2.5">
+            <BookOpen className="size-4 shrink-0 text-emerald-500" />
+            <div className="min-w-0">
+              <div className="truncate font-medium text-foreground">{skill.name}</div>
+              <div className="line-clamp-2 text-[10.5px] text-muted-foreground" title={skill.path}>
+                {skill.description || skill.path}
+              </div>
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 shrink-0 px-2 text-[11px] hover:text-destructive"
+            onClick={() => onRemove(skill)}
+            title={t("aiEdit.assets.removeSkill")}
+          >
+            <Trash2 className="size-3" />
+          </Button>
+        </div>
+      ))}
     </>
   );
 }

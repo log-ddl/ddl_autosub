@@ -24,6 +24,7 @@ import { WorkspaceShell } from "@/components/layout/workspace-shell"
 import { AppUpdateGate } from "@/components/dialogs/app-update-gate"
 import { DownloadWorkspace } from "@/components/download/download-workspace"
 import { AiEditWorkspace } from "@/components/aiedit/ai-edit-workspace"
+import { TtsWorkspace } from "@/components/tts/tts-workspace"
 import { ExternalAgentSync } from "@/components/external-agent/external-agent-badge"
 
 const MIN_TRANSCRIPTION_PANEL_WIDTH = 370
@@ -360,6 +361,7 @@ function AppRouter() {
       <WorkspaceShell
         subtitles={<AppContentBody />}
         aiedit={<AiEditWorkspace />}
+        tts={<TtsWorkspace />}
         download={<DownloadWorkspace />}
       />
     </EditorWorkspaceProviders>
