@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2, Play, Square, Users } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -11,21 +11,22 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { parseDialoguePreviewTurns } from "./dialogue-tags";
+import { TTS_PROVIDERS } from "./provider-shared";
 import type {
   CatalogVoice,
+  SonicModel,
+  SonicVoicesQuery,
   TtsProvider,
   TtsSpeakerVoiceConfig,
   VoiceProfile,
 } from "./types";
 import type { TtsController } from "./use-tts-controller";
-import { voiceKey } from "./voice-catalog";
-
-const PROVIDERS: [TtsProvider, string][] = [
-  ["capcut", "CapCut"],
-  ["vieneu", "VieNeu"],
-  ["omnivoice", "OmniVoice"],
-  ["elevenlabs", "ElevenLabs"],
-];
+import {
+  DEFAULT_ELEVEN_MODELS,
+  SONIC_SPOKEN_LANGUAGES,
+  formatSonicApiLanguage,
+  voiceKey,
+} from "./voice-catalog";
 
 const MAX_SELECT_VOICES = 80;
 
@@ -35,9 +36,12 @@ interface SpeakerRowProps {
   config: TtsSpeakerVoiceConfig;
   catalog: CatalogVoice[];
   voiceProfiles: VoiceProfile[];
+  sonicModels: SonicModel[];
+  defaultSonicModel: string;
   defaultLanguage: string;
   busy: boolean;
   isProviderReady: (p: TtsProvider) => boolean;
+  onEnsureSonicVoices: (query: SonicVoicesQuery) => Promise<void>;
   previewVoiceKey?: string;
   previewLoading: boolean;
   onPreview: (voice: CatalogVoice) => void;
@@ -50,24 +54,30 @@ function SpeakerRow({
   config,
   catalog,
   voiceProfiles,
+  sonicModels,
+  defaultSonicModel,
   defaultLanguage,
   busy,
   isProviderReady,
+  onEnsureSonicVoices,
   previewVoiceKey,
   previewLoading,
   onPreview,
   onChange,
 }: SpeakerRowProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const providerVoices = useMemo(
     () => catalog.filter((v) => v.provider === config.provider),
     [catalog, config.provider],
   );
 
-  const availableLanguages = useMemo(
-    () => [...new Set(providerVoices.map((v) => v.language))].sort(),
-    [providerVoices],
-  );
+  const availableLanguages = useMemo(() => {
+    const codes = new Set(providerVoices.map((v) => v.language));
+    if (config.provider === "sonicvoice") {
+      for (const code of SONIC_SPOKEN_LANGUAGES) codes.add(code);
+    }
+    return [...codes].sort();
+  }, [config.provider, providerVoices]);
 
   const selectedCatalogVoice = useMemo(
     () => providerVoices.find((v) => voiceKey(v) === config.voiceKey),
@@ -85,6 +95,21 @@ function SpeakerRow({
     langFilter !== "all" && availableLanguages.includes(langFilter)
       ? langFilter
       : "all";
+
+  const providerReady = isProviderReady(config.provider);
+  useEffect(() => {
+    if (config.provider !== "sonicvoice" || !providerReady) return;
+    const trimmed = search.trim();
+    if (effectiveLang === "all" && !trimmed) return;
+    const timer = window.setTimeout(() => {
+      void onEnsureSonicVoices({
+        language: effectiveLang === "all" ? undefined : effectiveLang,
+        query: trimmed || undefined,
+        limit: 200,
+      });
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [config.provider, effectiveLang, onEnsureSonicVoices, providerReady, search]);
 
   const filteredVoices = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -132,12 +157,52 @@ function SpeakerRow({
     onChange({
       provider: nextProvider,
       voiceKey: firstVoice ? voiceKey(firstVoice) : undefined,
+      sonicProvider: firstVoice?.subProvider,
     });
   };
 
-  const providerReady = isProviderReady(config.provider);
   const activePreview =
     selectedCatalogVoice && previewVoiceKey === voiceKey(selectedCatalogVoice);
+
+  const languageName = (code: string) =>
+    t(`tts.provider.languages.${code}`, { defaultValue: code });
+
+  const sonicSpokenLanguages = useMemo(() => {
+    const codes = new Set([
+      ...SONIC_SPOKEN_LANGUAGES,
+      ...(selectedCatalogVoice ? [selectedCatalogVoice.language] : []),
+    ]);
+    return [...codes].sort((a, b) =>
+      languageName(a).localeCompare(languageName(b), i18n.language),
+    );
+  }, [i18n.language, selectedCatalogVoice]);
+
+  const elevenModels = useMemo(() => {
+    const fromApi = sonicModels.filter((m) => m.provider === "eleven");
+    return fromApi.length > 0 ? fromApi : DEFAULT_ELEVEN_MODELS;
+  }, [sonicModels]);
+
+  const effectiveSonicSub =
+    config.sonicProvider ?? selectedCatalogVoice?.subProvider;
+  const effectiveSonicModel = config.sonicModel ?? defaultSonicModel;
+  const effectiveSonicLangPref = config.language ?? "voice";
+  const sonicApiLangPreview = useMemo(
+    () =>
+      formatSonicApiLanguage(
+        effectiveSonicLangPref,
+        selectedCatalogVoice?.language,
+        effectiveSonicSub,
+        effectiveSonicModel,
+        sonicModels,
+      ),
+    [
+      effectiveSonicLangPref,
+      effectiveSonicModel,
+      effectiveSonicSub,
+      selectedCatalogVoice?.language,
+      sonicModels,
+    ],
+  );
 
   return (
     <div className="space-y-2 rounded-lg border border-border/60 bg-background/70 p-2.5">
@@ -158,7 +223,7 @@ function SpeakerRow({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {PROVIDERS.map(([id, label]) => (
+            {TTS_PROVIDERS.map(([id, label]) => (
               <SelectItem key={id} value={id}>
                 {label}
               </SelectItem>
@@ -282,20 +347,26 @@ function SpeakerRow({
                     onChange({
                       ...config,
                       voiceKey: voiceKey(candidates[0]),
+                      sonicProvider: candidates[0].subProvider,
                     });
                   }
                 }}
               >
-                <SelectTrigger className="h-8 w-[100px] text-xs">
+                <SelectTrigger
+                  className="h-8 w-[120px] text-xs"
+                  aria-label={t("tts.sonic.filterAccent")}
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">
-                    {t("tts.provider.allLanguages")}
+                    {t("tts.sonic.filterShort", {
+                      lang: t("tts.provider.allLanguages"),
+                    })}
                   </SelectItem>
                   {availableLanguages.map((code) => (
                     <SelectItem key={code} value={code}>
-                      {code.toUpperCase()}
+                      {t("tts.sonic.filterShort", { lang: code.toUpperCase() })}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -305,7 +376,14 @@ function SpeakerRow({
             <Select
               value={config.voiceKey || ""}
               disabled={busy || filteredVoices.length === 0}
-              onValueChange={(vk) => onChange({ ...config, voiceKey: vk })}
+              onValueChange={(vk) => {
+                const matched = providerVoices.find((v) => voiceKey(v) === vk);
+                onChange({
+                  ...config,
+                  voiceKey: vk,
+                  sonicProvider: matched?.subProvider,
+                });
+              }}
             >
               <SelectTrigger className="h-8 min-w-[170px] flex-1 text-xs">
                 <SelectValue placeholder={t("tts.provider.chooseVoice")} />
@@ -313,9 +391,13 @@ function SpeakerRow({
               <SelectContent>
                 {filteredVoices.map((v) => {
                   const vk = voiceKey(v);
+                  const label =
+                    config.provider === "sonicvoice"
+                      ? `${v.name} · ${v.owned ? t("tts.sonic.cloneBadge") : v.subProvider === "eleven" ? "11Labs" : "Mini"} (${v.language})`
+                      : `${v.name} (${v.language})`;
                   return (
                     <SelectItem key={vk} value={vk}>
-                      {v.name} ({v.language})
+                      {label}
                     </SelectItem>
                   );
                 })}
@@ -355,9 +437,71 @@ function SpeakerRow({
         )}
       </div>
 
+      {config.provider === "sonicvoice" && providerReady && (
+        <div className="flex flex-wrap items-center gap-2 border-t border-border/50 pt-2 text-xs">
+          <span className="text-[11px] text-muted-foreground">
+            {t("tts.sonic.spokenLanguage")}
+          </span>
+          <Select
+            value={effectiveSonicLangPref}
+            disabled={busy}
+            onValueChange={(val) => onChange({ ...config, language: val })}
+          >
+            <SelectTrigger className="h-7 w-auto min-w-[175px] text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="voice">
+                {t("tts.sonic.matchVoiceShort", {
+                  lang: selectedCatalogVoice
+                    ? `${languageName(selectedCatalogVoice.language)} (${selectedCatalogVoice.language})`
+                    : "auto",
+                })}
+              </SelectItem>
+              <SelectItem value="auto">{t("tts.language.auto")}</SelectItem>
+              {sonicSpokenLanguages.map((code) => (
+                <SelectItem key={code} value={code}>
+                  {languageName(code)} ({code})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+            API: {sonicApiLangPreview}
+          </span>
+
+          {effectiveSonicSub === "eleven" && (
+            <Select
+              value={effectiveSonicModel}
+              disabled={busy}
+              onValueChange={(modelId) =>
+                onChange({ ...config, sonicModel: modelId })
+              }
+            >
+              <SelectTrigger
+                className="h-7 w-auto min-w-[155px] text-xs"
+                aria-label={t("tts.sonic.modelLabel")}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {elevenModels.map((m) => (
+                  <SelectItem key={m.modelId} value={m.modelId}>
+                    {m.name} ({m.creditRatio}×)
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
+      )}
+
       {!providerReady && (
         <p className="text-[11px] text-amber-600 dark:text-amber-400">
-          {t("tts.dialogue.speakerModelNotReady", { tag })}
+          {config.provider === "sonicvoice"
+            ? t("tts.sonic.missingKey")
+            : t("tts.dialogue.speakerModelNotReady", { tag })}
         </p>
       )}
     </div>
@@ -409,11 +553,14 @@ export function DialogueCastCard({
             tag={tag}
             turnCount={countsByLower.get(tag.toLowerCase()) ?? 1}
             config={c.getSpeakerConfig(tag, index)}
-            catalog={c.catalog}
+            catalog={c.allCatalogVoices}
             voiceProfiles={c.voiceProfiles}
+            sonicModels={c.sonicModels}
+            defaultSonicModel={c.sonicModel}
             defaultLanguage={c.language}
             busy={c.busy}
             isProviderReady={c.isProviderReady}
+            onEnsureSonicVoices={c.ensureSonicVoicesLoaded}
             previewVoiceKey={c.previewVoiceKey}
             previewLoading={c.previewLoading}
             onPreview={(v) => void c.previewVoice(v)}

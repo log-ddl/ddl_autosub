@@ -6,6 +6,7 @@ pub mod dialogue;
 pub mod managed_python;
 pub mod paths;
 pub mod providers;
+pub mod sonicvoice;
 pub mod split;
 pub mod vieneu;
 pub mod worker;
@@ -13,8 +14,10 @@ pub mod worker;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use once_cell::sync::Lazy;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tauri::{AppHandle, Emitter, Manager};
@@ -191,6 +194,16 @@ pub struct TtsGeneratePayload {
     pub speakers: Option<HashMap<String, dialogue::TtsSpeakerVoice>>,
     pub turns: Option<Vec<dialogue::TtsDialogueTurn>>,
     pub gap_sec: Option<f64>,
+    #[serde(default)]
+    pub sonic_provider: Option<String>,
+    #[serde(default)]
+    pub sonic_model: Option<String>,
+    #[serde(default)]
+    pub sonic_pitch: Option<f64>,
+    #[serde(default)]
+    pub sonic_stability: Option<f64>,
+    #[serde(default)]
+    pub sonic_similarity: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -273,19 +286,112 @@ pub struct TtsCancelResult {
     pub canceled: bool,
 }
 
+pub const QUEUE_DELAY_MIN_MS: u64 = 500;
+pub const QUEUE_DELAY_MAX_MS: u64 = 1500;
+pub const RETRY_DELAY_MIN_MS: u64 = 4500;
+pub const RETRY_DELAY_MAX_MS: u64 = 5500;
+pub const MAX_TTS_RETRIES: usize = 3;
+
+static TTS_QUEUE: Lazy<tokio::sync::Mutex<Option<Instant>>> =
+    Lazy::new(|| tokio::sync::Mutex::new(None));
+
+pub fn random_queue_delay() -> Duration {
+    Duration::from_millis(rand::thread_rng().gen_range(QUEUE_DELAY_MIN_MS..=QUEUE_DELAY_MAX_MS))
+}
+
+pub fn random_retry_delay() -> Duration {
+    Duration::from_millis(rand::thread_rng().gen_range(RETRY_DELAY_MIN_MS..=RETRY_DELAY_MAX_MS))
+}
+
+pub async fn cancelable_sleep(job_id: &str, duration: Duration) -> bool {
+    if duration.is_zero() {
+        return !is_job_canceled(job_id);
+    }
+    if is_job_canceled(job_id) {
+        return false;
+    }
+    let cancel = register_canceler(job_id);
+    if is_job_canceled(job_id) {
+        unregister_canceler(job_id);
+        return false;
+    }
+    let completed = tokio::select! {
+        _ = cancel => false,
+        _ = tokio::time::sleep(duration) => !is_job_canceled(job_id),
+    };
+    unregister_canceler(job_id);
+    completed
+}
+
+async fn acquire_tts_queue(
+    job_id: &str,
+) -> Option<tokio::sync::MutexGuard<'static, Option<Instant>>> {
+    if is_job_canceled(job_id) {
+        return None;
+    }
+    let cancel = register_canceler(job_id);
+    if is_job_canceled(job_id) {
+        unregister_canceler(job_id);
+        return None;
+    }
+    let guard = tokio::select! {
+        _ = cancel => None,
+        g = TTS_QUEUE.lock() => {
+            if is_job_canceled(job_id) {
+                None
+            } else {
+                Some(g)
+            }
+        }
+    };
+    unregister_canceler(job_id);
+    guard
+}
+
+fn is_non_retryable_tts_error(err: Option<&str>) -> bool {
+    let Some(msg) = err else {
+        return false;
+    };
+    let prefixes = [
+        "Select a voice from the catalog",
+        "Missing voice resource",
+        "Text must contain 1 to 40000 UTF-8 bytes per part",
+        "Unknown TTS provider",
+        "Model is not installed",
+        "OmniVoice runtime path unavailable",
+        "OmniVoice Python runtime is not installed",
+        "Install VieNeu first",
+        "Voice Clone requires",
+        "Voice Design requires",
+        "Missing SonicVoice API key",
+        "SonicVoice: API key",
+        "SonicVoice: Không đủ ký tự",
+        "SonicVoice (4",
+    ];
+    let substrings = [
+        "Nội dung bị đánh dấu nhạy cảm",
+        "Mẫu giọng này không dùng được",
+        "Giọng đọc này hiện không dùng được",
+        "Giọng này là giọng Professional",
+    ];
+    prefixes.iter().any(|prefix| msg.starts_with(prefix))
+        || substrings.iter().any(|sub| msg.contains(sub))
+}
+
 fn clamp(val: Option<f64>, min: f64, max: f64, fallback: f64) -> f64 {
     let v = val.filter(|x| x.is_finite()).unwrap_or(fallback);
     v.clamp(min, max)
 }
 
-pub async fn synthesize_single(
+async fn synthesize_single_once(
     app: &AppHandle,
-    payload: TtsGeneratePayload,
+    payload: &TtsGeneratePayload,
     emit_events: bool,
 ) -> TtsGenerateResult {
     match payload.provider.as_deref().unwrap_or("omnivoice") {
-        "capcut" | "elevenlabs" => return providers::generate(app, &payload, emit_events).await,
-        "vieneu" => return vieneu::generate(app, &payload, emit_events).await,
+        "capcut" | "elevenlabs" => return providers::generate(app, payload, emit_events).await,
+        "sonicvoice" => return sonicvoice::generate(app, payload, emit_events).await,
+        "vieneu" => return vieneu::generate(app, payload, emit_events).await,
         "omnivoice" => {}
         _ => return TtsGenerateResult::err("Unknown TTS provider"),
     }
@@ -336,7 +442,7 @@ pub async fn synthesize_single(
         Err(e) => return TtsGenerateResult::err(e),
     };
 
-    let adv_json = payload.advanced_settings.map(|adv| {
+    let adv_json = payload.advanced_settings.as_ref().map(|adv| {
         let chunk_dur = clamp(adv.audio_chunk_duration, 5.0, 60.0, 15.0);
         let mut chunk_thresh = clamp(adv.audio_chunk_threshold, 5.0, 120.0, 30.0);
         if chunk_thresh < chunk_dur {
@@ -429,8 +535,72 @@ pub async fn synthesize_single(
     }
 }
 
+pub async fn synthesize_single(
+    app: &AppHandle,
+    payload: TtsGeneratePayload,
+    emit_events: bool,
+) -> TtsGenerateResult {
+    let Some(mut queue_guard) = acquire_tts_queue(&payload.job_id).await else {
+        let _ = take_job_canceled(&payload.job_id);
+        return TtsGenerateResult::canceled();
+    };
+
+    if let Some(prev) = *queue_guard {
+        let target_gap = random_queue_delay();
+        let elapsed = prev.elapsed();
+        if elapsed < target_gap {
+            if !cancelable_sleep(&payload.job_id, target_gap - elapsed).await {
+                let _ = take_job_canceled(&payload.job_id);
+                return TtsGenerateResult::canceled();
+            }
+        }
+    }
+
+    for attempt in 0..=MAX_TTS_RETRIES {
+        let res = synthesize_single_once(app, &payload, emit_events).await;
+        *queue_guard = Some(Instant::now());
+
+        if res.success {
+            return res;
+        }
+        if res.canceled == Some(true) || take_job_canceled(&payload.job_id) {
+            return TtsGenerateResult::canceled();
+        }
+        if is_non_retryable_tts_error(res.error.as_deref()) || attempt == MAX_TTS_RETRIES {
+            return res;
+        }
+
+        let backoff = random_retry_delay();
+        tracing::warn!(
+            job_id = %payload.job_id,
+            attempt = attempt + 1,
+            max_retries = MAX_TTS_RETRIES,
+            delay_ms = backoff.as_millis() as u64,
+            error = res.error.as_deref().unwrap_or("unknown"),
+            "TTS call failed; backing off before retry"
+        );
+        if emit_events {
+            emit_generate_progress(
+                app,
+                &payload.job_id,
+                "retrying",
+                None,
+                &format!("Retrying ({}/{})...", attempt + 1, MAX_TTS_RETRIES),
+            );
+        }
+        if !cancelable_sleep(&payload.job_id, backoff).await {
+            let _ = take_job_canceled(&payload.job_id);
+            return TtsGenerateResult::canceled();
+        }
+        *queue_guard = Some(Instant::now());
+    }
+
+    TtsGenerateResult::err("Failed to generate speech")
+}
+
 /// Terminate any active worker or background TTS child processes when the app exits.
-pub fn shutdown() {
+pub fn shutdown(app: &AppHandle) {
+    sonicvoice::cancel_all_remote_jobs(app);
     cancel_all_splits();
     let cancelers: Vec<(String, oneshot::Sender<()>)> =
         ACTIVE_CANCELERS.lock().unwrap().drain().collect();
@@ -689,7 +859,8 @@ pub fn tts_sync_profiles(
 }
 
 #[tauri::command]
-pub fn tts_cancel_job(job_id: String) -> TtsCancelResult {
+pub fn tts_cancel_job(app: AppHandle, job_id: String) -> TtsCancelResult {
+    sonicvoice::cancel_remote_job(&app, &job_id);
     if cancel_split_job(&job_id) {
         return TtsCancelResult { canceled: true };
     }

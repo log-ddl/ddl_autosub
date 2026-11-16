@@ -3,11 +3,8 @@ import {
   Download,
   Heart,
   Loader2,
-  Mars,
   Play,
   Square,
-  UserRound,
-  Venus,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -20,63 +17,24 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { GenderIcon, ProviderSelector } from "./provider-shared";
+import { SonicVoiceSettings } from "./sonicvoice-settings";
 import { filterVoices, voiceKey } from "./voice-catalog";
-import type { TtsProvider, TtsSplitMode } from "./types";
+import type { TtsSplitMode } from "./types";
 import type { TtsController } from "./use-tts-controller";
-const PROVIDERS: [TtsProvider, string][] = [
-  ["omnivoice", "OmniVoice"],
-  ["capcut", "CapCut"],
-  ["vieneu", "VieNeu"],
-  ["elevenlabs", "ElevenLabs"],
-];
-function GenderIcon({ gender }: { gender?: string }) {
-  const { t } = useTranslation();
-  const Icon =
-    gender === "male" ? Mars : gender === "female" ? Venus : UserRound;
-  const label = t(
-    `tts.provider.${gender === "male" || gender === "female" ? gender : "unknownGender"}`,
-  );
-  return (
-    <span
-      role="img"
-      aria-label={label}
-      title={label}
-      className="inline-flex shrink-0 text-muted-foreground"
-    >
-      <Icon aria-hidden="true" className="size-4" />
-    </span>
-  );
-}
-
-export function ProviderSelector({
+export { ProviderSelector } from "./provider-shared";
+export function ProviderSettings({
   controller: c,
 }: {
   controller: TtsController;
 }) {
-  const { t } = useTranslation();
-  return (
-    <section className="space-y-2">
-      <Label>{t("tts.provider.title")}</Label>
-      <Select
-        value={c.provider}
-        disabled={c.busy}
-        onValueChange={(v) => c.setProvider(v as TtsProvider)}
-      >
-        <SelectTrigger>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {PROVIDERS.map(([id, name]) => (
-            <SelectItem key={id} value={id}>
-              {name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </section>
-  );
+  if (c.provider === "sonicvoice") {
+    return <SonicVoiceSettings controller={c} />;
+  }
+  return <CatalogProviderSettings controller={c} />;
 }
-export function ProviderSettings({
+
+function CatalogProviderSettings({
   controller: c,
 }: {
   controller: TtsController;

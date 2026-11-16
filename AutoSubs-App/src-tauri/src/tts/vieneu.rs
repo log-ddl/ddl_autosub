@@ -79,19 +79,21 @@ pub async fn tts_install_vieneu(
     let base = super::managed_python::ensure_managed_python(&app, &job_id).await?;
     let dir = root(&app)?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    super::bootstrap::run_step(
-        &app,
-        &job_id,
-        &base.to_string_lossy(),
-        &[
-            "-m".into(),
-            "venv".into(),
-            dir.join(".venv").to_string_lossy().into(),
-        ],
-        "tts.provider.installing",
-        5.0,
-    )
-    .await?;
+    if !python(&app)?.is_file() {
+        super::bootstrap::run_step(
+            &app,
+            &job_id,
+            &base.to_string_lossy(),
+            &[
+                "-m".into(),
+                "venv".into(),
+                dir.join(".venv").to_string_lossy().into(),
+            ],
+            "tts.provider.installing",
+            5.0,
+        )
+        .await?;
+    }
     super::bootstrap::run_step(
         &app,
         &job_id,
@@ -100,12 +102,14 @@ pub async fn tts_install_vieneu(
             "-m".into(),
             "pip".into(),
             "install".into(),
+            "--disable-pip-version-check".into(),
             "vieneu==3.8.3".into(),
         ],
         "tts.provider.installing",
         15.0,
     )
     .await?;
+    super::emit_install_progress(&app, &job_id, "model.download", Some(55.0), "model.download");
     run(&app, &job_id, json!({"install":true})).await?;
     std::fs::write(dir.join(".ready"), "3.8.3").map_err(|e| e.to_string())?;
     Ok(TtsActionOutcome {

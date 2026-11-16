@@ -22,14 +22,6 @@ use super::{
 pub(crate) const MAX_MERGE_INPUTS: usize = 60;
 pub(crate) const DEFAULT_GAP_SEC: f64 = 0.25;
 pub(crate) const OMNIVOICE_SAMPLE_RATE: u32 = 24000;
-pub(crate) const ONLINE_SPLIT_CONCURRENCY: usize = 4;
-
-fn split_concurrency(provider: Option<&str>) -> usize {
-    match provider {
-        Some("capcut" | "elevenlabs") => ONLINE_SPLIT_CONCURRENCY,
-        _ => 1,
-    }
-}
 
 /// Active parent split job -> list of sub-job IDs so `cancel` stops every part.
 static SPLIT_SUBJOBS: Lazy<Mutex<HashMap<String, Vec<String>>>> =
@@ -130,7 +122,7 @@ pub(crate) struct MergeStatus {
     pub error: Option<String>,
 }
 
-async fn run_merge_pass(
+async fn run_merge_pass_once(
     job_id: &str,
     inputs: &[PathBuf],
     gaps: &[f64],
@@ -234,24 +226,41 @@ async fn run_merge_pass(
     }
 }
 
-pub(crate) async fn merge_audio_segments(
-    app: &AppHandle,
+async fn run_merge_pass(
     job_id: &str,
     inputs: &[PathBuf],
     gaps: &[f64],
     output_path: &Path,
     sample_rate: u32,
 ) -> MergeStatus {
-    let out_dir = match output_root(app) {
-        Ok(d) => d,
-        Err(e) => {
+    for attempt in 0..=super::MAX_TTS_RETRIES {
+        let res = run_merge_pass_once(job_id, inputs, gaps, output_path, sample_rate).await;
+        if res.ok || res.canceled || attempt == super::MAX_TTS_RETRIES {
+            return res;
+        }
+        if !super::cancelable_sleep(job_id, super::random_retry_delay()).await {
             return MergeStatus {
                 ok: false,
-                canceled: false,
-                error: Some(e),
+                canceled: true,
+                error: None,
             };
         }
-    };
+    }
+    MergeStatus {
+        ok: false,
+        canceled: is_split_canceled(job_id),
+        error: None,
+    }
+}
+
+pub(crate) async fn merge_audio_segments_in_dir(
+    out_dir: &Path,
+    job_id: &str,
+    inputs: &[PathBuf],
+    gaps: &[f64],
+    output_path: &Path,
+    sample_rate: u32,
+) -> MergeStatus {
     let mut scratch = Vec::new();
 
     let mut files: Vec<PathBuf> = inputs.to_vec();
@@ -320,6 +329,27 @@ pub(crate) async fn merge_audio_segments(
     status
 }
 
+pub(crate) async fn merge_audio_segments(
+    app: &AppHandle,
+    job_id: &str,
+    inputs: &[PathBuf],
+    gaps: &[f64],
+    output_path: &Path,
+    sample_rate: u32,
+) -> MergeStatus {
+    let out_dir = match output_root(app) {
+        Ok(d) => d,
+        Err(e) => {
+            return MergeStatus {
+                ok: false,
+                canceled: false,
+                error: Some(e),
+            };
+        }
+    };
+    merge_audio_segments_in_dir(&out_dir, job_id, inputs, gaps, output_path, sample_rate).await
+}
+
 async fn merge_line_audios(
     app: &AppHandle,
     job_id: &str,
@@ -337,8 +367,11 @@ pub async fn generate_split(
     payload: TtsGeneratePayload,
     parts: Vec<String>,
 ) -> TtsGenerateResult {
+    if payload.provider.as_deref() == Some("sonicvoice") {
+        return super::sonicvoice::generate_batch_split(app, payload, parts).await;
+    }
     let sample_rate = match payload.provider.as_deref() {
-        Some("capcut" | "elevenlabs") => 44100,
+        Some("capcut" | "elevenlabs" | "sonicvoice") => 44100,
         Some("vieneu") => 48000,
         _ => OMNIVOICE_SAMPLE_RATE,
     };
@@ -376,7 +409,6 @@ pub async fn generate_split(
         return TtsGenerateResult::err(e.to_string());
     }
 
-    let concurrency = split_concurrency(payload.provider.as_deref());
     let total = parts.len();
     let mut slots: Vec<Option<(PathBuf, f64)>> = vec![None; total];
     let mut completed = 0usize;
@@ -401,34 +433,27 @@ pub async fn generate_split(
         })
         .collect();
 
-    use futures_util::stream::{self, StreamExt};
-    let mut stream = stream::iter(sub_tasks)
-        .map(|(index, sub_payload)| {
-            let parent_id = parent_job_id.clone();
-            async move {
-                if is_split_canceled(&parent_id) {
-                    return (index, TtsGenerateResult::canceled());
-                }
-                let res = synthesize_single(app, sub_payload, false).await;
-                (index, res)
-            }
-        })
-        .buffer_unordered(concurrency);
+    for (index, sub_payload) in sub_tasks {
+        if is_split_canceled(&parent_job_id) {
+            let _ = cancel_split_job(&parent_job_id);
+            cleanup_slot_outputs(&slots);
+            cleanup_split_tracking(&parent_job_id);
+            return TtsGenerateResult::canceled();
+        }
 
-    while let Some((index, result)) = stream.next().await {
+        let result = synthesize_single(app, sub_payload, false).await;
+
         if is_split_canceled(&parent_job_id) || result.canceled == Some(true) {
             if let Some(p) = result.output_path.as_deref() {
                 let _ = std::fs::remove_file(p);
             }
             let _ = cancel_split_job(&parent_job_id);
-            drop(stream);
             cleanup_slot_outputs(&slots);
             cleanup_split_tracking(&parent_job_id);
             return TtsGenerateResult::canceled();
         }
         if !result.success || result.output_path.is_none() {
             let _ = cancel_split_job(&parent_job_id);
-            drop(stream);
             cleanup_slot_outputs(&slots);
             cleanup_split_tracking(&parent_job_id);
             return TtsGenerateResult::err(
@@ -590,12 +615,19 @@ mod tests {
     }
 
     #[test]
-    fn online_providers_use_bounded_split_concurrency() {
-        assert_eq!(split_concurrency(Some("elevenlabs")), 4);
-        assert_eq!(split_concurrency(Some("capcut")), 4);
-        assert_eq!(split_concurrency(Some("omnivoice")), 1);
-        assert_eq!(split_concurrency(Some("vieneu")), 1);
-        assert_eq!(split_concurrency(None), 1);
+    fn queue_and_retry_delays_stay_within_configured_random_bounds() {
+        for _ in 0..128 {
+            let q = super::super::random_queue_delay().as_millis() as u64;
+            assert!(
+                (super::super::QUEUE_DELAY_MIN_MS..=super::super::QUEUE_DELAY_MAX_MS).contains(&q),
+                "queue delay {q}ms out of 500..=1500ms"
+            );
+            let r = super::super::random_retry_delay().as_millis() as u64;
+            assert!(
+                (super::super::RETRY_DELAY_MIN_MS..=super::super::RETRY_DELAY_MAX_MS).contains(&r),
+                "retry delay {r}ms out of 4500..=5500ms"
+            );
+        }
     }
 
     #[tokio::test]

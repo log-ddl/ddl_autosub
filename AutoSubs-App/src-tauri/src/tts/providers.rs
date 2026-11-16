@@ -530,8 +530,12 @@ async fn online(
 
     let mut attempt = 0usize;
     let mut query_failures = 0u8;
+    let mut skip_poll_sleep = false;
     loop {
-        tokio::time::sleep(Duration::from_millis(poll_delay_ms(attempt))).await;
+        if !skip_poll_sleep {
+            tokio::time::sleep(Duration::from_millis(poll_delay_ms(attempt))).await;
+        }
+        skip_poll_sleep = false;
         attempt += 1;
         if emit_events {
             let pct = (18.0 + (attempt as f64 * 9.0)).min(85.0);
@@ -566,6 +570,8 @@ async fn online(
             }
             Err(err) if query_failures < 2 && is_transient_query_error(&err) => {
                 query_failures += 1;
+                tokio::time::sleep(super::random_retry_delay()).await;
+                skip_poll_sleep = true;
                 continue;
             }
             Err(err) => return Err(err),
@@ -578,27 +584,50 @@ async fn online(
             if emit_events {
                 emit_generate_progress(app, &p.job_id, "saving", Some(92.0), "tts.progress.saving");
             }
-            let response = HTTP_CLIENT
-                .get(url)
-                .send()
-                .await
-                .map_err(|e| e.to_string())?
-                .error_for_status()
-                .map_err(|e| e.to_string())?;
-            let mut stream = response.bytes_stream();
-            use futures_util::StreamExt;
             let mut bytes = Vec::new();
-            while let Some(chunk) = stream.next().await {
-                let chunk = chunk.map_err(|e| e.to_string())?;
-                if bytes.len() + chunk.len() > MAX_AUDIO {
-                    return Err("Audio exceeds 20 MB".into());
+            for dl_attempt in 0..=2usize {
+                let dl_res: Result<Vec<u8>, String> = async {
+                    let response = HTTP_CLIENT
+                        .get(&url)
+                        .send()
+                        .await
+                        .map_err(|e| e.to_string())?
+                        .error_for_status()
+                        .map_err(|e| e.to_string())?;
+                    let mut stream = response.bytes_stream();
+                    use futures_util::StreamExt;
+                    let mut buf = Vec::new();
+                    while let Some(chunk) = stream.next().await {
+                        let chunk = chunk.map_err(|e| e.to_string())?;
+                        if buf.len() + chunk.len() > MAX_AUDIO {
+                            return Err("Audio exceeds 20 MB".into());
+                        }
+                        buf.extend_from_slice(&chunk);
+                    }
+                    if buf.len() < 4
+                        || !(buf.starts_with(b"ID3") || buf[0] == 255 && buf[1] & 224 == 224)
+                    {
+                        return Err("Invalid MP3 response".into());
+                    }
+                    Ok(buf)
                 }
-                bytes.extend_from_slice(&chunk);
-            }
-            if bytes.len() < 4
-                || !(bytes.starts_with(b"ID3") || bytes[0] == 255 && bytes[1] & 224 == 224)
-            {
-                return Err("Invalid MP3 response".into());
+                .await;
+
+                match dl_res {
+                    Ok(valid_bytes) => {
+                        bytes = valid_bytes;
+                        break;
+                    }
+                    Err(err) if dl_attempt < 2 => {
+                        tracing::warn!(
+                            attempt = dl_attempt + 1,
+                            error = %err,
+                            "TTS audio download failed; backing off before retry"
+                        );
+                        tokio::time::sleep(super::random_retry_delay()).await;
+                    }
+                    Err(err) => return Err(err),
+                }
             }
             let dir = output_root(app)?;
             std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;

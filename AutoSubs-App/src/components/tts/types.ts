@@ -1,4 +1,11 @@
-export type TtsProvider = "omnivoice" | "capcut" | "elevenlabs" | "vieneu";
+export type TtsProvider =
+  | "omnivoice"
+  | "capcut"
+  | "elevenlabs"
+  | "vieneu"
+  | "sonicvoice";
+export type SonicSubProvider = "mini" | "eleven";
+export type SonicSubFilter = "all" | "mini" | "eleven" | "cloned";
 export interface CatalogVoice {
   provider: TtsProvider;
   id: string;
@@ -6,6 +13,35 @@ export interface CatalogVoice {
   language: string;
   gender?: string;
   resourceId?: string;
+  subProvider?: SonicSubProvider;
+  previewUrl?: string;
+  description?: string;
+  owned?: boolean;
+  ready?: boolean;
+  featured?: boolean;
+}
+export interface SonicBalance {
+  balanceChars: number;
+  reservedChars: number;
+  availableChars: number;
+}
+export interface SonicModel {
+  modelId: string;
+  name: string;
+  description?: string;
+  badge?: string;
+  creditRatio: number;
+  provider: string;
+  maxChars?: number;
+  languages: string[];
+}
+export interface SonicVoicesQuery {
+  subProvider?: SonicSubFilter;
+  language?: string;
+  gender?: string;
+  query?: string;
+  limit?: number;
+  offset?: number;
 }
 export type TtsMode = "clone" | "design" | "auto";
 export type TtsSplitMode = "default" | "line" | "sentence";
@@ -84,6 +120,8 @@ export interface TtsSpeakerVoicePayload {
   language?: string;
   speed?: number;
   instruction?: string;
+  sonicProvider?: SonicSubProvider;
+  sonicModel?: string;
 }
 
 export interface TtsSpeakerVoiceConfig {
@@ -93,6 +131,9 @@ export interface TtsSpeakerVoiceConfig {
   mode?: TtsMode;
   instruction?: string;
   speed?: number;
+  language?: string;
+  sonicProvider?: SonicSubProvider;
+  sonicModel?: string;
 }
 
 export interface TtsTurnTiming {
@@ -120,6 +161,11 @@ export interface TtsGeneratePayload {
   referenceText?: string;
   speakers?: Record<string, TtsSpeakerVoicePayload>;
   gapSec?: number;
+  sonicProvider?: SonicSubProvider;
+  sonicModel?: string;
+  sonicPitch?: number;
+  sonicStability?: number;
+  sonicSimilarity?: number;
 }
 
 export interface TtsGenerateResult {

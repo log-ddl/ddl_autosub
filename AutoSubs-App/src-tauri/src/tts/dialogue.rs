@@ -3,20 +3,17 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
-use futures_util::stream::{self, StreamExt};
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
-use tokio::sync::Semaphore;
 
 use crate::media::probe::duration_secs;
 
 use super::paths::{output_root, profiles_file};
 use super::split::{
-    DEFAULT_GAP_SEC, OMNIVOICE_SAMPLE_RATE, ONLINE_SPLIT_CONCURRENCY, cancel_split_job,
-    cleanup_slot_outputs, cleanup_split_tracking, cleanup_temp_outputs, is_split_canceled,
-    merge_audio_segments, register_split_subjobs, split_lines, split_sentences,
+    DEFAULT_GAP_SEC, OMNIVOICE_SAMPLE_RATE, cancel_split_job, cleanup_slot_outputs,
+    cleanup_split_tracking, cleanup_temp_outputs, is_split_canceled, merge_audio_segments,
+    register_split_subjobs, split_lines, split_sentences,
 };
 use super::{
     TtsGeneratePayload, TtsGenerateResult, allow_audio_file, emit_generate_progress,
@@ -84,6 +81,10 @@ pub struct TtsSpeakerVoice {
     pub language: Option<String>,
     pub speed: Option<f64>,
     pub instruction: Option<String>,
+    #[serde(default)]
+    pub sonic_provider: Option<String>,
+    #[serde(default)]
+    pub sonic_model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -482,6 +483,27 @@ fn build_turn_payload(
         speakers: None,
         turns: None,
         gap_sec: None,
+        sonic_provider: if provider == "sonicvoice" {
+            spec.sonic_provider.clone()
+        } else {
+            None
+        },
+        sonic_model: if provider == "sonicvoice" {
+            spec.sonic_model.clone().or_else(|| base.sonic_model.clone())
+        } else {
+            None
+        },
+        sonic_pitch: None,
+        sonic_stability: if provider == "sonicvoice" {
+            base.sonic_stability
+        } else {
+            None
+        },
+        sonic_similarity: if provider == "sonicvoice" {
+            base.sonic_similarity
+        } else {
+            None
+        },
     };
 
     hydrate_payload_profile(&mut p, profiles);
@@ -516,7 +538,7 @@ fn build_turn_payload(
 
 fn provider_sample_rate(provider: Option<&str>) -> u32 {
     match provider {
-        Some("capcut" | "elevenlabs") => 44100,
+        Some("capcut" | "elevenlabs" | "sonicvoice") => 44100,
         Some("vieneu") => 48000,
         _ => OMNIVOICE_SAMPLE_RATE,
     }
@@ -741,47 +763,30 @@ pub async fn generate_dialogue(app: &AppHandle, mut payload: TtsGeneratePayload)
         &format!("Synthesizing turn 1/{}...", total),
     );
 
-    let online_sem = Arc::new(Semaphore::new(ONLINE_SPLIT_CONCURRENCY));
-    let local_sem = Arc::new(Semaphore::new(1));
-
     let mut slots: Vec<Option<(PathBuf, f64)>> = vec![None; total];
     let mut completed = 0usize;
 
-    let mut stream = stream::iter(sub_tasks)
-        .map(|(index, sub_payload)| {
-            let parent_id = parent_job_id.clone();
-            let online = online_sem.clone();
-            let local = local_sem.clone();
-            async move {
-                let sem = if is_online_provider(sub_payload.provider.as_deref()) {
-                    online
-                } else {
-                    local
-                };
-                let _permit = sem.acquire_owned().await.ok();
-                if is_split_canceled(&parent_id) {
-                    return (index, TtsGenerateResult::canceled());
-                }
-                let res = synthesize_single(app, sub_payload, false).await;
-                (index, res)
-            }
-        })
-        .buffer_unordered(ONLINE_SPLIT_CONCURRENCY + 1);
+    for (index, sub_payload) in sub_tasks {
+        if is_split_canceled(&parent_job_id) {
+            let _ = cancel_split_job(&parent_job_id);
+            cleanup_slot_outputs(&slots);
+            cleanup_split_tracking(&parent_job_id);
+            return TtsGenerateResult::canceled();
+        }
 
-    while let Some((index, result)) = stream.next().await {
+        let result = synthesize_single(app, sub_payload, false).await;
+
         if is_split_canceled(&parent_job_id) || result.canceled == Some(true) {
             if let Some(p) = result.output_path.as_deref() {
                 let _ = std::fs::remove_file(p);
             }
             let _ = cancel_split_job(&parent_job_id);
-            drop(stream);
             cleanup_slot_outputs(&slots);
             cleanup_split_tracking(&parent_job_id);
             return TtsGenerateResult::canceled();
         }
         if !result.success || result.output_path.is_none() {
             let _ = cancel_split_job(&parent_job_id);
-            drop(stream);
             cleanup_slot_outputs(&slots);
             cleanup_split_tracking(&parent_job_id);
             let speaker = &segments[index].speaker;

@@ -149,6 +149,9 @@ export interface Settings {
     pexelsApiKey: string;
     pixabayApiKey: string;
 
+    // SonicVoice TTS API key, read by the backend
+    sonicvoiceApiKey: string;
+
     // Audio tracks to transcribe, per editor
     selectedInputTracksByApp: Record<Integration, string[]>;
 

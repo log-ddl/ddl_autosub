@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type {
+  SonicSubFilter,
   TtsAdvancedSettings,
   TtsHistoryItem,
   TtsMode,
@@ -50,6 +51,18 @@ interface TtsState {
   speakerVoices: Record<string, TtsSpeakerVoiceConfig>;
   history: TtsHistoryItem[];
   hasSeenModelPrompt: boolean;
+  sonicSubFilter: SonicSubFilter;
+  sonicModel: string;
+  sonicLanguage: string;
+  sonicPitch: number;
+  sonicStability: number;
+  sonicSimilarity: number;
+  setSonicSubFilter: (filter: SonicSubFilter) => void;
+  setSonicModel: (model: string) => void;
+  setSonicLanguage: (lang: string) => void;
+  setSonicPitch: (pitch: number) => void;
+  setSonicStability: (val: number) => void;
+  setSonicSimilarity: (val: number) => void;
   setSpeakerVoice: (tag: string, config: TtsSpeakerVoiceConfig) => void;
   setText: (value: string) => void;
   setInstruction: (value: string) => void;
@@ -109,6 +122,18 @@ export const useTtsStore = create<TtsState>()(
       speakerVoices: {},
       history: [],
       hasSeenModelPrompt: false,
+      sonicSubFilter: "all",
+      sonicModel: "eleven_v3",
+      sonicLanguage: "voice",
+      sonicPitch: 0,
+      sonicStability: 0.5,
+      sonicSimilarity: 0.75,
+      setSonicSubFilter: (sonicSubFilter) => set({ sonicSubFilter }),
+      setSonicModel: (sonicModel) => set({ sonicModel }),
+      setSonicLanguage: (sonicLanguage) => set({ sonicLanguage }),
+      setSonicPitch: (sonicPitch) => set({ sonicPitch }),
+      setSonicStability: (sonicStability) => set({ sonicStability }),
+      setSonicSimilarity: (sonicSimilarity) => set({ sonicSimilarity }),
       setSpeakerVoice: (tag, config) =>
         set((state) => {
           const next = { ...state.speakerVoices };
@@ -192,7 +217,19 @@ export const useTtsStore = create<TtsState>()(
     }),
     {
       name: "autosubs-tts-store-v1",
-      version: 1,
+      version: 2,
+      migrate: (persistedState: unknown, version: number) => {
+        const state =
+          persistedState && typeof persistedState === "object"
+            ? { ...(persistedState as Record<string, unknown>) }
+            : {};
+        if (version < 2) {
+          if (!state.sonicLanguage || state.sonicLanguage === "auto") {
+            state.sonicLanguage = "voice";
+          }
+        }
+        return state as unknown as TtsState;
+      },
     },
   ),
 );

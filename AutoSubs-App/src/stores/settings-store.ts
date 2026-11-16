@@ -63,6 +63,9 @@ export const DEFAULT_SETTINGS: Settings = {
   pexelsApiKey: "",
   pixabayApiKey: "",
 
+  // SonicVoice TTS API key
+  sonicvoiceApiKey: "",
+
   // Audio tracks to transcribe, per editor
   selectedInputTracksByApp: {
     premiere: [],
@@ -132,6 +135,7 @@ export const useSettingsStore = create<SettingsStore>()(
           // Keys the user pasted in are not preferences; keep them.
           pexelsApiKey: state.pexelsApiKey,
           pixabayApiKey: state.pixabayApiKey,
+          sonicvoiceApiKey: state.sonicvoiceApiKey,
         })),
 
       setHydrated: () => set({ isHydrated: true }),

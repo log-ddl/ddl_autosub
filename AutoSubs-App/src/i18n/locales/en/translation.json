@@ -8,7 +8,8 @@
       "aiProjects": "AI Edit projects",
       "stockFootage": "Stock footage",
       "externalAgent": "External agents",
-      "aiEdit": "AI Edit"
+      "aiEdit": "AI Edit",
+      "ttsVoice": "Text to Speech"
     },
     "gpu": {
       "title": "GPU Acceleration",
@@ -78,6 +79,12 @@
         "docs": "Downloading Remotion docs…",
         "links": "Linking into the folder…"
       }
+    },
+    "sonicvoice": {
+      "keyTitle": "SonicVoice API key",
+      "keyDescription": "Key for SonicVoice Minimax, ElevenLabs, and cloning",
+      "placeholder": "Paste key",
+      "getKey": "Get API key"
     }
   },
   "common": {
@@ -1241,6 +1248,47 @@
       "description": "Text outside [A] ... [A] uses the narrator voice.",
       "unclosedHint": "Unclosed [{{tag}}]. Wrap both ends: [{{tag}}] ... [{{tag}}]",
       "closeTagButton": "Close [{{tag}}]"
+    },
+    "sonic": {
+      "subtitle": "Minimax, ElevenLabs, and voice cloning",
+      "missingKey": "Enter your SonicVoice API key first",
+      "apiKeyTitle": "SonicVoice API key",
+      "enterKeyHint": "Paste your wp_ key from SonicVoice to load voices.",
+      "balanceChars": "{{count}} chars",
+      "balanceTooltip": "Reserved: {{reserved}} chars",
+      "refresh": "Refresh voices",
+      "loadError": "Could not load SonicVoice voices",
+      "sourceLabel": "Voice source",
+      "sourceAll": "All voices",
+      "sourceCloned": "My clones",
+      "cloneButton": "Clone voice",
+      "cloneTitle": "Clone SonicVoice voice",
+      "cloneDescription": "Upload a clear 10 to 300s sample (max 20 MB).",
+      "cloneSubmit": "Clone now",
+      "cloneSuccess": "Cloned voice ready to use",
+      "cloneError": "Could not clone voice",
+      "deleteClone": "Delete cloned voice",
+      "deleteSuccess": "Cloned voice deleted",
+      "deleteError": "Could not delete cloned voice",
+      "cloneBadge": "Clone",
+      "searchHint": "Search name or voice ID",
+      "neutral": "Neutral",
+      "modelLabel": "Model",
+      "stabilityLabel": "Stability",
+      "stabilityCreative": "Creative",
+      "stabilityNatural": "Natural",
+      "stabilityRobust": "Robust",
+      "similarityLabel": "Similarity boost",
+      "pitchLabel": "Pitch",
+      "noiseReduction": "Reduce background noise",
+      "selectedVoiceTitle": "Selected voice",
+      "voiceOrigin": "Origin: {{lang}}",
+      "spokenLanguage": "Spoken language",
+      "matchVoiceLang": "Match voice: {{lang}}",
+      "matchVoiceShort": "Voice ({{lang}})",
+      "filterAccent": "Filter accent",
+      "filterGender": "Filter gender",
+      "filterShort": "Filter: {{lang}}"
     }
   }
 }

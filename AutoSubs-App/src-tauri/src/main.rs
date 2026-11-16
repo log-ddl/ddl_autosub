@@ -379,6 +379,11 @@ fn main() {
             tts::tts_sync_profiles,
             tts::vieneu::tts_vieneu_status,
             tts::vieneu::tts_install_vieneu,
+            tts::sonicvoice::tts_sonicvoice_balance,
+            tts::sonicvoice::tts_sonicvoice_models,
+            tts::sonicvoice::tts_sonicvoice_voices,
+            tts::sonicvoice::tts_sonicvoice_clone_voice,
+            tts::sonicvoice::tts_sonicvoice_delete_voice,
             tts::tts_install_model,
             tts::tts_remove_model,
             tts::tts_remove_voice_prompt,
@@ -441,7 +446,7 @@ fn main() {
                     // A preview dev server is a separate process tree; don't orphan it.
                     crate::ai_cli::preview::shutdown();
                     crate::studio::shutdown();
-                    crate::tts::shutdown();
+                    crate::tts::shutdown(app);
 
                     #[cfg(target_os = "windows")]
                     {

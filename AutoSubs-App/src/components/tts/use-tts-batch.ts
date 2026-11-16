@@ -5,16 +5,35 @@ import { createTtsJobId, ttsClient } from "./tts-client";
 import type { TtsBatchItem, TtsGenerateResult } from "./types";
 
 const MAX_CONSECUTIVE_FAILURES = 3;
+const MAX_BATCH_STEP_RETRIES = 3;
+const RETRY_DELAY_MIN_MS = 4500;
+const RETRY_DELAY_MAX_MS = 5500;
 
 interface UseTtsBatchOptions {
   validate: () => string | null;
   runGeneration: (jobId: string, text: string) => Promise<TtsGenerateResult>;
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
+function randomRetryDelayMs(): number {
+  return Math.floor(
+    RETRY_DELAY_MIN_MS +
+      Math.random() * (RETRY_DELAY_MAX_MS - RETRY_DELAY_MIN_MS + 1),
+  );
+}
+
+async function cancelableDelay(
+  ms: number,
+  shouldStop: () => boolean,
+): Promise<boolean> {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    if (shouldStop()) return false;
+    const step = Math.min(100, deadline - Date.now());
+    if (step > 0) {
+      await new Promise((resolve) => setTimeout(resolve, step));
+    }
+  }
+  return !shouldStop();
 }
 
 export function useTtsBatch({ validate, runGeneration }: UseTtsBatchOptions) {
@@ -157,7 +176,37 @@ export function useTtsBatch({ validate, runGeneration }: UseTtsBatchOptions) {
         if (stopRef.current) break;
         updateItem(entry.path, { status: "running", error: undefined });
 
-        const file = await ttsClient.readBatchText(entry.path);
+        let file = await ttsClient.readBatchText(entry.path).catch((err) => ({
+          success: false,
+          text: undefined,
+          error: err instanceof Error ? err.message : String(err),
+        }));
+        for (
+          let attempt = 0;
+          !file.success &&
+          attempt < MAX_BATCH_STEP_RETRIES &&
+          file.error !== "Only .txt files are supported" &&
+          file.error !== "Text file exceeds 5 MB limit";
+          attempt += 1
+        ) {
+          if (
+            !(await cancelableDelay(
+              randomRetryDelayMs(),
+              () => stopRef.current,
+            ))
+          ) {
+            break;
+          }
+          file = await ttsClient.readBatchText(entry.path).catch((err) => ({
+            success: false,
+            text: undefined,
+            error: err instanceof Error ? err.message : String(err),
+          }));
+        }
+        if (stopRef.current) {
+          updateItem(entry.path, { status: "pending", error: undefined });
+          break;
+        }
         if (!file.text?.trim()) {
           updateItem(entry.path, {
             status: "error",
@@ -168,15 +217,28 @@ export function useTtsBatch({ validate, runGeneration }: UseTtsBatchOptions) {
         }
 
         const jobId = createTtsJobId("generate");
-        let result: TtsGenerateResult;
-        try {
-          result = await runGeneration(jobId, file.text.trim());
-        } catch (error) {
-          result = {
-            success: false,
-            error: error instanceof Error ? error.message : String(error),
-          };
+        let result: TtsGenerateResult | undefined;
+        for (let attempt = 0; attempt <= MAX_BATCH_STEP_RETRIES; attempt += 1) {
+          try {
+            result = await runGeneration(jobId, file.text.trim());
+            break;
+          } catch (error) {
+            result = {
+              success: false,
+              error: error instanceof Error ? error.message : String(error),
+            };
+            if (
+              attempt === MAX_BATCH_STEP_RETRIES ||
+              !(await cancelableDelay(
+                randomRetryDelayMs(),
+                () => stopRef.current,
+              ))
+            ) {
+              break;
+            }
+          }
         }
+        result ??= { success: false };
 
         if (result.canceled || (stopRef.current && !result.success)) {
           updateItem(entry.path, { status: "pending", error: undefined });
@@ -189,10 +251,38 @@ export function useTtsBatch({ validate, runGeneration }: UseTtsBatchOptions) {
           continue;
         }
 
-        const saved = await ttsClient.saveBatchOutput(
-          result.outputPath,
-          entry.path,
-        );
+        let saved = await ttsClient
+          .saveBatchOutput(result.outputPath, entry.path)
+          .catch((err) => ({
+            success: false,
+            outputPath: undefined,
+            error: err instanceof Error ? err.message : String(err),
+          }));
+        for (
+          let attempt = 0;
+          !saved.success && attempt < MAX_BATCH_STEP_RETRIES;
+          attempt += 1
+        ) {
+          if (
+            !(await cancelableDelay(
+              randomRetryDelayMs(),
+              () => stopRef.current,
+            ))
+          ) {
+            break;
+          }
+          saved = await ttsClient
+            .saveBatchOutput(result.outputPath, entry.path)
+            .catch((err) => ({
+              success: false,
+              outputPath: undefined,
+              error: err instanceof Error ? err.message : String(err),
+            }));
+        }
+        if (stopRef.current && !saved.success) {
+          updateItem(entry.path, { status: "pending", error: undefined });
+          break;
+        }
         if (!saved.success) {
           fail(entry.path, saved.error || t("tts.batch.saveFailed"));
           if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) break;
@@ -206,7 +296,6 @@ export function useTtsBatch({ validate, runGeneration }: UseTtsBatchOptions) {
         });
         done += 1;
         consecutiveFailures = 0;
-        if (!stopRef.current) await delay(300);
       }
     } finally {
       setRunning(false);

@@ -8,7 +8,8 @@
       "aiProjects": "Project AI Edit",
       "stockFootage": "Footage miễn phí",
       "externalAgent": "Agent bên ngoài",
-      "aiEdit": "AI Edit"
+      "aiEdit": "AI Edit",
+      "ttsVoice": "Giọng nói TTS"
     },
     "gpu": {
       "title": "Tăng tốc GPU",
@@ -78,6 +79,12 @@
         "docs": "Đang tải tài liệu Remotion…",
         "links": "Đang nối vào thư mục…"
       }
+    },
+    "sonicvoice": {
+      "keyTitle": "API key SonicVoice",
+      "keyDescription": "Key dùng giọng Minimax, ElevenLabs và nhân bản",
+      "placeholder": "Dán key",
+      "getKey": "Lấy API key"
     }
   },
   "common": {
@@ -1241,6 +1248,47 @@
       "description": "Chữ ngoài [A] ... [A] tự dùng giọng dẫn chuyện.",
       "unclosedHint": "Thẻ [{{tag}}] chưa đóng. Hãy bọc [{{tag}}] ... [{{tag}}]",
       "closeTagButton": "Đóng [{{tag}}]"
+    },
+    "sonic": {
+      "subtitle": "Minimax, ElevenLabs và nhân bản giọng",
+      "missingKey": "Hãy nhập API key SonicVoice trước",
+      "apiKeyTitle": "API key SonicVoice",
+      "enterKeyHint": "Dán key wp_ từ SonicVoice để tải danh sách giọng.",
+      "balanceChars": "{{count}} ký tự",
+      "balanceTooltip": "Đang giữ: {{reserved}} ký tự",
+      "refresh": "Làm mới giọng",
+      "loadError": "Không tải được giọng SonicVoice",
+      "sourceLabel": "Nguồn giọng",
+      "sourceAll": "Tất cả giọng",
+      "sourceCloned": "Giọng của tôi",
+      "cloneButton": "Nhân bản",
+      "cloneTitle": "Nhân bản giọng mới",
+      "cloneDescription": "Tải mẫu giọng rõ dài 10 đến 300 giây (tối đa 20 MB).",
+      "cloneSubmit": "Tạo giọng",
+      "cloneSuccess": "Đã tạo giọng nhân bản",
+      "cloneError": "Không nhân bản được giọng",
+      "deleteClone": "Xóa giọng nhân bản",
+      "deleteSuccess": "Đã xóa giọng nhân bản",
+      "deleteError": "Không xóa được giọng nhân bản",
+      "cloneBadge": "Riêng",
+      "searchHint": "Tìm theo tên hoặc ID",
+      "neutral": "Trung tính",
+      "modelLabel": "Model",
+      "stabilityLabel": "Độ ổn định",
+      "stabilityCreative": "Sáng tạo",
+      "stabilityNatural": "Tự nhiên",
+      "stabilityRobust": "Vững",
+      "similarityLabel": "Độ giống giọng",
+      "pitchLabel": "Cao độ",
+      "noiseReduction": "Giảm nhiễu nền mẫu",
+      "selectedVoiceTitle": "Giọng đang chọn",
+      "voiceOrigin": "Gốc: {{lang}}",
+      "spokenLanguage": "Ngôn ngữ đọc",
+      "matchVoiceLang": "Theo giọng gốc: {{lang}}",
+      "matchVoiceShort": "Theo giọng ({{lang}})",
+      "filterAccent": "Lọc giọng gốc",
+      "filterGender": "Lọc giới tính",
+      "filterShort": "Lọc: {{lang}}"
     }
   }
 }

@@ -3,6 +3,9 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   TtsActionOutcome,
   CatalogVoice,
+  SonicBalance,
+  SonicModel,
+  SonicVoicesQuery,
   TtsBatchSaveResult,
   TtsBatchScanResult,
   TtsBatchTextResult,
@@ -30,6 +33,27 @@ export function toLocalTtsAudioUrl(filePath: string): string {
 export const ttsClient = {
   getCatalog(): Promise<CatalogVoice[]> {
     return invoke("tts_voice_catalog");
+  },
+  getSonicBalance(): Promise<SonicBalance> {
+    return invoke("tts_sonicvoice_balance");
+  },
+  getSonicModels(): Promise<SonicModel[]> {
+    return invoke("tts_sonicvoice_models");
+  },
+  getSonicVoices(query?: SonicVoicesQuery): Promise<CatalogVoice[]> {
+    return invoke("tts_sonicvoice_voices", { query });
+  },
+  cloneSonicVoice(payload: {
+    audioPath: string;
+    name: string;
+    language?: string;
+    gender?: string;
+    needNoiseReduction?: boolean;
+  }): Promise<CatalogVoice> {
+    return invoke("tts_sonicvoice_clone_voice", payload);
+  },
+  deleteSonicVoice(voiceId: string): Promise<TtsActionOutcome> {
+    return invoke("tts_sonicvoice_delete_voice", { voiceId });
   },
   syncProfiles(profiles: VoiceProfile[]): Promise<void> {
     return invoke("tts_sync_profiles", { profiles });

@@ -28,6 +28,7 @@ import { initI18n, normalizeUiLanguage } from "@/i18n";
 import { AiEditProjects } from "@/components/settings/ai-edit-projects";
 import { WorkFolderSettings } from "@/components/settings/work-folder-settings";
 import { StockFootageKeys } from "@/components/settings/stock-footage-keys";
+import { SonicVoiceKeySetting } from "@/components/settings/sonicvoice-key-setting";
 import { ExternalAgentPanel } from "@/components/external-agent/external-agent-panel";
 import { uiLanguages } from "@/lib/languages";
 import { useRef } from "react";
@@ -302,6 +303,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
             {/* Free stock footage keys for the AI Edit agent's search_media */}
             <StockFootageKeys />
+
+            {/* SonicVoice TTS API key */}
+            <SonicVoiceKeySetting />
 
             {/* Claude Code, Antigravity... driving AutoSubs from their own app */}
             <ExternalAgentPanel />

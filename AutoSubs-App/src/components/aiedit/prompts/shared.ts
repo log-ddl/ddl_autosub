@@ -115,7 +115,7 @@ export const DOWNLOAD_TOOLS_DOC = `### Tìm, tải và xem footage (MCP server \
 - \`analyze_media\`: các shot và contact sheet (ảnh lưới có ghi giây) của video đã tải; mở ảnh để xem rồi chọn \`srcIn\` / \`srcOut\` cho \`build_storyboard\`. Không tự cắt file: trình dựng sẽ cắt khi đặt clip.
 - \`remove_background\`: tách nền phẳng (trắng hoặc một màu) của ảnh ra PNG trong suốt trong \`media/images\`. CHỈ dùng khi người dùng bảo tách nền; không tự gọi như một bước chuẩn bị trước khi đặt ảnh. PNG đã trong suốt thì đặt thẳng lên timeline.
 - \`save_article\`: lưu bài báo (chữ thành \`article.md\`, ảnh trong \`images/\`) vào \`articles\`.
-- \`list_tts_voices\` & \`generate_speech\`: tra giọng đọc (CapCut, VieNeu, OmniVoice, ElevenLabs, giọng clone) và tạo lồng tiếng độc thoại hoặc hội thoại nhiều vai (bọc lời thoại nhân vật hai đầu \`[A] ... [A]\` hoặc \`[ID1] ... [ID1]\` kèm bảng \`speakers\`, phần ngoài mặc định là giọng dẫn chuyện) vào \`media/audio/voice\`, trả về id audio + \`.srt\` kèm mốc giây từng lượt.
+- \`list_tts_voices\` & \`generate_speech\`: tra giọng đọc (CapCut, VieNeu, OmniVoice, ElevenLabs, SonicVoice, giọng clone) và tạo lồng tiếng độc thoại hoặc hội thoại nhiều vai (bọc lời thoại nhân vật hai đầu \`[A] ... [A]\` hoặc \`[ID1] ... [ID1]\` kèm bảng \`speakers\`, phần ngoài mặc định là giọng dẫn chuyện) vào \`media/audio/voice\`, trả về id audio + \`.srt\` kèm mốc giây từng lượt.
 - Tool báo cần đăng nhập thì nhờ người dùng đăng nhập trang đó ở tab Download rồi thử lại. Tool báo thiếu API key Pexels / Pixabay thì nhờ người dùng thêm key miễn phí trong Cài đặt. Chỉ tải nội dung người dùng có quyền sử dụng.`;
 
 export const SPLIT_DOC = `**Cắt đôi clip tại một thời điểm** (\`split_clips\`, như dao cắt Razor):

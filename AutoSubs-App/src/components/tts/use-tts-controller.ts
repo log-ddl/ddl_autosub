@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useTtsStore } from "@/stores/tts-store";
+import { useSettingsStore } from "@/stores/settings-store";
 import {
   extractDialogueTags,
   findUnclosedDialogueTag,
@@ -14,6 +15,9 @@ import {
   OMNIVOICE_MODEL,
   type TtsGeneratePayload,
   type CatalogVoice,
+  type SonicBalance,
+  type SonicModel,
+  type SonicVoicesQuery,
   type TtsGenerateResult,
   type TtsModelStatus,
   type TtsProgressEvent,
@@ -35,6 +39,8 @@ function errorMessage(error: unknown, fallback: string): string {
 export function useTtsController() {
   const { t } = useTranslation();
   const store = useTtsStore();
+  const sonicvoiceApiKey = useSettingsStore((s) => s.sonicvoiceApiKey);
+  const updateSetting = useSettingsStore((s) => s.updateSetting);
 
   const [selectedStatus, setSelectedStatus] = useState<TtsModelStatus>();
   const [hasLoadedStatus, setHasLoadedStatus] = useState(false);
@@ -53,6 +59,7 @@ export function useTtsController() {
   const previewJob = useRef<string>();
   const previewEpoch = useRef(0);
   const previewCache = useRef(new Map<string, string>());
+  const failedPreviewUrls = useRef(new Set<string>());
   const [previewVoiceKey, setPreviewVoiceKey] = useState<string>();
   const [previewLoading, setPreviewLoading] = useState(false);
 
@@ -87,13 +94,236 @@ export function useTtsController() {
       .catch(() => setCatalogError(true));
   }, []);
   useEffect(loadCatalog, [loadCatalog]);
+
+  const [sonicVoices, setSonicVoices] = useState<CatalogVoice[]>([]);
+  const [sonicKnownVoices, setSonicKnownVoices] = useState<Record<string, CatalogVoice>>({});
+  const [sonicModels, setSonicModels] = useState<SonicModel[]>([]);
+  const [sonicBalance, setSonicBalance] = useState<SonicBalance>();
+  const [sonicLoading, setSonicLoading] = useState(false);
+  const [sonicCloning, setSonicCloning] = useState(false);
+  const [sonicError, setSonicError] = useState<string>();
+  const [sonicHasEnvKey, setSonicHasEnvKey] = useState(false);
+  const sonicSearchReqRef = useRef(0);
+  const sonicFetchedQueriesRef = useRef(new Set<string>());
+
+  const hasSonicKey = Boolean(sonicvoiceApiKey.trim()) || sonicHasEnvKey;
+
+  useEffect(() => {
+    sonicFetchedQueriesRef.current.clear();
+  }, [sonicvoiceApiKey]);
+
+  const rememberSonicVoices = useCallback((items: CatalogVoice[]) => {
+    if (!items.length) return;
+    setSonicKnownVoices((prev) => {
+      const next = { ...prev };
+      for (const item of items) {
+        next[`${item.language}:${item.id}`] = item;
+      }
+      return next;
+    });
+  }, []);
+
+  const ensureSonicVoicesLoaded = useCallback(
+    async (query: SonicVoicesQuery) => {
+      if (!hasSonicKey) return;
+      const cacheKey = JSON.stringify({
+        subProvider: query.subProvider ?? "all",
+        language: query.language ?? "all",
+        gender: query.gender ?? "all",
+        query: query.query ?? "",
+        limit: query.limit ?? 200,
+      });
+      if (sonicFetchedQueriesRef.current.has(cacheKey)) return;
+      sonicFetchedQueriesRef.current.add(cacheKey);
+      try {
+        const items = await ttsClient.getSonicVoices(query);
+        rememberSonicVoices(items);
+      } catch {
+        sonicFetchedQueriesRef.current.delete(cacheKey);
+      }
+    },
+    [hasSonicKey, rememberSonicVoices],
+  );
+
+  const refreshSonicBalance = useCallback(async () => {
+    try {
+      const bal = await ttsClient.getSonicBalance();
+      setSonicBalance(bal);
+      setSonicHasEnvKey(true);
+      return bal;
+    } catch {
+      return undefined;
+    }
+  }, []);
+
+  const searchSonicVoices = useCallback(
+    async (query?: SonicVoicesQuery) => {
+      const reqId = ++sonicSearchReqRef.current;
+      setSonicLoading(true);
+      setSonicError(undefined);
+      try {
+        const items = await ttsClient.getSonicVoices(query);
+        if (reqId !== sonicSearchReqRef.current) return;
+        setSonicHasEnvKey(true);
+        setSonicVoices(items);
+        rememberSonicVoices(items);
+      } catch (error) {
+        if (reqId !== sonicSearchReqRef.current) return;
+        const msg = errorMessage(error, t("tts.sonic.loadError"));
+        if (msg.includes("Missing SonicVoice API key")) {
+          setSonicHasEnvKey(false);
+          setSonicVoices([]);
+          setSonicBalance(undefined);
+          setSonicError(undefined);
+        } else {
+          setSonicError(msg);
+        }
+      } finally {
+        if (reqId === sonicSearchReqRef.current) {
+          setSonicLoading(false);
+        }
+      }
+    },
+    [rememberSonicVoices, t],
+  );
+
+  const refreshSonicAll = useCallback(
+    async (query?: SonicVoicesQuery) => {
+      const reqId = ++sonicSearchReqRef.current;
+      setSonicLoading(true);
+      setSonicError(undefined);
+      try {
+        const [bal, models, items] = await Promise.all([
+          ttsClient.getSonicBalance(),
+          ttsClient.getSonicModels(),
+          ttsClient.getSonicVoices(query),
+        ]);
+        if (reqId !== sonicSearchReqRef.current) return;
+        setSonicHasEnvKey(true);
+        setSonicBalance(bal);
+        setSonicModels(models);
+        setSonicVoices(items);
+        rememberSonicVoices(items);
+      } catch (error) {
+        if (reqId !== sonicSearchReqRef.current) return;
+        const msg = errorMessage(error, t("tts.sonic.loadError"));
+        if (msg.includes("Missing SonicVoice API key")) {
+          setSonicHasEnvKey(false);
+          setSonicBalance(undefined);
+          setSonicModels([]);
+          setSonicVoices([]);
+          setSonicError(undefined);
+        } else {
+          setSonicError(msg);
+        }
+      } finally {
+        if (reqId === sonicSearchReqRef.current) {
+          setSonicLoading(false);
+        }
+      }
+    },
+    [rememberSonicVoices, t],
+  );
+
+  const setSonicvoiceApiKey = useCallback(
+    (key: string) => {
+      updateSetting("sonicvoiceApiKey", key);
+    },
+    [updateSetting],
+  );
+
+  const cloneSonicVoice = useCallback(
+    async (params: {
+      audioPath: string;
+      name: string;
+      language?: string;
+      gender?: string;
+      needNoiseReduction?: boolean;
+    }): Promise<CatalogVoice | undefined> => {
+      setSonicCloning(true);
+      try {
+        const created = await ttsClient.cloneSonicVoice(params);
+        setSonicVoices((prev) => [
+          created,
+          ...prev.filter((v) => v.id !== created.id),
+        ]);
+        rememberSonicVoices([created]);
+        store.setProvider("sonicvoice");
+        store.setProviderVoice(`${created.language}:${created.id}`);
+        toast.success(t("tts.sonic.cloneSuccess"));
+        return created;
+      } catch (error) {
+        toast.error(errorMessage(error, t("tts.sonic.cloneError")));
+        return undefined;
+      } finally {
+        setSonicCloning(false);
+      }
+    },
+    [rememberSonicVoices, store, t],
+  );
+
+  const deleteSonicVoice = useCallback(
+    async (voiceId: string): Promise<boolean> => {
+      try {
+        await ttsClient.deleteSonicVoice(voiceId);
+        setSonicVoices((prev) => prev.filter((v) => v.id !== voiceId));
+        setSonicKnownVoices((prev) => {
+          const next = { ...prev };
+          for (const k of Object.keys(next)) {
+            if (next[k].id === voiceId) delete next[k];
+          }
+          return next;
+        });
+        if (
+          provider === "sonicvoice" &&
+          store.providerVoiceIds.sonicvoice?.endsWith(`:${voiceId}`)
+        ) {
+          store.setProviderVoice("");
+        }
+        toast.success(t("tts.sonic.deleteSuccess"));
+        return true;
+      } catch (error) {
+        toast.error(errorMessage(error, t("tts.sonic.deleteError")));
+        return false;
+      }
+    },
+    [provider, store, t],
+  );
+
+  useEffect(() => {
+    const trimmed = sonicvoiceApiKey.trim();
+    if (!trimmed && provider !== "sonicvoice") return;
+    void refreshSonicAll({
+      subProvider: store.sonicSubFilter,
+    });
+  }, [provider, refreshSonicAll, sonicvoiceApiKey, store.sonicSubFilter]);
+
+  const allCatalogVoices = useMemo(() => {
+    const known = Object.values(sonicKnownVoices);
+    if (!known.length) return catalog;
+    return [...catalog, ...known];
+  }, [catalog, sonicKnownVoices]);
+
   const voices = useMemo(
-    () => catalog.filter((v) => v.provider === provider),
-    [catalog, provider],
+    () =>
+      provider === "sonicvoice"
+        ? sonicVoices
+        : catalog.filter((v) => v.provider === provider),
+    [catalog, provider, sonicVoices],
   );
-  const selectedVoice = voices.find(
-    (v) => `${v.language}:${v.id}` === store.providerVoiceIds[provider],
-  );
+
+  const selectedVoice = useMemo(() => {
+    const sel = store.providerVoiceIds[provider];
+    if (!sel) return undefined;
+    if (provider === "sonicvoice") {
+      return (
+        sonicVoices.find((v) => `${v.language}:${v.id}` === sel) ??
+        sonicKnownVoices[sel]
+      );
+    }
+    return voices.find((v) => `${v.language}:${v.id}` === sel);
+  }, [provider, sonicKnownVoices, sonicVoices, store.providerVoiceIds, voices]);
+
   const vieneuProfile = store.voiceProfiles.find(
     (p) => p.id === store.vieneuProfileId,
   );
@@ -108,7 +338,9 @@ export function useTtsController() {
               ? "VieNeu"
               : provider === "capcut"
                 ? "CapCut"
-                : "ElevenLabs",
+                : provider === "sonicvoice"
+                  ? "SonicVoice"
+                  : "ElevenLabs",
           parameterSize:
             provider === "vieneu" ? "CPU" : t("tts.provider.online"),
         };
@@ -129,7 +361,9 @@ export function useTtsController() {
       ? `${selectedModel.parameterSize} · ${t(`tts.mode.${mode}`)}`
       : provider === "vieneu"
         ? t("tts.provider.local")
-        : t("tts.provider.viaCapcut");
+        : provider === "sonicvoice"
+          ? t("tts.sonic.subtitle")
+          : t("tts.provider.viaCapcut");
 
   const [omniReady, setOmniReady] = useState(false);
   const [vieneuReady, setVieneuReady] = useState(false);
@@ -187,12 +421,15 @@ export function useTtsController() {
       if (targetProvider === "capcut" || targetProvider === "elevenlabs") {
         return true;
       }
+      if (targetProvider === "sonicvoice") {
+        return hasSonicKey;
+      }
       if (targetProvider === provider && selectedStatus) {
         return selectedStatus.status === "ready";
       }
       return targetProvider === "vieneu" ? vieneuReady : omniReady;
     },
-    [omniReady, provider, selectedStatus, vieneuReady],
+    [hasSonicKey, omniReady, provider, selectedStatus, vieneuReady],
   );
 
   useEffect(() => {
@@ -388,6 +625,7 @@ export function useTtsController() {
       const fallbackProvider: TtsProvider =
         provider === "capcut" ||
         provider === "elevenlabs" ||
+        (provider === "sonicvoice" && hasSonicKey) ||
         (provider === "vieneu" && isProviderReady("vieneu"))
           ? provider
           : catalog.some(
@@ -405,7 +643,7 @@ export function useTtsController() {
           : { provider: "omnivoice", mode: "auto" };
       }
 
-      const providerCatalog = catalog.filter(
+      const providerCatalog = allCatalogVoices.filter(
         (v) => v.provider === fallbackProvider,
       );
       const sameLang = providerCatalog.filter(
@@ -423,11 +661,14 @@ export function useTtsController() {
       return {
         provider: fallbackProvider,
         voiceKey: picked ? voiceKey(picked) : undefined,
+        sonicProvider: picked?.subProvider,
       };
     },
     [
+      allCatalogVoices,
       catalog,
       compatibleProfiles,
+      hasSonicKey,
       isProviderReady,
       provider,
       selectedVoice,
@@ -501,27 +742,44 @@ export function useTtsController() {
           continue;
         }
 
-        const matchedVoice = catalog.find(
+        const matchedVoice = allCatalogVoices.find(
           (v) => v.provider === cfg.provider && voiceKey(v) === cfg.voiceKey,
         );
         if (!matchedVoice) {
           return { error: t("tts.dialogue.chooseSpeakerVoice", { tag }) };
         }
+        const subProv =
+          cfg.provider === "sonicvoice"
+            ? (cfg.sonicProvider ?? matchedVoice.subProvider)
+            : undefined;
+        const spkLangPref = cfg.language ?? "voice";
+        const resolvedSpkLang =
+          cfg.provider === "sonicvoice"
+            ? spkLangPref === "voice"
+              ? matchedVoice.language
+              : spkLangPref
+            : matchedVoice.language;
         speakers[tag] = {
           provider: cfg.provider,
           voiceId: matchedVoice.id,
-          language: matchedVoice.language,
+          language: resolvedSpkLang,
           speed: cfg.speed ?? store.speed,
+          sonicProvider: subProv,
+          sonicModel:
+            cfg.provider === "sonicvoice" && subProv === "eleven"
+              ? (cfg.sonicModel ?? store.sonicModel)
+              : undefined,
         };
       }
 
       return { speakers };
     },
     [
-      catalog,
+      allCatalogVoices,
       getSpeakerConfig,
       isProviderReady,
       store.language,
+      store.sonicModel,
       store.speed,
       store.voiceProfiles,
       t,
@@ -557,6 +815,9 @@ export function useTtsController() {
         tags.length === 0 || previewTurns.some((turn) => turn.isNarrator);
 
       if (hasNarratorTurn) {
+        if (provider === "sonicvoice" && !hasSonicKey) {
+          return t("tts.sonic.missingKey");
+        }
         if (
           provider !== "omnivoice" &&
           !selectedVoice &&
@@ -591,6 +852,7 @@ export function useTtsController() {
       return null;
     },
     [
+      hasSonicKey,
       mode,
       resolveSpeakersForText,
       selectedProfile,
@@ -608,6 +870,12 @@ export function useTtsController() {
   const buildGeneratePayload = useCallback(
     (jobId: string, text: string): TtsGeneratePayload => {
       const { speakers } = resolveSpeakersForText(text);
+      const isSonicEleven =
+        provider === "sonicvoice" && selectedVoice?.subProvider === "eleven";
+      const resolvedSonicLang =
+        store.sonicLanguage === "voice"
+          ? (selectedVoice?.language ?? "auto")
+          : store.sonicLanguage;
       return {
         jobId,
         text,
@@ -618,7 +886,9 @@ export function useTtsController() {
         language:
           provider === "omnivoice"
             ? store.language
-            : (selectedVoice?.language ?? store.language),
+            : provider === "sonicvoice"
+              ? resolvedSonicLang
+              : (selectedVoice?.language ?? store.language),
         speed: store.speed,
         numStep: store.numStep,
         advancedSettings: store.advancedEnabled
@@ -640,6 +910,15 @@ export function useTtsController() {
             ? selectedProfile?.referenceText
             : undefined,
         speakers,
+        sonicProvider:
+          provider === "sonicvoice" ? selectedVoice?.subProvider : undefined,
+        sonicModel: isSonicEleven ? store.sonicModel : undefined,
+        sonicPitch:
+          provider === "sonicvoice" && !isSonicEleven
+            ? store.sonicPitch
+            : undefined,
+        sonicStability: isSonicEleven ? store.sonicStability : undefined,
+        sonicSimilarity: isSonicEleven ? store.sonicSimilarity : undefined,
       };
     },
     [
@@ -651,6 +930,11 @@ export function useTtsController() {
       store.instruction,
       store.language,
       store.numStep,
+      store.sonicLanguage,
+      store.sonicModel,
+      store.sonicPitch,
+      store.sonicSimilarity,
+      store.sonicStability,
       store.speed,
       store.splitMode,
       provider,
@@ -671,12 +955,16 @@ export function useTtsController() {
         message: t("tts.toast.preparing"),
       });
       try {
-        return await ttsClient.generate(buildGeneratePayload(jobId, text));
+        const res = await ttsClient.generate(buildGeneratePayload(jobId, text));
+        if (res.success && provider === "sonicvoice") {
+          void refreshSonicBalance();
+        }
+        return res;
       } finally {
         setActiveJobId(undefined);
       }
     },
-    [buildGeneratePayload, stopPreview, t],
+    [buildGeneratePayload, provider, refreshSonicBalance, stopPreview, t],
   );
 
   const validateBatch = useCallback(() => {
@@ -697,12 +985,46 @@ export function useTtsController() {
       }
       if (activeJobId || previewJob.current || batchRunningRef.current) return;
       if (!isProviderReady(voice.provider)) {
-        toast.info(t("tts.provider.installFirst"));
+        toast.info(
+          voice.provider === "sonicvoice"
+            ? t("tts.sonic.missingKey")
+            : t("tts.provider.installFirst"),
+        );
         return;
       }
       stopPreview();
       const epoch = previewEpoch.current;
       setPreviewVoiceKey(key);
+
+      const directUrl =
+        voice.previewUrl &&
+        !failedPreviewUrls.current.has(key) &&
+        (voice.previewUrl.startsWith("https://") ||
+          voice.previewUrl.startsWith("http://127.0.0.1"))
+          ? voice.previewUrl
+          : undefined;
+
+      if (directUrl) {
+        try {
+          const audio = new Audio(directUrl);
+          previewAudio.current = audio;
+          audio.onended = () => {
+            if (epoch === previewEpoch.current) stopPreview();
+          };
+          audio.onerror = () => {
+            if (epoch !== previewEpoch.current) return;
+            failedPreviewUrls.current.add(key);
+            stopPreview();
+            toast.error(t("tts.provider.previewFailed"));
+          };
+          await audio.play();
+          return;
+        } catch {
+          if (epoch !== previewEpoch.current) return;
+          failedPreviewUrls.current.add(key);
+        }
+      }
+
       let path = previewCache.current.get(key);
       try {
         if (!path) {
@@ -727,6 +1049,11 @@ export function useTtsController() {
               splitMode: "default",
               language: voice.language,
               speed: 1,
+              sonicProvider: voice.subProvider,
+              sonicModel:
+                voice.provider === "sonicvoice" && voice.subProvider === "eleven"
+                  ? store.sonicModel
+                  : undefined,
             });
             if (epoch !== previewEpoch.current) return;
             if (result.canceled) {
@@ -737,6 +1064,9 @@ export function useTtsController() {
               throw new Error(result.error || t("tts.provider.previewFailed"));
             path = result.outputPath;
             previewCache.current.set(key, path);
+            if (voice.provider === "sonicvoice") {
+              void refreshSonicBalance();
+            }
           } finally {
             if (previewJob.current === jobId) previewJob.current = undefined;
             setActiveJobId((current) =>
@@ -765,7 +1095,15 @@ export function useTtsController() {
         toast.error(errorMessage(err, t("tts.provider.previewFailed")));
       }
     },
-    [activeJobId, isProviderReady, previewVoiceKey, stopPreview, t],
+    [
+      activeJobId,
+      isProviderReady,
+      previewVoiceKey,
+      refreshSonicBalance,
+      stopPreview,
+      store.sonicModel,
+      t,
+    ],
   );
 
   const cancelJob = useCallback(async () => {
@@ -890,6 +1228,34 @@ export function useTtsController() {
 
   return {
     catalog,
+    allCatalogVoices,
+    sonicvoiceApiKey,
+    setSonicvoiceApiKey,
+    hasSonicKey,
+    sonicVoices,
+    sonicModels,
+    sonicBalance,
+    sonicLoading,
+    sonicCloning,
+    sonicError,
+    sonicSubFilter: store.sonicSubFilter,
+    setSonicSubFilter: store.setSonicSubFilter,
+    sonicModel: store.sonicModel,
+    setSonicModel: store.setSonicModel,
+    sonicLanguage: store.sonicLanguage,
+    setSonicLanguage: store.setSonicLanguage,
+    sonicPitch: store.sonicPitch,
+    setSonicPitch: store.setSonicPitch,
+    sonicStability: store.sonicStability,
+    setSonicStability: store.setSonicStability,
+    sonicSimilarity: store.sonicSimilarity,
+    setSonicSimilarity: store.setSonicSimilarity,
+    refreshSonicBalance,
+    searchSonicVoices,
+    ensureSonicVoicesLoaded,
+    refreshSonicAll,
+    cloneSonicVoice,
+    deleteSonicVoice,
     voiceProfiles: store.voiceProfiles,
     dialogueTags,
     getSpeakerConfig,

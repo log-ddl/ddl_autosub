@@ -1,7 +1,7 @@
 //! TTS & multi-speaker dialogue MCP tools (`list_tts_voices`, `generate_speech`).
 //!
 //! Exposes AutoSubs's built-in TTS engines (`capcut`, `vieneu`, `omnivoice`,
-//! `elevenlabs`, plus user-cloned voice profiles) to both the in-app AI Edit
+//! `elevenlabs`, `sonicvoice`, plus user-cloned voice profiles) to both the in-app AI Edit
 //! agent and external agents (`autosubs-app` on port `47185`).
 //!
 //! Supports single-voice narration, `[A] ... [A]` / `[ID1] ... [ID1]` wrapped
@@ -36,12 +36,16 @@ pub fn tools() -> Vec<Value> {
         "properties": {
             "provider": {
                 "type": "string",
-                "enum": ["capcut", "vieneu", "omnivoice", "elevenlabs"],
+                "enum": ["capcut", "vieneu", "omnivoice", "elevenlabs", "sonicvoice"],
                 "description": "TTS engine for this speaker (optional if voiceId or profileId identifies it)"
             },
             "voiceId": {
                 "type": "string",
-                "description": "Catalog voiceId from list_tts_voices (e.g. \"BV074_streaming\", \"Thiện Minh\")"
+                "description": "Catalog voiceId from list_tts_voices (e.g. \"BV074_streaming\", \"Thiện Minh\", \"uv_...\")"
+            },
+            "sonicModel": {
+                "type": "string",
+                "description": "Optional SonicVoice ElevenLabs model id (e.g. \"eleven_v3\", \"eleven_v4\")"
             },
             "profileId": {
                 "type": "string",
@@ -72,8 +76,9 @@ pub fn tools() -> Vec<Value> {
             "list_tts_voices",
             "List available TTS voices, local model readiness, and the user's cloned voice profiles. \
              Filter by language (e.g. \"vi\", \"en\"), provider (\"capcut\", \"vieneu\", \"omnivoice\", \
-             \"elevenlabs\", \"cloned\"), gender, or query. Note: for Vietnamese (\"vi\"), use \"capcut\", \
-             \"vieneu\", or \"omnivoice\" (\"elevenlabs\" via CapCut uses multilingual_v2 and has no Vietnamese).",
+             \"elevenlabs\", \"sonicvoice\", \"cloned\"), gender, or query. Note: for Vietnamese (\"vi\"), \
+             use \"capcut\", \"vieneu\", \"omnivoice\", or \"sonicvoice\" (\"elevenlabs\" via CapCut uses \
+             multilingual_v2 and has no Vietnamese).",
             json!({
                 "type": "object",
                 "properties": {
@@ -83,7 +88,7 @@ pub fn tools() -> Vec<Value> {
                     },
                     "provider": {
                         "type": "string",
-                        "enum": ["capcut", "vieneu", "omnivoice", "elevenlabs", "cloned"],
+                        "enum": ["capcut", "vieneu", "omnivoice", "elevenlabs", "sonicvoice", "cloned"],
                         "description": "Filter to one TTS engine or \"cloned\" for user-cloned voices"
                     },
                     "gender": {
@@ -138,8 +143,12 @@ pub fn tools() -> Vec<Value> {
                     },
                     "provider": {
                         "type": "string",
-                        "enum": ["capcut", "vieneu", "omnivoice", "elevenlabs"],
+                        "enum": ["capcut", "vieneu", "omnivoice", "elevenlabs", "sonicvoice"],
                         "description": "Default/narrator TTS engine (auto-inferred when voiceId or profileId uniquely identifies it)"
+                    },
+                    "sonicModel": {
+                        "type": "string",
+                        "description": "Optional SonicVoice ElevenLabs model id (e.g. \"eleven_v3\", \"eleven_v4\")"
                     },
                     "voiceId": {
                         "type": "string",
@@ -201,7 +210,7 @@ pub async fn call(
     args: &Value,
 ) -> Option<Result<String, String>> {
     match name {
-        "list_tts_voices" => Some(list_voices(app, args)),
+        "list_tts_voices" => Some(list_voices(app, args).await),
         "generate_speech" => Some(generate_speech(app, workspace, args).await),
         _ => None,
     }
@@ -251,7 +260,7 @@ fn matches_gender_filter(entry: &Value, gender_filter: &str) -> bool {
     }
 }
 
-fn list_voices(app: &AppHandle, args: &Value) -> Result<String, String> {
+async fn list_voices(app: &AppHandle, args: &Value) -> Result<String, String> {
     let language = args
         .get("language")
         .and_then(|v| v.as_str())
@@ -282,6 +291,7 @@ fn list_voices(app: &AppHandle, args: &Value) -> Result<String, String> {
 
     let omni_ok = omnivoice_ready(app);
     let vieneu_ok = vieneu_ready(app);
+    let sonic_ok = tts::sonicvoice::api_key(app).is_some();
     let profiles = load_profiles(app);
 
     let mut out = String::new();
@@ -290,10 +300,39 @@ fn list_voices(app: &AppHandle, args: &Value) -> Result<String, String> {
          - capcut: ready (online, supports \"vi\" + multilingual)\n\
          - vieneu: {} (local CPU Vietnamese + voice cloning)\n\
          - omnivoice: {} (local omnilingual clone/design/auto)\n\
-         - elevenlabs: ready (online multilingual_v2; does NOT support Vietnamese \"vi\")\n",
+         - elevenlabs: ready (online multilingual_v2; does NOT support Vietnamese \"vi\")\n\
+         - sonicvoice: {} (online Minimax + ElevenLabs + voice cloning, supports \"vi\" + multilingual)\n",
         if vieneu_ok { "ready" } else { "not-installed" },
         if omni_ok { "ready" } else { "not-installed" },
+        if sonic_ok { "ready" } else { "missing-api-key" },
     ));
+
+    if provider == Some("sonicvoice") {
+        if !sonic_ok {
+            out.push_str(
+                "\nSonicVoice API key is missing. Ask the user to paste it in the TTS tab or Settings.\n",
+            );
+            return Ok(out.trim_end().to_string());
+        }
+        let sonic_query = tts::sonicvoice::SonicVoicesQuery {
+            sub_provider: None,
+            language: language.map(String::from),
+            gender: gender.clone(),
+            query: query.clone(),
+            limit: Some(limit),
+            offset: None,
+        };
+        let sonic_voices = tts::sonicvoice::fetch_voices(app, Some(sonic_query)).await?;
+        out.push_str(&format!("\nSonicVoice voices ({} matched):\n", sonic_voices.len()));
+        for v in sonic_voices.into_iter().take(limit) {
+            let g = v.gender.as_deref().unwrap_or("-");
+            out.push_str(&format!(
+                "- sonicvoice ({}) | voiceId=\"{}\" | lang={} | gender={} | {}\n",
+                v.sub_provider, v.id, v.language, g, v.name
+            ));
+        }
+        return Ok(out.trim_end().to_string());
+    }
 
     let include_cloned = matches!(
         provider,
@@ -404,6 +443,29 @@ fn list_voices(app: &AppHandle, args: &Value) -> Result<String, String> {
         ));
     }
 
+    if provider.is_none() && sonic_ok {
+        let sonic_query = tts::sonicvoice::SonicVoicesQuery {
+            sub_provider: None,
+            language: language.map(String::from),
+            gender: gender.clone(),
+            query: query.clone(),
+            limit: Some(limit.min(30)),
+            offset: None,
+        };
+        if let Ok(sonic_voices) = tts::sonicvoice::fetch_voices(app, Some(sonic_query)).await {
+            if !sonic_voices.is_empty() {
+                out.push_str(&format!("\nSonicVoice voices (showing {}):\n", sonic_voices.len().min(30)));
+                for v in sonic_voices.into_iter().take(30) {
+                    let g = v.gender.as_deref().unwrap_or("-");
+                    out.push_str(&format!(
+                        "- sonicvoice ({}) | voiceId=\"{}\" | lang={} | gender={} | {}\n",
+                        v.sub_provider, v.id, v.language, g, v.name
+                    ));
+                }
+            }
+        }
+    }
+
     Ok(out.trim_end().to_string())
 }
 
@@ -424,12 +486,19 @@ struct GenerateSpeechArgs {
     gap_sec: Option<f64>,
     file_name: Option<String>,
     output_dir: Option<String>,
+    sonic_model: Option<String>,
 }
 
 fn infer_catalog_voice(voice_id: &str, preferred_lang: Option<&str>) -> Option<(String, String)> {
     let target = voice_id.trim();
     if target.is_empty() {
         return None;
+    }
+    if target.starts_with("uv_") {
+        return Some(("sonicvoice".to_string(), "vi".to_string()));
+    }
+    if let Some(sonic) = tts::sonicvoice::cached_voice(target) {
+        return Some(("sonicvoice".to_string(), sonic.language));
     }
     let catalog = tts::providers::catalog();
     let entries = catalog.as_array()?;
@@ -607,6 +676,11 @@ async fn generate_speech(
                     }
                 }
             }
+            if spec.provider.as_deref() == Some("sonicvoice") && spec.sonic_provider.is_none() {
+                if let Some(ref vid) = spec.voice_id {
+                    spec.sonic_provider = tts::sonicvoice::cached_voice(vid).map(|v| v.sub_provider);
+                }
+            }
         }
     }
 
@@ -655,12 +729,22 @@ async fn generate_speech(
     std::fs::create_dir_all(&dest_dir)
         .map_err(|e| format!("Could not create {}: {}", dest_dir.display(), e))?;
 
+    let sonic_provider = if provider == "sonicvoice" {
+        parsed
+            .voice_id
+            .as_deref()
+            .and_then(tts::sonicvoice::cached_voice)
+            .map(|v| v.sub_provider)
+    } else {
+        None
+    };
+
     let job_id = format!("mcp-tts-{}", uuid::Uuid::new_v4().simple());
     let payload = tts::TtsGeneratePayload {
         job_id,
         text,
         mode,
-        provider: Some(provider),
+        provider: Some(provider.clone()),
         voice_id: parsed.voice_id,
         split_mode: Some(split_mode),
         language: Some(lang),
@@ -674,6 +758,15 @@ async fn generate_speech(
         speakers: parsed.speakers,
         turns: parsed.turns,
         gap_sec: parsed.gap_sec,
+        sonic_provider,
+        sonic_model: if provider == "sonicvoice" {
+            parsed.sonic_model
+        } else {
+            None
+        },
+        sonic_pitch: None,
+        sonic_stability: None,
+        sonic_similarity: None,
     };
 
     let result = tts::run_tts_generate(app, payload).await?;
@@ -774,6 +867,10 @@ mod tests {
         assert_eq!(
             infer_catalog_voice("Thiện Minh", None),
             Some(("vieneu".to_string(), "vi".to_string()))
+        );
+        assert_eq!(
+            infer_catalog_voice("uv_10_abc", None),
+            Some(("sonicvoice".to_string(), "vi".to_string()))
         );
     }
 
