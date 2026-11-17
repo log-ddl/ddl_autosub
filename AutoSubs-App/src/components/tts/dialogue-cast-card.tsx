@@ -10,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { parseDialoguePreviewTurns } from "./dialogue-tags";
+import { formatDialogueTag, parseDialoguePreviewTurns } from "./dialogue-tags";
 import { TTS_PROVIDERS } from "./provider-shared";
 import type {
   CatalogVoice,
@@ -208,7 +208,7 @@ function SpeakerRow({
     <div className="space-y-2 rounded-lg border border-border/60 bg-background/70 p-2.5">
       <div className="flex flex-wrap items-center gap-2">
         <span className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-1 font-mono text-xs font-semibold text-primary">
-          [{tag}]
+          {formatDialogueTag(tag)}
           <span className="font-sans text-[10px] font-normal text-muted-foreground">
             ×{turnCount}
           </span>
@@ -501,7 +501,9 @@ function SpeakerRow({
         <p className="text-[11px] text-amber-600 dark:text-amber-400">
           {config.provider === "sonicvoice"
             ? t("tts.sonic.missingKey")
-            : t("tts.dialogue.speakerModelNotReady", { tag })}
+            : t("tts.dialogue.speakerModelNotReady", {
+                tag: formatDialogueTag(tag),
+              })}
         </p>
       )}
     </div>

@@ -1,4 +1,4 @@
-//! Multi-speaker dialogue parsing (`[A] ... [A]`, `[ID1] ... [ID1]`), cloned voice
+//! Multi-speaker dialogue parsing (`{A} ... {A}`, `{ID1} ... {ID1}`), cloned voice
 //! profile persistence, mixed-provider synthesis, and `.srt` + turn timing generation.
 
 use std::collections::HashMap;
@@ -159,18 +159,18 @@ fn is_valid_speaker_tag_name(tag: &str) -> bool {
     !tag.is_empty()
         && tag.chars().count() <= 32
         && tag.chars().any(char::is_alphabetic)
-        && !tag.contains([':', '[', ']', '=', '/', '\\'])
+        && !tag.contains([':', '{', '}', '[', ']', '=', '/', '\\'])
         && !is_reserved_emotion_tag(tag)
 }
 
 fn scan_tag_tokens(normalized: &str) -> Vec<TagToken> {
     let mut tokens = Vec::new();
     let mut idx = 0usize;
-    while let Some(rel_open) = normalized[idx..].find('[') {
+    while let Some(rel_open) = normalized[idx..].find('{') {
         let open = idx + rel_open;
         let after = &normalized[open + 1..];
-        let next_close = after.find(']');
-        let next_open = after.find('[');
+        let next_close = after.find('}');
+        let next_open = after.find('{');
         let next_nl = after.find('\n');
 
         let Some(rel_close) = next_close else {
@@ -202,7 +202,7 @@ fn scan_tag_tokens(normalized: &str) -> Vec<TagToken> {
 }
 
 /// Extract distinct non-narrator speaker tags wrapped on both ends
-/// (`[A] ... [A]` or `[A] ... [/A]`) in first-seen order.
+/// (`{A} ... {A}` or `{A} ... {/A}`) in first-seen order.
 pub fn extract_dialogue_tags(text: &str) -> Vec<String> {
     let normalized = text.replace("\r\n", "\n");
     let tokens = scan_tag_tokens(&normalized);
@@ -259,8 +259,8 @@ fn push_non_empty_turn(
     }
 }
 
-/// Parse script text with 2-ended speaker tags (`[A] ... [A]` or `[A] ... [/A]`):
-/// - Text inside `[TAG] ... [TAG]` (inline or multi-line) uses `speakers[TAG]`.
+/// Parse script text with 2-ended speaker tags (`{A} ... {A}` or `{A} ... {/A}`):
+/// - Text inside `{TAG} ... {TAG}` (inline or multi-line) uses `speakers[TAG]`.
 /// - All text outside paired speaker tags automatically uses `"narrator"`.
 pub fn parse_dialogue_script(
     text: &str,
@@ -299,8 +299,8 @@ pub fn parse_dialogue_script(
         if tok.is_slash_close {
             if known_lowers.contains(&tok.lower) || is_narrator_tag(&tok.tag) {
                 return Err(format!(
-                    "Unexpected closing tag [/{}]. Wrap spoken text on both ends: [{}] ... [{}].",
-                    tok.tag, tok.tag, tok.tag
+                    "Unexpected closing tag {{/{0}}}. Wrap spoken text on both ends: {{{0}}} ... {{{0}}}.",
+                    tok.tag
                 ));
             }
             i += 1;
@@ -322,8 +322,8 @@ pub fn parse_dialogue_script(
                 key.to_string()
             } else {
                 return Err(format!(
-                    "Speaker tag [{}] has no assigned voice. Assign a voice for \"{}\" in speakers.",
-                    tok.tag, tok.tag
+                    "Speaker tag {{{0}}} has no assigned voice. Assign a voice for \"{0}\" in speakers.",
+                    tok.tag
                 ));
             };
 
@@ -339,8 +339,8 @@ pub fn parse_dialogue_script(
         } else {
             if !is_narrator_tag(&tok.tag) && known_lowers.contains(&tok.lower) {
                 return Err(format!(
-                    "Unclosed speaker tag [{}]. Wrap spoken text on both ends: [{}] ... [{}].",
-                    tok.tag, tok.tag, tok.tag
+                    "Unclosed speaker tag {{{0}}}. Wrap spoken text on both ends: {{{0}}} ... {{{0}}}.",
+                    tok.tag
                 ));
             }
             i += 1;
@@ -417,8 +417,8 @@ fn build_turn_payload(
 
     let Some(key) = canonical_speaker_key(speaker, speakers) else {
         return Err(format!(
-            "Speaker tag [{}] has no assigned voice. Assign a voice for \"{}\" in speakers.",
-            speaker, speaker
+            "Speaker tag {{{0}}} has no assigned voice. Assign a voice for \"{0}\" in speakers.",
+            speaker
         ));
     };
     let spec = &speakers[key];
@@ -522,7 +522,7 @@ fn build_turn_payload(
                 .is_some_and(|s| !s.trim().is_empty()))
     {
         return Err(format!(
-            "Speaker [{}] ({}) requires a voiceId{}",
+            "Speaker {{{}}} ({}) requires a voiceId{}",
             key,
             provider,
             if provider == "vieneu" {
@@ -687,7 +687,7 @@ fn expand_turns(
     segments
 }
 
-/// Synthesize a multi-speaker dialogue (either explicit `turns` or `[ID1]`-tagged `text`),
+/// Synthesize a multi-speaker dialogue (either explicit `turns` or `{ID1}`-tagged `text`),
 /// stitch all segments in order with FFmpeg, and write `<job_id>.wav` + `<job_id>.srt`.
 pub async fn generate_dialogue(app: &AppHandle, mut payload: TtsGeneratePayload) -> TtsGenerateResult {
     let profiles = load_profiles(app);
@@ -793,7 +793,7 @@ pub async fn generate_dialogue(app: &AppHandle, mut payload: TtsGeneratePayload)
             let err_msg = result
                 .error
                 .unwrap_or_else(|| format!("Failed to synthesize turn {}", index + 1));
-            return TtsGenerateResult::err(format!("[{}] {}", speaker, err_msg));
+            return TtsGenerateResult::err(format!("{{{}}} {}", speaker, err_msg));
         }
 
         let part_path = PathBuf::from(result.output_path.unwrap());
@@ -906,19 +906,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn extracts_paired_speaker_tags_ignoring_single_brackets_and_emotions() {
+    fn extracts_paired_speaker_tags_ignoring_brackets_single_braces_and_emotions() {
         let script = "\
-Đoàn người vừa đi qua sườn núi [sương mù dày đặc] theo báo cáo [1] và [1].
+Đoàn người vừa đi qua sườn núi [KOECK] Giữ nguyên đoạn ngoặc vuông [KOECK] {sương mù dày đặc} theo báo cáo {1} và {1}.
 
-[A] Khoan đi tiếp đã! [A] [laugh] Hahaha!
-[B] Cậu lúc nào cũng lo xa. [/B]
-[a] Nghe kìa, có tiếng động! [a]
-[narrator] Gió bỗng thổi mạnh. [narrator]";
+{A} Khoan đi tiếp đã! {A} [laugh] Hahaha!
+{B} Cậu lúc nào cũng lo xa. {/B}
+{a} Nghe kìa, có tiếng động! {a}
+{narrator} Gió bỗng thổi mạnh. {narrator}";
         assert_eq!(extract_dialogue_tags(script), vec!["A", "B"]);
     }
 
     #[test]
-    fn parses_inline_and_multiline_paired_tags_with_narrator_outside() {
+    fn parses_inline_and_multiline_paired_tags_preserving_brackets_and_narrator_outside() {
         let mut speakers = HashMap::new();
         speakers.insert(
             "A".to_string(),
@@ -938,11 +938,11 @@ mod tests {
         );
 
         let script = "\
-Đoàn người vừa đi qua sườn núi. Nam khẽ gọi: [A] Khoan đi tiếp đã! [A] Lan bật cười đáp: [b] Cậu lúc nào cũng lo xa. [/b]
-[A]
+Đoàn người vừa đi qua sườn núi. [KOECK] Nam khẽ gọi: [KOECK] {A} Khoan đi tiếp đã! [laugh] {A} Lan bật cười đáp: {b} Cậu lúc nào cũng lo xa. {/b}
+{A}
 Nghe kìa!
 Có tiếng bước chân thật đấy!
-[A]
+{A}
 Chưa dứt lời, có tiếng động lạ.";
 
         let turns = parse_dialogue_script(script, &speakers, 0.25).unwrap();
@@ -953,8 +953,11 @@ Chưa dứt lời, có tiếng động lạ.";
         assert_eq!(
             pairs,
             vec![
-                ("narrator", "Đoàn người vừa đi qua sườn núi. Nam khẽ gọi:"),
-                ("A", "Khoan đi tiếp đã!"),
+                (
+                    "narrator",
+                    "Đoàn người vừa đi qua sườn núi. [KOECK] Nam khẽ gọi: [KOECK]"
+                ),
+                ("A", "Khoan đi tiếp đã! [laugh]"),
                 ("narrator", "Lan bật cười đáp:"),
                 ("B", "Cậu lúc nào cũng lo xa."),
                 ("A", "Nghe kìa!\nCó tiếng bước chân thật đấy!"),
@@ -966,8 +969,8 @@ Chưa dứt lời, có tiếng động lạ.";
     #[test]
     fn rejects_unassigned_or_unclosed_speaker_tag() {
         let mut speakers = HashMap::new();
-        let err = parse_dialogue_script("[ID1] Xin chào [ID1]", &speakers, 0.25).unwrap_err();
-        assert!(err.contains("[ID1]"));
+        let err = parse_dialogue_script("{ID1} Xin chào {ID1}", &speakers, 0.25).unwrap_err();
+        assert!(err.contains("{ID1}"));
 
         speakers.insert(
             "A".to_string(),
@@ -977,10 +980,16 @@ Chưa dứt lời, có tiếng động lạ.";
                 ..Default::default()
             },
         );
-        let unclosed =
-            parse_dialogue_script("[A] Câu 1 [A] rồi [A] quên đóng thẻ", &speakers, 0.25)
+        let ignored_brackets =
+            parse_dialogue_script("{A} Câu 1 {A} rồi [KOECK] ngoặc vuông", &speakers, 0.25)
+                .unwrap();
+        assert_eq!(ignored_brackets.len(), 2);
+        assert_eq!(ignored_brackets[1].text, "rồi [KOECK] ngoặc vuông");
+
+        let unclosed_valid =
+            parse_dialogue_script("{A} Câu 1 {A} rồi {A} quên đóng thẻ", &speakers, 0.25)
                 .unwrap_err();
-        assert!(unclosed.contains("Unclosed speaker tag [A]"));
+        assert!(unclosed_valid.contains("Unclosed speaker tag {A}"));
     }
 
     #[test]

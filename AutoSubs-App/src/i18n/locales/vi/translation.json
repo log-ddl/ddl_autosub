@@ -923,7 +923,7 @@
       "title": "Nội dung cần đọc",
       "savedWithoutModel": "Tự lưu nội dung kể cả khi chưa cài model.",
       "characters": "{{count}} ký tự",
-      "placeholder": "Nhập kịch bản... Bọc lời thoại bằng [A] ... [A]."
+      "placeholder": "Nhập kịch bản... Bọc lời thoại bằng {A} ... {A}."
     },
     "action": {
       "cancel": "Hủy",
@@ -1242,12 +1242,12 @@
       "roleCount": "{{count}} vai",
       "narrator": "Dẫn chuyện",
       "previewTitle": "Lượt thoại",
-      "insertTag": "Bọc hoặc chèn [{{tag}}] ... [{{tag}}]",
-      "chooseSpeakerVoice": "Hãy chọn giọng đọc cho vai [{{tag}}]",
-      "speakerModelNotReady": "Cài model cho vai [{{tag}}] hoặc đổi nguồn giọng",
-      "description": "Chữ ngoài [A] ... [A] tự dùng giọng dẫn chuyện.",
-      "unclosedHint": "Thẻ [{{tag}}] chưa đóng. Hãy bọc [{{tag}}] ... [{{tag}}]",
-      "closeTagButton": "Đóng [{{tag}}]"
+      "insertTag": "Bọc hoặc chèn {{tag}} ... {{tag}}",
+      "chooseSpeakerVoice": "Hãy chọn giọng đọc cho vai {{tag}}",
+      "speakerModelNotReady": "Cài model cho vai {{tag}} hoặc đổi nguồn giọng",
+      "description": "Chữ ngoài {A} ... {A} tự dùng giọng dẫn chuyện.",
+      "unclosedHint": "Thẻ {{tag}} chưa đóng. Hãy bọc {{tag}} ... {{tag}}",
+      "closeTagButton": "Đóng {{tag}}"
     },
     "sonic": {
       "subtitle": "Minimax, ElevenLabs và nhân bản giọng",

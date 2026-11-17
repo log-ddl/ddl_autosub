@@ -66,7 +66,7 @@ It exposes:
 
 ## Multi-speaker Dialogue & MCP
 
-- Scripts containing paired speaker tags wrapped on both ends (`[A] ... [A]`, `[ID1] ... [ID1]`, or `[A] ... [/A]`) switch to multi-speaker dialogue synthesis (`tts::dialogue`). All text outside paired speaker tags uses the default Narrator voice, whether inline in the same paragraph or across multiple lines. Emotion/stage tags (`[laugh]`, `[sigh]`, `[pause]`, ...) and single brackets (`[1]`, `[note]`) are ignored.
+- Scripts containing paired speaker tags wrapped on both ends (`{A} ... {A}`, `{ID1} ... {ID1}`, or `{A} ... {/A}`) switch to multi-speaker dialogue synthesis (`tts::dialogue`). All text outside paired speaker tags uses the default Narrator voice, whether inline in the same paragraph or across multiple lines. Square brackets (`[laugh]`, `[sigh]`, `[1]`, `[KOECK]`) and single braces (`{1}`, `{note}`) are ignored as speakers and preserved in spoken text.
 - Speakers can mix providers freely (`capcut`, `vieneu`, `omnivoice`, `elevenlabs`, `sonicvoice`, or saved cloned voice profiles synced to `<app_data>/tts/profiles.json`). Online turns run with up to 4 concurrent requests while local models serialize safely.
 - Every split or dialogue run writes a matching `.srt` file alongside the merged audio and returns per-turn `turns` timings (`startSec`, `endSec`, `speaker`, `text`).
 - The app-wide MCP server exposes `list_tts_voices` and `generate_speech` (`src-tauri/src/ai_edit/mcp/tools/tts.rs`) for both in-app AI Edit and external agents (`autosubs-app` on port `47185`), working both with an open Premiere project (saving into `<workspace>/media/audio/voice/` with short media IDs) and standalone (saving into `<studio_home>/voice/`).

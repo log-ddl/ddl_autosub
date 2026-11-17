@@ -568,7 +568,7 @@ fn instructions(session: &Session) -> String {
              section build_storyboard places (the editor trims; files are never cut). \
              preview_motion shows a Remotion project from motion-graphics/ as a contact sheet of \
              frames; render_motion renders it into exports/ and waits for the file. list_tts_voices \
-             and generate_speech create narration or multi-speaker dialogue ([ID1], [ID2]) in \
+             and generate_speech create narration or multi-speaker dialogue ({ID1}, {ID2}) in \
              media/audio/voice/ with an .srt and turn timings. list_media lists a folder (a sound effect pack) with ids and lengths, and images with their size and, for cut-outs, where the figure and its feet are. Every \
              file these tools return has a short id (m12); pass it as path instead of the full path.",
         );

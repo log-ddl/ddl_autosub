@@ -6,6 +6,7 @@ import { useSettingsStore } from "@/stores/settings-store";
 import {
   extractDialogueTags,
   findUnclosedDialogueTag,
+  formatDialogueTag,
   parseDialoguePreviewTurns,
 } from "./dialogue-tags";
 import { voiceKey } from "./voice-catalog";
@@ -694,7 +695,9 @@ export function useTtsController() {
         const cfg = getSpeakerConfig(tag, i);
         if (!isProviderReady(cfg.provider)) {
           return {
-            error: t("tts.dialogue.speakerModelNotReady", { tag }),
+            error: t("tts.dialogue.speakerModelNotReady", {
+              tag: formatDialogueTag(tag),
+            }),
           };
         }
 
@@ -705,7 +708,11 @@ export function useTtsController() {
               (p) => p.id === cfg.profileId && p.referenceText.trim(),
             );
             if (!prof) {
-              return { error: t("tts.dialogue.chooseSpeakerVoice", { tag }) };
+              return {
+                error: t("tts.dialogue.chooseSpeakerVoice", {
+                  tag: formatDialogueTag(tag),
+                }),
+              };
             }
             speakers[tag] = {
               provider: "omnivoice",
@@ -730,7 +737,11 @@ export function useTtsController() {
         if (cfg.provider === "vieneu" && cfg.profileId) {
           const prof = store.voiceProfiles.find((p) => p.id === cfg.profileId);
           if (!prof) {
-            return { error: t("tts.dialogue.chooseSpeakerVoice", { tag }) };
+            return {
+              error: t("tts.dialogue.chooseSpeakerVoice", {
+                tag: formatDialogueTag(tag),
+              }),
+            };
           }
           speakers[tag] = {
             provider: "vieneu",
@@ -746,7 +757,11 @@ export function useTtsController() {
           (v) => v.provider === cfg.provider && voiceKey(v) === cfg.voiceKey,
         );
         if (!matchedVoice) {
-          return { error: t("tts.dialogue.chooseSpeakerVoice", { tag }) };
+          return {
+            error: t("tts.dialogue.chooseSpeakerVoice", {
+              tag: formatDialogueTag(tag),
+            }),
+          };
         }
         const subProv =
           cfg.provider === "sonicvoice"
@@ -797,7 +812,7 @@ export function useTtsController() {
 
   const voiceLabel =
     dialogueTags.length > 0
-      ? `${baseVoiceLabel} + [${dialogueTags.join(", ")}]`
+      ? `${baseVoiceLabel} + {${dialogueTags.join(", ")}}`
       : baseVoiceLabel;
 
   const validateGeneration = useCallback(
@@ -806,7 +821,9 @@ export function useTtsController() {
       const tags = extractDialogueTags(textToCheck);
       const unclosed = findUnclosedDialogueTag(textToCheck, tags);
       if (unclosed) {
-        return t("tts.dialogue.unclosedHint", { tag: unclosed.tag });
+        return t("tts.dialogue.unclosedHint", {
+          tag: formatDialogueTag(unclosed.tag),
+        });
       }
 
       const previewTurns =

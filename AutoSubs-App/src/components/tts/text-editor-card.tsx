@@ -6,6 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   extractDialogueTags,
   findUnclosedDialogueTag,
+  formatDialogueTag,
   parseDialoguePreviewTurns,
 } from "./dialogue-tags";
 import type { TtsSplitMode } from "./types";
@@ -54,7 +55,7 @@ export function TextEditorCard({
     const normalized = value.replace(/\r\n/g, "\n");
     const before = normalized.slice(0, unclosedTag.lineEndOffset).trimEnd();
     const after = normalized.slice(unclosedTag.lineEndOffset);
-    const nextText = `${before} [${unclosedTag.tag}]${after}`;
+    const nextText = `${before} {${unclosedTag.tag}}${after}`;
     onChange(nextText);
   };
 
@@ -93,7 +94,9 @@ export function TextEditorCard({
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
           <span className="flex items-center gap-1.5">
             <AlertCircle className="size-3.5 shrink-0" />
-            {t("tts.dialogue.unclosedHint", { tag: unclosedTag.tag })}
+            {t("tts.dialogue.unclosedHint", {
+              tag: formatDialogueTag(unclosedTag.tag),
+            })}
           </span>
           <Button
             type="button"
@@ -102,7 +105,9 @@ export function TextEditorCard({
             className="h-6 px-2 font-mono text-[11px]"
             onClick={handleAutoCloseTag}
           >
-            {t("tts.dialogue.closeTagButton", { tag: unclosedTag.tag })}
+            {t("tts.dialogue.closeTagButton", {
+              tag: formatDialogueTag(unclosedTag.tag),
+            })}
           </Button>
         </div>
       )}
@@ -134,7 +139,7 @@ export function TextEditorCard({
                 >
                   {turn.isNarrator
                     ? t("tts.dialogue.narrator")
-                    : `[${turn.speaker}]`}
+                    : formatDialogueTag(turn.speaker)}
                 </span>
                 <span className="min-w-0 truncate text-foreground">
                   {turn.text}

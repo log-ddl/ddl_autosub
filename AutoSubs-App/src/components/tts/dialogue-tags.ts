@@ -34,11 +34,15 @@ const NARRATOR_ALIASES = new Set([
 ]);
 
 const LETTER_RE = /\p{L}/u;
-const FORBIDDEN_TAG_CHARS_RE = /[:[\]=/\\]/;
+const FORBIDDEN_TAG_CHARS_RE = /[:{}[\]=/\\]/;
 
 export function isNarratorTag(tag: string): boolean {
   const lower = tag.trim().toLowerCase();
   return !lower || NARRATOR_ALIASES.has(lower);
+}
+
+export function formatDialogueTag(tag: string): string {
+  return `{${tag}}`;
 }
 
 interface TagToken {
@@ -65,13 +69,13 @@ function scanTagTokens(normalized: string): TagToken[] {
   let idx = 0;
 
   while (idx < normalized.length) {
-    const open = normalized.indexOf("[", idx);
+    const open = normalized.indexOf("{", idx);
     if (open === -1) break;
 
-    const close = normalized.indexOf("]", open + 1);
+    const close = normalized.indexOf("}", open + 1);
     if (close === -1) break;
 
-    const nextOpen = normalized.indexOf("[", open + 1);
+    const nextOpen = normalized.indexOf("{", open + 1);
     const nextNl = normalized.indexOf("\n", open + 1);
     if (
       (nextOpen !== -1 && nextOpen < close) ||
@@ -107,7 +111,7 @@ function scanTagTokens(normalized: string): TagToken[] {
 
 /**
  * Extract distinct non-narrator speaker tags wrapped on both ends
- * (`[A] ... [A]` or `[A] ... [/A]`) in first-seen order.
+ * (`{A} ... {A}` or `{A} ... {/A}`) in first-seen order.
  * Mirrors `tts::dialogue::extract_dialogue_tags` on the Rust backend 1:1.
  */
 export function extractDialogueTags(text: string): string[] {
@@ -211,8 +215,8 @@ export interface UnclosedDialogueTag {
 }
 
 /**
- * Detect an unclosed `[TAG]` when `TAG` is already used as a speaker or placed at the
- * start of a line (e.g. user typed `[A] Xin chào` and forgot closing `[A]`).
+ * Detect an unclosed `{TAG}` when `TAG` is already used as a speaker or placed at the
+ * start of a line (e.g. user typed `{A} Xin chào` and forgot closing `{A}`).
  */
 export function findUnclosedDialogueTag(
   text: string,
@@ -258,7 +262,7 @@ export function findUnclosedDialogueTag(
 }
 
 /**
- * Wrap the current selection as `[TAG] selected [TAG]`, or insert `[TAG]  [TAG]`
+ * Wrap the current selection as `{TAG} selected {TAG}`, or insert `{TAG}  {TAG}`
  * with the cursor positioned right in the middle ready to type.
  */
 export function insertDialogueTagAtCursor(
@@ -286,7 +290,7 @@ export function insertDialogueTagAtCursor(
 
   if (selected.length > 0) {
     const trimmedSel = selected.trim();
-    const wrapped = `[${tag}] ${trimmedSel} [${tag}]`;
+    const wrapped = `{${tag}} ${trimmedSel} {${tag}}`;
     return {
       text: `${before}${wrapped}${after}`,
       cursor: before.length + wrapped.length,
@@ -297,8 +301,8 @@ export function insertDialogueTagAtCursor(
     before.length > 0 && !/\s$/.test(before);
   const needTrailingSpace =
     after.length > 0 && !/^\s/.test(after);
-  const openPart = `${needLeadingSpace ? " " : ""}[${tag}] `;
-  const closePart = ` [${tag}]${needTrailingSpace ? " " : ""}`;
+  const openPart = `${needLeadingSpace ? " " : ""}{${tag}} `;
+  const closePart = ` {${tag}}${needTrailingSpace ? " " : ""}`;
   return {
     text: `${before}${openPart}${closePart}${after}`,
     cursor: before.length + openPart.length,

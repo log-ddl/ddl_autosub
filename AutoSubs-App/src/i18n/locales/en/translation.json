@@ -923,7 +923,7 @@
       "title": "Text to speech",
       "savedWithoutModel": "Saved automatically, even without the model.",
       "characters": "{{count}} characters",
-      "placeholder": "Type script... Wrap dialogue in [A] ... [A]."
+      "placeholder": "Type script... Wrap dialogue in {A} ... {A}."
     },
     "action": {
       "cancel": "Cancel",
@@ -1242,12 +1242,12 @@
       "roleCount": "{{count}} roles",
       "narrator": "Narrator",
       "previewTitle": "Dialogue turns",
-      "insertTag": "Wrap or insert [{{tag}}] ... [{{tag}}]",
-      "chooseSpeakerVoice": "Choose a voice for [{{tag}}]",
-      "speakerModelNotReady": "Install model for [{{tag}}] or switch its engine",
-      "description": "Text outside [A] ... [A] uses the narrator voice.",
-      "unclosedHint": "Unclosed [{{tag}}]. Wrap both ends: [{{tag}}] ... [{{tag}}]",
-      "closeTagButton": "Close [{{tag}}]"
+      "insertTag": "Wrap or insert {{tag}} ... {{tag}}",
+      "chooseSpeakerVoice": "Choose a voice for {{tag}}",
+      "speakerModelNotReady": "Install model for {{tag}} or switch its engine",
+      "description": "Text outside {A} ... {A} uses the narrator voice.",
+      "unclosedHint": "Unclosed {{tag}}. Wrap both ends: {{tag}} ... {{tag}}",
+      "closeTagButton": "Close {{tag}}"
     },
     "sonic": {
       "subtitle": "Minimax, ElevenLabs, and voice cloning",

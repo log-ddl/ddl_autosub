@@ -4,7 +4,7 @@
 //! `elevenlabs`, `sonicvoice`, plus user-cloned voice profiles) to both the in-app AI Edit
 //! agent and external agents (`autosubs-app` on port `47185`).
 //!
-//! Supports single-voice narration, `[A] ... [A]` / `[ID1] ... [ID1]` wrapped
+//! Supports single-voice narration, `{A} ... {A}` / `{ID1} ... {ID1}` wrapped
 //! multi-speaker scripts (where all text outside paired tags uses the default
 //! narrator voice), and structured `turns` arrays. Saves `<name>.wav` (or `.mp3`)
 //! + `<name>.srt` into `<workspace>/media/audio/voice/` (with short media IDs `m12`
@@ -113,14 +113,14 @@ pub fn tools() -> Vec<Value> {
              Saves into media/audio/voice/ (or Video Studio voice/ when no Premiere project is open) and returns \
              short media ids (m12) for both the audio and .srt file plus exact per-turn timestamps.\n\
              Multi-speaker syntax: set the narrator's voice with provider/voiceId (or profileId), wrap each \
-             character's spoken text on both ends with `[A] ... [A]` or `[ID1] ... [ID1]` (everything outside \
+             character's spoken text on both ends with `{A} ... {A}` or `{ID1} ... {ID1}` (everything outside \
              paired tags uses the narrator voice), and map each tag in `speakers` (speakers can mix providers).",
             json!({
                 "type": "object",
                 "properties": {
                     "text": {
                         "type": "string",
-                        "description": "Script text. Wrap character lines on both ends like `[A] Hello! [A]` or `[ID1] Hello! [ID1]`; all text outside paired tags uses the narrator voice."
+                        "description": "Script text. Wrap character lines on both ends like `{A} Hello! {A}` or `{ID1} Hello! {ID1}`; all text outside paired tags uses the narrator voice."
                     },
                     "turns": {
                         "type": "array",
@@ -841,7 +841,7 @@ async fn generate_speech(
         summary.push_str(&format!("turns ({}):\n", turns.len()));
         for (i, t) in turns.iter().enumerate() {
             summary.push_str(&format!(
-                "  {}. {:.2}-{:.2}s [{}] {}\n",
+                "  {}. {:.2}-{:.2}s {{{}}} {}\n",
                 i + 1,
                 t.start_sec,
                 t.end_sec,
